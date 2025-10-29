@@ -94,14 +94,12 @@ export const AdminPasswordConfig = ({ establishmentId, currentSettings, onSave }
       return;
     }
 
-    // If changing password, verify current password via edge function
+    // SECURITY: Verify current password server-side (no hash exposure)
     if (!isCreating && currentPassword) {
       try {
-        const { data: verifyData, error: verifyError } = await supabase.functions.invoke('hash-admin-password', {
+        const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-admin-password', {
           body: {
-            action: 'verify',
             password: currentPassword,
-            currentHash: currentSettings!.admin_password_hash,
           },
         });
 

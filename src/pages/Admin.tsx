@@ -35,6 +35,12 @@ import {
   LogOut,
   Calendar
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface User {
   id: string;
@@ -290,10 +296,17 @@ export default function Admin() {
           <Users className="h-8 w-8" />
           <h1 className="text-3xl font-bold">Painel Administrativo</h1>
         </div>
-        <Button variant="outline" onClick={handleLogout}>
-          <LogOut className="h-4 w-4 mr-2" />
-          Sair
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Sair
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Fazer logout do painel admin</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Stats Cards */}
@@ -352,12 +365,19 @@ export default function Admin() {
           <div className="flex items-center justify-between">
             <CardTitle>Gerenciar Usuários</CardTitle>
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Criar Usuário
-                </Button>
-              </DialogTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Criar Usuário
+                    </Button>
+                  </DialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Criar novo usuário no sistema</p>
+                </TooltipContent>
+              </Tooltip>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Criar Novo Usuário</DialogTitle>
@@ -436,52 +456,87 @@ export default function Admin() {
                   <TableCell>
                     <div className="flex gap-2">
                       {user.status !== 'active' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatusChange(user.id, 'active')}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStatusChange(user.id, 'active')}
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Ativar usuário</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                       {user.status !== 'blocked' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatusChange(user.id, 'blocked')}
-                        >
-                          <Ban className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStatusChange(user.id, 'blocked')}
+                            >
+                              <Ban className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Bloquear usuário</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                       {user.status !== 'cancelled' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatusChange(user.id, 'cancelled')}
-                        >
-                          <XCircle className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStatusChange(user.id, 'cancelled')}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Cancelar usuário</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedUser(user);
-                          setNotificationDialogOpen(true);
-                        }}
-                      >
-                        <Bell className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedUser(user);
-                          setTrialDialogOpen(true);
-                        }}
-                      >
-                        <Calendar className="h-4 w-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setNotificationDialogOpen(true);
+                            }}
+                          >
+                            <Bell className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Enviar notificação</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setTrialDialogOpen(true);
+                            }}
+                          >
+                            <Calendar className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Conceder dias de teste</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </TableCell>
                 </TableRow>

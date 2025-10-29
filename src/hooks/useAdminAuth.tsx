@@ -1,6 +1,5 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import bcrypt from 'bcryptjs';
 
 interface AdminAuthContextType {
   isAdminAuthenticated: boolean;
@@ -63,16 +62,23 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
 
       setEstablishmentId(profile.establishment_id);
 
+      // SECURITY: Do NOT load password hash to client
+      // Only load settings needed for UI configuration
       const { data: establishment } = await supabase
         .from('establishments')
-        .select('admin_password_hash, settings')
+        .select('settings')
         .eq('id', profile.establishment_id)
         .single();
+
+      // SECURITY: Use RPC to check if password exists without exposing the hash
+      const { data: hasPassword } = await supabase
+        .rpc('check_admin_password_exists', { establishment_uuid: profile.establishment_id });
 
       if (establishment) {
         const settings = establishment.settings as any;
         setEstablishmentSettings({
-          passwordHash: establishment.admin_password_hash,
+          // SECURITY: Store only presence flag, never the hash
+          hasPassword: hasPassword || false,
           protectedPages: settings?.protected_pages || [],
           protectedActions: settings?.protected_actions || {},
           sessionTimeout: settings?.admin_session_timeout || 30
@@ -84,15 +90,26 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const authenticateAdmin = async (password: string): Promise<boolean> => {
-    if (!establishmentSettings?.passwordHash) {
+    // SECURITY: All authentication happens server-side via Edge Function
+    // Password hash is NEVER loaded to client
+    if (!establishmentSettings?.hasPassword) {
       return false;
     }
 
     try {
-      const isValid = await bcrypt.compare(password, establishmentSettings.passwordHash);
+      const { data, error } = await supabase.functions.invoke('verify-admin-password', {
+        body: { password },
+      });
+
+      if (error) {
+        console.error('Error verifying admin password:', error);
+        return false;
+      }
+
+      const { valid, sessionTimeout } = data || {};
       
-      if (isValid) {
-        const timeout = (establishmentSettings.sessionTimeout || 30) * 60 * 1000;
+      if (valid) {
+        const timeout = (sessionTimeout || 30) * 60 * 1000;
         const expiry = Date.now() + timeout;
         
         setIsAdminAuthenticated(true);
@@ -122,12 +139,12 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const checkPageProtection = (pageName: string): boolean => {
-    if (!establishmentSettings?.passwordHash) return false;
+    if (!establishmentSettings?.hasPassword) return false;
     return establishmentSettings.protectedPages?.includes(pageName) || false;
   };
 
   const checkActionProtection = (pageName: string, action: string): boolean => {
-    if (!establishmentSettings?.passwordHash) return false;
+    if (!establishmentSettings?.hasPassword) return false;
     const pageActions = establishmentSettings.protectedActions?.[pageName] || [];
     return pageActions.includes(action);
   };
@@ -176,7 +193,7 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
         clearAdminSession,
         checkPageProtection,
         checkActionProtection,
-        hasPasswordConfigured: !!establishmentSettings?.passwordHash,
+        hasPasswordConfigured: !!establishmentSettings?.hasPassword,
         logAdminAction
       }}
     >

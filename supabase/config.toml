@@ -1,0 +1,7 @@
+project_id = "tndiwjznitnualtorbpk"
+
+[functions.import-whatsapp-order]
+verify_jwt = false
+
+[functions.online-order-intake]
+verify_jwt = false

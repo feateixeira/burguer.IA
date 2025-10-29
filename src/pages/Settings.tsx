@@ -1,0 +1,756 @@
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff } from "lucide-react";
+import Sidebar from "@/components/Sidebar";
+import { PrinterConfigComponent } from "@/components/PrinterConfig";
+import { PrintersManager } from "@/components/printers/PrintersManager";
+import { PrinterRouting } from "@/components/printers/PrinterRouting";
+import { PixConfig } from "@/components/PixConfig";
+
+
+interface Profile {
+  id: string;
+  full_name: string;
+  phone: string;
+  establishment_id: string;
+}
+
+interface Establishment {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  logo_url?: string;
+  settings: any;
+  daily_goal?: number;
+  weekly_goal?: number;
+  monthly_goal?: number;
+  monthly_orders_goal?: number;
+  monthly_customers_goal?: number;
+  api_key?: string;
+}
+
+const Settings = () => {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [establishment, setEstablishment] = useState<Establishment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [generatingApiKey, setGeneratingApiKey] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Load user profile
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (profileData) {
+        setProfile(profileData);
+
+        // Load establishment data
+        const { data: establishmentData } = await supabase
+          .from("establishments")
+          .select("*")
+          .eq("id", profileData.establishment_id)
+          .single();
+
+        if (establishmentData) {
+          setEstablishment(establishmentData);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Erro ao carregar configurações");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProfileSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSaving(true);
+
+    const formData = new FormData(e.currentTarget);
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          full_name: formData.get("full_name") as string,
+          phone: formData.get("phone") as string || null,
+        })
+        .eq("id", profile!.id);
+
+      if (error) throw error;
+      toast.success("Perfil atualizado com sucesso!");
+      loadData();
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast.error("Erro ao atualizar perfil");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEstablishmentSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSaving(true);
+
+    const formData = new FormData(e.currentTarget);
+
+    try {
+      // Update profile data
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: formData.get("user_full_name") as string,
+          phone: formData.get("user_phone") as string || null,
+        })
+        .eq("id", profile!.id);
+
+      if (profileError) throw profileError;
+
+      // Update establishment data
+      const settings = {
+        ...establishment?.settings,
+        enable_notifications: formData.get("enable_notifications") === "on",
+        tax_rate: parseFloat(formData.get("tax_rate") as string) || 0,
+        delivery_fee: parseFloat(formData.get("delivery_fee") as string) || 0,
+      };
+
+      const daily_goal = parseInt(formData.get("daily_goal") as string) || 0;
+      const weekly_goal = parseInt(formData.get("weekly_goal") as string) || 0;
+      const monthly_goal = parseInt(formData.get("monthly_goal") as string) || 0;
+      const monthly_orders_goal = parseInt(formData.get("monthly_orders_goal") as string) || 0;
+      const monthly_customers_goal = parseInt(formData.get("monthly_customers_goal") as string) || 0;
+
+      const establishmentName = formData.get("establishment_name") as string;
+      const establishmentEmail = formData.get("establishment_email") as string;
+      
+      if (!establishmentName || !establishmentEmail) {
+        toast.error("Nome e email do estabelecimento são obrigatórios");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("establishments")
+        .update({
+          name: establishmentName,
+          email: establishmentEmail,
+          phone: formData.get("phone") as string || null,
+          address: formData.get("address") as string || null,
+          settings,
+          daily_goal,
+          weekly_goal,
+          monthly_goal,
+          monthly_orders_goal,
+          monthly_customers_goal,
+        })
+        .eq("id", establishment!.id);
+
+      if (error) throw error;
+      
+      toast.success("Configurações atualizadas com sucesso!");
+      loadData();
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      toast.error("Erro ao atualizar configurações");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const generateApiKey = async () => {
+    if (!establishment) return;
+    
+    setGeneratingApiKey(true);
+    try {
+      const newApiKey = `bgia_${crypto.randomUUID().replace(/-/g, '')}`;
+      
+      const { error } = await supabase
+        .from("establishments")
+        .update({ api_key: newApiKey })
+        .eq("id", establishment.id);
+
+      if (error) throw error;
+      
+      toast.success("API Key gerada com sucesso!");
+      loadData();
+    } catch (error) {
+      console.error("Error generating API key:", error);
+      toast.error("Erro ao gerar API Key");
+    } finally {
+      setGeneratingApiKey(false);
+    }
+  };
+
+  const copyApiKey = () => {
+    if (establishment?.api_key) {
+      navigator.clipboard.writeText(establishment.api_key);
+      toast.success("API Key copiada!");
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      toast.error('As senhas não coincidem');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error('A nova senha deve ter no mínimo 6 caracteres');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user.email) {
+        toast.error('Usuário não autenticado');
+        return;
+      }
+
+      // Verify current password by signing in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: session.user.email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        toast.error('Senha atual incorreta');
+        setSaving(false);
+        return;
+      }
+
+      // Update password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) throw updateError;
+
+      toast.success('Senha alterada com sucesso!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      toast.error('Erro ao alterar senha: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+          <p className="mt-4 text-muted-foreground">Carregando configurações...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex">
+      <Sidebar />
+        
+        <main className="flex-1 p-4 md:p-8">
+          <div className="max-w-5xl mx-auto">
+            {/* Header */}
+            <div className="mb-8">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <SettingsIcon className="h-6 w-6 text-primary" />
+                </div>
+                <h1 className="text-3xl font-bold text-foreground">Configurações</h1>
+              </div>
+              <p className="text-muted-foreground ml-[52px]">
+                Gerencie seu perfil, estabelecimento e configurações de segurança
+              </p>
+            </div>
+
+          <Tabs defaultValue="establishment" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-5 h-auto p-1">
+              <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
+                <Building className="h-4 w-4" />
+                <span className="hidden sm:inline">Estabelecimento</span>
+              </TabsTrigger>
+              <TabsTrigger value="api" className="flex items-center gap-2 py-3">
+                <Key className="h-4 w-4" />
+                <span className="hidden sm:inline">API</span>
+              </TabsTrigger>
+              <TabsTrigger value="printers" className="flex items-center gap-2 py-3">
+                <Printer className="h-4 w-4" />
+                <span className="hidden sm:inline">Impressoras</span>
+              </TabsTrigger>
+              <TabsTrigger value="pix" className="flex items-center gap-2 py-3">
+                <CreditCard className="h-4 w-4" />
+                <span className="hidden sm:inline">PIX</span>
+              </TabsTrigger>
+              <TabsTrigger value="security" className="flex items-center gap-2 py-3">
+                <Shield className="h-4 w-4" />
+                <span className="hidden sm:inline">Segurança</span>
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Establishment Tab */}
+            <TabsContent value="establishment" className="space-y-4">
+              <Card className="border-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building className="h-5 w-5 text-primary" />
+                    Dados do Estabelecimento e Perfil
+                  </CardTitle>
+                  <CardDescription>
+                    Configure as informações principais do seu negócio e perfil pessoal
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleEstablishmentSubmit} className="space-y-8">
+                    {/* Personal Profile Section */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        Informações Pessoais
+                      </h3>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="user_full_name" className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            Nome Responsável *
+                          </Label>
+                          <Input
+                            id="user_full_name"
+                            name="user_full_name"
+                            defaultValue={profile?.full_name || ""}
+                            required
+                            className="h-11"
+                          />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="user_phone" className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                            Telefone Pessoal
+                          </Label>
+                          <Input
+                            id="user_phone"
+                            name="user_phone"
+                            defaultValue={profile?.phone || ""}
+                            placeholder="(11) 99999-9999"
+                            className="h-11"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Basic Info Section */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Building className="h-4 w-4" />
+                        Informações do Estabelecimento
+                      </h3>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="establishment_name">Nome do Estabelecimento *</Label>
+                          <Input
+                            id="establishment_name"
+                            name="establishment_name"
+                            defaultValue={establishment?.name || ""}
+                            required
+                            className="h-11"
+                          />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="establishment_email" className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                            Email *
+                          </Label>
+                          <Input
+                            id="establishment_email"
+                            name="establishment_email"
+                            type="email"
+                            defaultValue={establishment?.email || ""}
+                            required
+                            className="h-11"
+                          />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="phone" className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-muted-foreground" />
+                            Telefone
+                          </Label>
+                          <Input
+                            id="phone"
+                            name="phone"
+                            defaultValue={establishment?.phone || ""}
+                            placeholder="(11) 99999-9999"
+                            className="h-11"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="address" className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                            Endereço
+                          </Label>
+                          <Textarea
+                            id="address"
+                            name="address"
+                            defaultValue={establishment?.address || ""}
+                            rows={3}
+                            className="resize-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Financial Settings */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Target className="h-4 w-4" />
+                        Configurações Financeiras
+                      </h3>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="tax_rate">Taxa de Imposto (%)</Label>
+                          <Input
+                            id="tax_rate"
+                            name="tax_rate"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            defaultValue={establishment?.settings?.tax_rate || ""}
+                            placeholder="0.00"
+                            className="h-11"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="delivery_fee">Taxa de Entrega Padrão (R$)</Label>
+                          <Input
+                            id="delivery_fee"
+                            name="delivery_fee"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            defaultValue={establishment?.settings?.delivery_fee || ""}
+                            placeholder="0.00"
+                            className="h-11"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Goals Section */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Target className="h-4 w-4" />
+                        Metas de Vendas
+                      </h3>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="daily_goal">Meta Diária (R$)</Label>
+                          <Input
+                            id="daily_goal"
+                            name="daily_goal"
+                            type="number"
+                            step="1"
+                            min="0"
+                            defaultValue={establishment?.daily_goal || ""}
+                            placeholder="5000"
+                            className="h-11"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="weekly_goal">Meta Semanal (R$)</Label>
+                          <Input
+                            id="weekly_goal"
+                            name="weekly_goal"
+                            type="number"
+                            step="1"
+                            min="0"
+                            defaultValue={establishment?.weekly_goal || ""}
+                            placeholder="20000"
+                            className="h-11"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="monthly_goal">Meta Mensal (R$)</Label>
+                          <Input
+                            id="monthly_goal"
+                            name="monthly_goal"
+                            type="number"
+                            step="1"
+                            min="0"
+                            defaultValue={establishment?.monthly_goal || ""}
+                            placeholder="50000"
+                            className="h-11"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="grid gap-4 md:grid-cols-2 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="monthly_orders_goal">Meta Mensal de Pedidos</Label>
+                          <Input
+                            id="monthly_orders_goal"
+                            name="monthly_orders_goal"
+                            type="number"
+                            step="1"
+                            min="0"
+                            defaultValue={establishment?.monthly_orders_goal || ""}
+                            placeholder="300"
+                            className="h-11"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="monthly_customers_goal">Meta Mensal de Novos Clientes</Label>
+                          <Input
+                            id="monthly_customers_goal"
+                            name="monthly_customers_goal"
+                            type="number"
+                            step="1"
+                            min="0"
+                            defaultValue={establishment?.monthly_customers_goal || ""}
+                            placeholder="50"
+                            className="h-11"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Notifications */}
+                    <div className="flex items-center space-x-3 p-4 rounded-lg bg-muted/50 border">
+                      <input
+                        type="checkbox"
+                        id="enable_notifications"
+                        name="enable_notifications"
+                        defaultChecked={establishment?.settings?.enable_notifications || false}
+                        className="rounded border-input w-5 h-5"
+                      />
+                      <Label htmlFor="enable_notifications" className="cursor-pointer">
+                        Habilitar notificações do sistema
+                      </Label>
+                    </div>
+                    
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={saving} size="lg" className="min-w-[200px]">
+                        <Save className="mr-2 h-4 w-4" />
+                        {saving ? "Salvando..." : "Salvar Configurações"}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* API Tab */}
+            <TabsContent value="api" className="space-y-4">
+              <Card className="border-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5 text-primary" />
+                    Integração API
+                  </CardTitle>
+                  <CardDescription>
+                    Configure a API Key para integração com seu site de pedidos
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg bg-muted/50 border">
+                      <h3 className="font-semibold mb-2">Endpoint de Integração</h3>
+                      <code className="text-sm bg-background px-2 py-1 rounded">
+                        POST https://tndiwjznitnualtorbpk.supabase.co/functions/v1/online-order-intake
+                      </code>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="api_key" className="flex items-center gap-2">
+                        <Key className="h-4 w-4 text-muted-foreground" />
+                        API Key
+                      </Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            id="api_key"
+                            type={showApiKey ? "text" : "password"}
+                            value={establishment?.api_key || "Nenhuma API Key gerada"}
+                            readOnly
+                            className="h-11 pr-10 font-mono text-sm"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                          >
+                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                        {establishment?.api_key && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="lg"
+                            onClick={copyApiKey}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="lg"
+                          onClick={generateApiKey}
+                          disabled={generatingApiKey}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${generatingApiKey ? 'animate-spin' : ''}`} />
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {establishment?.api_key 
+                          ? "Use esta chave no header X-Estab-Key das requisições"
+                          : "Clique no botão para gerar uma nova API Key"}
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                      <h4 className="font-semibold text-sm mb-2 text-blue-900 dark:text-blue-100">
+                        Como usar:
+                      </h4>
+                      <ol className="text-sm space-y-1 text-blue-800 dark:text-blue-200 list-decimal list-inside">
+                        <li>Gere uma API Key clicando no botão de atualizar</li>
+                        <li>Configure seu site para enviar o header <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">X-Estab-Key</code></li>
+                        <li>Inclua também o header <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">Idempotency-Key</code> com um UUID único</li>
+                        <li>Envie os pedidos no formato JSON especificado</li>
+                      </ol>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Printers Tab */}
+            <TabsContent value="printers" className="space-y-6">
+              {establishment && (
+                <>
+                  <PrintersManager establishmentId={establishment.id} />
+                  <PrinterRouting establishmentId={establishment.id} />
+                </>
+              )}
+            </TabsContent>
+
+            {/* PIX Tab */}
+            <TabsContent value="pix">
+              {establishment && <PixConfig establishmentId={establishment.id} />}
+            </TabsContent>
+
+            {/* Security Tab */}
+            <TabsContent value="security" className="space-y-4">
+              <Card className="border-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-primary" />
+                    Alterar Senha
+                  </CardTitle>
+                  <CardDescription>
+                    Troque sua senha de acesso ao sistema
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="current_password">Senha Atual *</Label>
+                      <Input
+                        id="current_password"
+                        name="current_password"
+                        type="password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="Digite sua senha atual"
+                        required
+                        className="h-11"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="new_password">Nova Senha *</Label>
+                      <Input
+                        id="new_password"
+                        name="new_password"
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Digite a nova senha (mínimo 6 caracteres)"
+                        required
+                        minLength={6}
+                        className="h-11"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm_password">Confirmar Nova Senha *</Label>
+                      <Input
+                        id="confirm_password"
+                        name="confirm_password"
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Confirme a nova senha"
+                        required
+                        minLength={6}
+                        className="h-11"
+                      />
+                    </div>
+
+                    <Button type="submit" disabled={saving} className="w-full">
+                      <Save className="h-4 w-4 mr-2" />
+                      {saving ? 'Salvando...' : 'Alterar Senha'}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default Settings;

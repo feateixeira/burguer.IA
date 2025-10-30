@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag
+  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -13,11 +13,11 @@ import { useTeamUser } from "@/components/TeamUserProvider";
 const items = [
   { name: "Dashboard", href: "/dashboard", icon: BarChart3, show: ["master", "admin"] },
   { name: "PDV", href: "/pdv", icon: Receipt, show: ["master", "admin", "atendente"] },
-  { name: "Produtos", href: "/products", icon: Package, show: ["master", "admin", "atendente"] },
+  { name: "Pedidos", href: "/orders", icon: ShoppingBag, show: ["master", "admin", "atendente", "cozinha"] },
   { name: "Clientes", href: "/customers", icon: Users, show: ["master", "admin", "atendente"] },
-  { name: "Pedidos", href: "/orders", icon: Receipt, show: ["master", "admin", "atendente", "cozinha"] },
-  { name: "Custos", href: "/costs", icon: Calculator, show: ["master", "admin"] },
   { name: "Promoções", href: "/promotions", icon: Tag, show: ["master", "admin"] },
+  { name: "Produtos", href: "/products", icon: Package, show: ["master", "admin", "atendente"] },
+  { name: "Custos", href: "/costs", icon: Calculator, show: ["master", "admin"] },
   { name: "Fornecedores", href: "/suppliers", icon: Truck, show: ["master", "admin"] },
   { name: "Apps", href: "/apps", icon: Smartphone, show: ["master", "admin"] },
   { name: "Configurações", href: "/settings", icon: Settings, show: ["master", "admin"] },

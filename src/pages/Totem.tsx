@@ -519,8 +519,8 @@ export default function Totem() {
 
   if (showCart) {
     return (
-      <div className="min-h-screen bg-background p-8">
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="min-h-screen bg-background px-2 py-4">
+        <div className="w-full space-y-6">
           <div className="flex items-center justify-between">
             <Button variant="outline" size="lg" onClick={() => setShowCart(false)}>
               <Home className="h-5 w-5 mr-2" />
@@ -540,7 +540,7 @@ export default function Totem() {
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Digite seu nome"
-                className="text-xl p-6"
+                className="text-xl p-8 h-16 text-lg"
               />
             </div>
 
@@ -548,8 +548,8 @@ export default function Totem() {
               <Card key={item.id}>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <h3 className="text-xl font-semibold">{item.name}</h3>
+                    <div className="flex-1 min-w-0 pr-4">
+                      <h3 className="text-xl font-semibold break-words">{item.name}</h3>
                       <p className="text-lg text-muted-foreground">
                         R$ {item.price.toFixed(2)} x {item.quantity}
                       </p>
@@ -614,8 +614,8 @@ export default function Totem() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-background px-2 py-4">
+      <div className="w-full space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-5xl font-bold">Faça seu Pedido</h1>
           <p className="text-xl text-muted-foreground">
@@ -654,7 +654,7 @@ export default function Totem() {
         </div>
 
         {/* Products and Combos Grid - Tamanho otimizado para tablet */}
-        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {filteredItems.map((item) => (
             <Card
               key={item.id}
@@ -702,7 +702,7 @@ export default function Totem() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <CardTitle className="text-sm font-semibold leading-tight line-clamp-2 h-10">
+                  <CardTitle className="text-sm font-semibold leading-tight min-h-[3rem]">
                     {item.name}
                   </CardTitle>
                   {item.isCombo && (

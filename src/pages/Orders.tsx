@@ -330,55 +330,69 @@
           const clean = line.replace(/^\*/g,'').replace(/\*$/g,'');
           
           // Tenta vários padrões de matching
-          // Padrão 1: "1x Nome - Variante - R$ 15.00 Sem molho" ou "1x Nome - R$ 15.00 Sem molho"
-          let m = clean.match(/(\d+)x\s+(.+?)\s*-\s*(?:[^-]+\s*-\s*)?R\$\s*([\d,.]+)\s*(.+)?$/i);
+          // Padrão 1: "1x Nome - Variante - R$ 15.00 Obs: ... Molhos: ..." 
+          // Captura tudo até encontrar "R$" seguido de preço, depois captura tudo após o preço
+          let m = clean.match(/(\d+)x\s+(.+?)\s*-\s*R\$\s*([\d,.]+)\s*(.*)$/i);
           
-          // Padrão 2: "1x Nome - R$ 15.00" (sem variante)
-          if (!m) {
-            m = clean.match(/(\d+)x\s+(.+?)\s*-\s*R\$\s*([\d,.]+)\s*(.+)?$/i);
-          }
+          // Se não encontrou, tenta um padrão mais específico com variante separada
+          // Mas no caso do site, geralmente vem tudo junto na mesma linha, então o padrão acima deve funcionar
+          // Padrão 2: apenas para casos onde não há variante ou a estrutura é diferente
+          // (mantido como fallback, mas raramente será usado)
           
           if (m) {
             const qty = parseInt(m[1], 10) || 1;
             let name = m[2].replace(/\*/g,'').trim();
-            // Remove possíveis informações de molho do nome se vieram misturadas
-            name = name.replace(/\s*(Sem molho|Molhos?:.*)$/i, '').trim();
+            // Remove possíveis informações de molho/obs do nome se vieram misturadas
+            // Mas só remove se realmente estiver no nome, não nas notes
+            name = name.replace(/\s*(Sem molho|Molhos?:.*|Obs:.*)$/i, '').trim();
             const total = parsePrice(m[3]);
             const unit = total / qty;
             
-            // Capturar informações de molho
-            let notes = '';
+            // Capturar TODAS as informações após o preço (Obs + Molhos)
+            // A regex já captura tudo após o preço em m[4], então usamos isso diretamente
+            let notes = (m[4] || '').trim();
             
-            // 1. Tenta capturar na mesma linha após o preço (m[4])
-            if (m[4]) {
-              notes = m[4].trim();
-              // Se capturou algo que não parece molho, descarta
-              if (notes && !notes.match(/^(Sem molho|Molhos?:|Molho:|Obs:)/i)) {
-                // Verifica se tem molho em outro lugar da linha
-                const molhoNaLinha = clean.match(/(Sem molho|Molhos?:[^$]+)/i);
-                notes = molhoNaLinha ? molhoNaLinha[1].trim() : '';
-              }
-            }
-            
-            // 2. Se não encontrou, verifica a próxima linha
+            // Se não capturou na linha atual, verifica se há informação na próxima linha
             if (!notes && i + 1 < lines.length) {
               const nextLine = lines[i + 1].trim();
-              // Padrões: "Sem molho", "Molhos: X", "Molhos: X, Y", "Obs: ..."
-              if (nextLine.match(/^(Sem molho|Molhos?:|Molho:|Obs:)/i)) {
+              // Se não é um novo item (não começa com número seguido de "x"), adiciona às notas
+              if (!nextLine.match(/^\d+x\s+/i) && nextLine.length > 0 && 
+                  !nextLine.match(/^(Subtotal|Total|Taxa|Forma|Cliente|Endereço|Pagamento)/i)) {
                 notes = nextLine;
                 i++; // Consome a próxima linha
+                
+                // Verifica se há mais uma linha do mesmo item (ex: Molhos na linha seguinte de Obs)
+                if (i + 1 < lines.length) {
+                  const nextNextLine = lines[i + 1].trim();
+                  if (!nextNextLine.match(/^\d+x\s+/i) && 
+                      !nextNextLine.match(/^(Subtotal|Total|Taxa|Forma|Cliente|Endereço|Pagamento)/i) &&
+                      (nextNextLine.match(/(Molhos?:|Obs:|Observação)/i) || nextNextLine.length > 0)) {
+                    notes += ' ' + nextNextLine;
+                    i++; // Consome mais uma linha
+                  }
+                }
               }
             }
             
-            // 3. Última tentativa: busca na linha original após o preço
-            if (!notes) {
-              const afterPrice = clean.split(/R\$\s*[\d,.]+/i);
-              if (afterPrice.length > 1) {
-                const rest = afterPrice[1].trim();
-                const molhoMatch = rest.match(/(Sem molho|Molhos?:[^]*)/i);
-                if (molhoMatch) {
-                  notes = molhoMatch[1].trim();
+            // Garantir que capturou tudo da linha original (fallback de segurança)
+            if (notes) {
+              // Verifica se a linha original tem mais informação que não foi capturada
+              const afterPriceMatch = clean.match(/R\$\s*[\d,.]+(.*)$/i);
+              if (afterPriceMatch && afterPriceMatch[1]) {
+                const originalAfterPrice = afterPriceMatch[1].trim();
+                // Se o texto original é maior ou tem "Molhos" que notes não tem, usa o original
+                if (originalAfterPrice.length > notes.length) {
+                  notes = originalAfterPrice;
+                } else if (!notes.includes('Molhos') && originalAfterPrice.includes('Molhos')) {
+                  // Se original tem Molhos mas notes não tem, combina ambos
+                  notes = originalAfterPrice;
                 }
+              }
+            } else {
+              // Último fallback: extrai tudo após o preço da linha original
+              const afterPriceMatch = clean.match(/R\$\s*[\d,.]+(.*)$/i);
+              if (afterPriceMatch && afterPriceMatch[1]) {
+                notes = afterPriceMatch[1].trim();
               }
             }
             

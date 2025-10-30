@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Edit, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface FixedCost {
   id: string;
@@ -34,6 +35,7 @@ export const FixedCostsSection = ({ fixedCosts, establishmentId, onUpdate }: Fix
     recurrence: "monthly" as 'monthly' | 'yearly' | 'one_time',
   });
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const resetForm = () => {
     setFormData({
@@ -135,7 +137,8 @@ export const FixedCostsSection = ({ fixedCosts, establishmentId, onUpdate }: Fix
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this fixed cost?')) return;
+    const ok = await confirmDialog({ title: 'Excluir custo fixo', description: 'Tem certeza que deseja excluir este custo fixo?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase

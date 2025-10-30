@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Edit, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface Ingredient {
   id: string;
@@ -46,6 +47,7 @@ export const IngredientsSection = ({ ingredients, establishmentId, onUpdate }: I
     unit_measure: "unit",
   });
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const resetForm = () => {
     setFormData({
@@ -139,7 +141,8 @@ export const IngredientsSection = ({ ingredients, establishmentId, onUpdate }: I
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this ingredient?')) return;
+    const ok = await confirmDialog({ title: 'Excluir ingrediente', description: 'Tem certeza que deseja excluir este ingrediente?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase

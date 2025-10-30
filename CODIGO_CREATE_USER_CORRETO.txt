@@ -1,3 +1,8 @@
+// ============================================
+// EDGE FUNCTION: create-user
+// Substitua o código ATUAL na Edge Function "create-user"
+// ============================================
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -221,3 +226,4 @@ Deno.serve(async (req) => {
     )
   }
 })
+

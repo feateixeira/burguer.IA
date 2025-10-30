@@ -25,6 +25,7 @@ import {
 import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface Promotion {
   id: string;
@@ -43,6 +44,7 @@ interface Promotion {
 
 export default function Promotions() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const confirmDialog = useConfirm();
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,7 +170,8 @@ export default function Promotions() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Deseja excluir esta promoção?")) return;
+    const ok = await confirmDialog({ title: 'Excluir promoção', description: 'Deseja excluir esta promoção?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase.from("promotions").delete().eq("id", id);

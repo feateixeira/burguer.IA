@@ -161,6 +161,12 @@ export default function Admin() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
+      if (!session) {
+        toast.error('Sessão expirada. Por favor, faça login novamente.');
+        navigate('/');
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: {
           email: newUserEmail,
@@ -169,11 +175,29 @@ export default function Admin() {
           establishmentName: newUserEstablishment
         },
         headers: {
-          Authorization: `Bearer ${session?.access_token}`
+          Authorization: `Bearer ${session.access_token}`
         }
       });
 
-      if (error) throw error;
+      // Log full response for debugging
+      console.log('Edge Function response:', { data, error });
+
+      if (error) {
+        console.error('Error from Edge Function:', error);
+        // Edge Function errors might contain more details
+        const errorMsg = error.message || error.error || 'Erro ao chamar função do servidor';
+        throw new Error(errorMsg);
+      }
+
+      // Check if the response contains an error
+      if (data?.error) {
+        console.error('Error in response data:', data.error);
+        throw new Error(data.error);
+      }
+
+      if (!data?.success) {
+        throw new Error('Falha ao criar usuário. Tente novamente.');
+      }
 
       toast.success('Usuário criado com sucesso!');
       setCreateDialogOpen(false);
@@ -184,7 +208,8 @@ export default function Admin() {
       loadUsers();
     } catch (error: any) {
       console.error('Error creating user:', error);
-      toast.error('Erro ao criar usuário: ' + error.message);
+      const errorMessage = error?.message || error?.error || 'Erro desconhecido ao criar usuário';
+      toast.error('Erro ao criar usuário: ' + errorMessage);
     }
   };
 

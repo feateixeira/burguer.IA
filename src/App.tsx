@@ -15,7 +15,6 @@ import Customers from "./pages/Customers";
 import Settings from "./pages/Settings";
 import Costs from "./pages/Costs";
 import Orders from "./pages/Orders";
-import PixPayments from "./pages/PixPayments";
 import Suppliers from "./pages/Suppliers";
 import Apps from "./pages/Apps";
 import PasswordPanel from "./pages/PasswordPanel";
@@ -23,6 +22,8 @@ import PasswordDisplay from "./pages/PasswordDisplay";
 import Totem from "./pages/Totem";
 import Promotions from "./pages/Promotions";
 import NotFound from "./pages/NotFound";
+import { TeamUserProvider } from "@/components/TeamUserProvider";
+import { ConfirmProvider } from "@/hooks/useConfirm";
 
 const queryClient = new QueryClient();
 
@@ -34,27 +35,30 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <OrderNotificationProvider>
-            <Routes>
-              <Route path="/" element={<Auth />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/pdv" element={<PDV />} />
-              <Route path="/products" element={<Products />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/orders" element={<Orders />} />
-              <Route path="/costs" element={<Costs />} />
-              <Route path="/promotions" element={<Promotions />} />
-              <Route path="/pix-payments" element={<PixPayments />} />
-              <Route path="/suppliers" element={<Suppliers />} />
-              <Route path="/apps" element={<Apps />} />
-              <Route path="/password-panel" element={<PasswordPanel />} />
-              <Route path="/password-display" element={<PasswordDisplay />} />
-              <Route path="/totem" element={<Totem />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/landing" element={<Index />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <TeamUserProvider>
+              <ConfirmProvider>
+              <Routes>
+                <Route path="/" element={<Auth />} />
+                <Route path="/admin" element={<Admin />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/pdv" element={<PDV />} />
+                <Route path="/products" element={<Products />} />
+                <Route path="/customers" element={<Customers />} />
+                <Route path="/orders" element={<Orders />} />
+                <Route path="/costs" element={<Costs />} />
+                <Route path="/promotions" element={<Promotions />} />
+                <Route path="/suppliers" element={<Suppliers />} />
+                <Route path="/apps" element={<Apps />} />
+                <Route path="/password-panel" element={<PasswordPanel />} />
+                <Route path="/password-display" element={<PasswordDisplay />} />
+                <Route path="/totem" element={<Totem />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/landing" element={<Index />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              </ConfirmProvider>
+            </TeamUserProvider>
           </OrderNotificationProvider>
         </BrowserRouter>
       </TooltipProvider>

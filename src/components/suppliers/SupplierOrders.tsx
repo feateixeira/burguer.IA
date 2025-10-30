@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { useConfirm } from "@/hooks/useConfirm";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -33,6 +34,7 @@ export function SupplierOrders() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<SupplierOrder | null>(null);
+  const confirm = useConfirm();
 
   useEffect(() => {
     loadOrders();
@@ -77,6 +79,31 @@ export function SupplierOrders() {
   const handleSuccess = () => {
     loadOrders();
     setDialogOpen(false);
+  };
+
+  const handleDelete = async (orderId: string) => {
+    try {
+      const ok = await confirm({ title: "Apagar pedido", description: "Tem certeza que deseja apagar este pedido? Esta ação não pode ser desfeita." });
+      if (!ok) return;
+
+      // Apaga itens do pedido antes (evita erro de FK caso não haja cascade)
+      await supabase
+        .from("supplier_order_items")
+        .delete()
+        .eq("order_id", orderId);
+
+      const { error } = await supabase
+        .from("supplier_orders")
+        .delete()
+        .eq("id", orderId);
+
+      if (error) throw error;
+      toast.success("Pedido apagado");
+      loadOrders();
+    } catch (err) {
+      console.error("Erro ao apagar pedido:", err);
+      toast.error("Não foi possível apagar o pedido");
+    }
   };
 
   const getPaymentStatusBadge = (status: string) => {
@@ -169,10 +196,11 @@ export function SupplierOrders() {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <p className="text-2xl font-bold">
-                    R$ {Number(order.total_amount).toFixed(2)}
-                  </p>
+                <div className="text-right flex items-start gap-2">
+                  <p className="text-2xl font-bold">R$ {Number(order.total_amount).toFixed(2)}</p>
+                  <Button variant="outline" size="icon" onClick={(e) => { e.stopPropagation(); handleDelete(order.id); }} title="Apagar pedido">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </CardContent>

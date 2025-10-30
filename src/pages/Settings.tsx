@@ -1,18 +1,23 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff, Users, Plus, Trash2 } from "lucide-react";
+import { useConfirm } from "@/hooks/useConfirm";
 import Sidebar from "@/components/Sidebar";
 import { PrinterConfigComponent } from "@/components/PrinterConfig";
 import { PrintersManager } from "@/components/printers/PrintersManager";
 import { PrinterRouting } from "@/components/printers/PrinterRouting";
 import { PixConfig } from "@/components/PixConfig";
+import { useTeamUser } from "@/components/TeamUserProvider";
 
 
 interface Profile {
@@ -49,6 +54,18 @@ const Settings = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  const [userRole, setUserRole] = useState<'master' | 'admin' | 'atendente' | 'cozinha' | null>(null);
+  const [team, setTeam] = useState<any[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [memberName, setMemberName] = useState('');
+  const [memberRole, setMemberRole] = useState<'master' | 'admin' | 'atendente' | 'cozinha'>('admin');
+  const [memberPin, setMemberPin] = useState('');
+  const [forceMasterDialog, setForceMasterDialog] = useState(false);
+  const confirmDialog = useConfirm();
+  const [showMemberForm, setShowMemberForm] = useState(false);
+  const [memberFormStep, setMemberFormStep] = useState(0); // etapas: 0-início, 1-nome, 2-função, 3-pin
+  const { setTeamUser } = useTeamUser();
+
   useEffect(() => {
     loadData();
   }, []);
@@ -77,6 +94,10 @@ const Settings = () => {
 
         if (establishmentData) {
           setEstablishment(establishmentData);
+          // Carrega papel do usuário atual e equipe
+          await loadUserRoleAndTeam(profileData.user_id, establishmentData.id);
+          // Verifica se já existe Master
+          await checkMaster(establishmentData.id);
         }
       }
     } catch (error) {
@@ -84,6 +105,120 @@ const Settings = () => {
       toast.error("Erro ao carregar configurações");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserRoleAndTeam = async (userId: string, establishmentId: string) => {
+    try {
+      // Papel do usuário (se cadastrado como membro)
+      const { data: myRole } = await supabase
+        .from('team_members')
+        .select('role')
+        .eq('establishment_id', establishmentId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      setUserRole((myRole?.role as any) || null);
+
+      // Lista da equipe (somente se master/admin)
+      if (myRole?.role === 'master' || myRole?.role === 'admin') {
+        setTeamLoading(true);
+        const { data: members } = await supabase
+          .from('team_members')
+          .select('id, name, role, active, created_at')
+          .eq('establishment_id', establishmentId)
+          .order('role', { ascending: true });
+        setTeam(members || []);
+      } else {
+        setTeam([]);
+      }
+    } catch (e) {
+      console.error('loadUserRoleAndTeam error', e);
+    } finally {
+      setTeamLoading(false);
+    }
+  };
+
+  const checkMaster = async (establishmentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('id')
+        .eq('establishment_id', establishmentId)
+        .eq('role', 'master')
+        .limit(1);
+      if (error) throw error;
+      setForceMasterDialog(!data || data.length === 0);
+    } catch (e) {
+      console.error('checkMaster error', e);
+    }
+  };
+
+  const createMember = async () => {
+    if (!establishment) return;
+    // Somente Master/Admin podem cadastrar novos usuários
+    if (!(userRole === 'master' || userRole === 'admin')) {
+      toast.error('Apenas Master ou Admin podem cadastrar membros');
+      return;
+    }
+    // Apenas Master pode criar outro Master (o select padrão não oferece master, exceto no fluxo forçado)
+    if (memberRole === 'master' && userRole !== 'master') {
+      toast.error('Apenas o Master pode criar outro Master');
+      return;
+    }
+    if (!memberName.trim()) return toast.error('Informe o nome');
+    if ((memberRole === 'admin' || memberRole === 'master') && (!/^\d{4}$/.test(memberPin))) return toast.error('PIN de 4 dígitos obrigatório para Master/Admin');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const payload: any = {
+        establishment_id: establishment.id,
+        name: memberName.trim(),
+        role: memberRole,
+        active: true,
+      };
+      if (memberRole === 'admin' || memberRole === 'master') payload.pin = memberPin;
+      if (memberRole === 'master' && session?.user?.id) payload.user_id = session.user.id;
+      const { data: created, error } = await supabase.from('team_members').insert([payload]).select('*').single();
+      if (error) throw error;
+      toast.success('Membro criado');
+      const shouldUpdateMyRole = memberRole === 'master' && profile?.user_id && session?.user?.id === profile.user_id;
+      if (created && memberRole === 'master' && shouldUpdateMyRole) {
+        setTeamUser({ id: created.id, name: created.name, role: created.role, active: created.active, user_id: created.user_id });
+        setForceMasterDialog(false);
+        // Só aqui atualiza papel do logado
+        await loadUserRoleAndTeam(profile!.id, establishment.id);
+      } else {
+        // Só recarrega lista, NÃO atualiza userRole do logado (mantém master/admin visualizando a aba!)
+        const { data: members } = await supabase
+          .from('team_members')
+          .select('id, name, role, active, created_at')
+          .eq('establishment_id', establishment.id)
+          .order('role', { ascending: true });
+        setTeam(members || []);
+      }
+      setMemberName('');
+      setMemberPin('');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao criar membro');
+    }
+  };
+
+  const removeTeamMember = async (memberId: string) => {
+    const ok = await confirmDialog({ title: 'Remover membro', description: 'Tem certeza que deseja remover este membro da equipe?' });
+    if (!ok) {
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('id', memberId);
+      if (error) throw error;
+      toast.success('Membro removido com sucesso!');
+      loadUserRoleAndTeam(profile!.id, establishment!.id);
+    } catch (e) {
+      console.error('removeTeamMember error', e);
+      toast.error('Erro ao remover membro');
     }
   };
 
@@ -295,8 +430,8 @@ const Settings = () => {
               </p>
             </div>
 
-          <Tabs defaultValue="establishment" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-5 h-auto p-1">
+          <Tabs defaultValue="establishment" className="space-y-6 tabs-compact">
+            <TabsList className="grid w-full grid-cols-6 h-auto p-1">
               <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
                 <Building className="h-4 w-4" />
                 <span className="hidden sm:inline">Estabelecimento</span>
@@ -317,11 +452,156 @@ const Settings = () => {
                 <Shield className="h-4 w-4" />
                 <span className="hidden sm:inline">Segurança</span>
               </TabsTrigger>
+              {(userRole === 'master' || userRole === 'admin') && (
+                <TabsTrigger value="team" className="flex items-center gap-2 py-3">
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">Gerenciar Equipe</span>
+                </TabsTrigger>
+              )}
             </TabsList>
+            {/* Team Management Tab */}
+            {(userRole === 'master' || userRole === 'admin') && (
+              <TabsContent value="team" className="space-y-4">
+              {/* Dialog obrigatório para criação do Master se não existir */}
+              {forceMasterDialog && (
+                <div className="p-4 border rounded-lg bg-yellow-50 text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-100">
+                  <p className="text-sm font-medium mb-2">Defina o Usuário Master</p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="md:col-span-2">
+                      <Label>Nome do Master</Label>
+                      <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} placeholder="Ex.: Dono" />
+                    </div>
+                    <div>
+                      <Label>PIN (4 dígitos)</Label>
+                      <Input value={memberPin} onChange={(e) => setMemberPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="0000" maxLength={4} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-3">
+                    <Button onClick={() => { setMemberRole('master'); createMember(); }}>
+                      Confirmar Master
+                    </Button>
+                  </div>
+                </div>
+              )}
+                <Card className="card-dense">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5 text-primary" /> Equipe do Estabelecimento</CardTitle>
+                    <CardDescription>Crie e gerencie usuários de equipe: Admin, Atendente e Cozinha.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 list-dense">
+                    <div className="mt-4">
+                      <h4 className="text-sm font-semibold mb-2 flex items-center justify-between">
+                        Membros
+                        {(userRole === 'master' || userRole === 'admin') && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => { setShowMemberForm(show => !show); setMemberFormStep(1); setMemberName(''); setMemberRole('admin'); setMemberPin(''); }}
+                          >
+                            {showMemberForm ? 'Cancelar' : '+ Criar novo membro'}
+                          </Button>
+                        )}
+                      </h4>
+
+                      {showMemberForm && (userRole === 'master' || userRole === 'admin') && (
+                        <div className="mb-4 border p-4 rounded-lg bg-muted/50 animate-in fade-in">
+                          {memberFormStep === 1 && (
+                            <div className="flex flex-col gap-2 md:flex-row items-end">
+                              <div className="flex-1">
+                                <Label>Nome</Label>
+                                <Input value={memberName} onChange={e => setMemberName(e.target.value)} placeholder="Nome do membro" />
+                              </div>
+                              <Button
+                                size="sm"
+                                className="mt-2 md:mt-0"
+                                onClick={() => memberName.trim().length > 0 && setMemberFormStep(2)}
+                                disabled={!memberName.trim()}
+                              >
+                                Avançar
+                              </Button>
+                            </div>
+                          )}
+                          {memberFormStep === 2 && (
+                            <div className="flex flex-col gap-2 md:flex-row items-end">
+                              <div className="flex-1">
+                                <Label>Função</Label>
+                                <Select value={memberRole} onValueChange={v => setMemberRole(v as any)}>
+                                  <SelectTrigger><SelectValue placeholder="Selecione a função" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                    <SelectItem value="atendente">Atendente</SelectItem>
+                                    <SelectItem value="cozinha">Cozinha</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="flex gap-2 mt-2 md:mt-0">
+                                <Button size="sm" variant="outline" onClick={() => setMemberFormStep(1)}>Voltar</Button>
+                                <Button size="sm" onClick={() => setMemberFormStep(3)}>Avançar</Button>
+                              </div>
+                            </div>
+                          )}
+                          {memberFormStep === 3 && (
+                            <>
+                              {memberRole === 'admin' && (
+                                <div className="flex flex-col gap-2 md:flex-row items-end mb-2">
+                                  <div className="flex-1">
+                                    <Label>Senha (4 dígitos)</Label>
+                                    <Input value={memberPin} onChange={e => setMemberPin(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="0000" maxLength={4} />
+                                    <span className="text-xs text-muted-foreground">Obrigatório para Admin</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => setMemberFormStep(2)}>Voltar</Button>
+                                <Button
+                                  size="sm"
+                                  onClick={async () => {
+                                    await createMember();
+                                    setShowMemberForm(false);
+                                    setMemberFormStep(0);
+                                  }}
+                                  disabled={memberRole === 'admin' && memberPin.length !== 4}
+                                >
+                                  Adicionar
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {team.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhum membro cadastrado.</p>
+                      ) : (
+                        <div className="grid gap-2">
+                          {team.map((m) => (
+                            <div key={m.id} className="flex items-center justify-between p-3 border rounded-md">
+                              <div>
+                                <div className="font-medium">{m.name}</div>
+                                <div className="text-xs text-muted-foreground">{m.role} • {new Date(m.created_at).toLocaleDateString('pt-BR')}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={m.active ? 'secondary' : 'outline'}>{m.active ? 'Ativo' : 'Inativo'}</Badge>
+                                {/* Remover só aparece: se userRole é master E não é o próprio master */}
+                                {userRole === 'master' && m.role !== 'master' && (
+                                  <Button variant="ghost" size="icon" onClick={() => removeTeamMember(m.id)} title="Remover membro">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             {/* Establishment Tab */}
             <TabsContent value="establishment" className="space-y-4">
-              <Card className="border-2">
+              <Card className="border-2 card-dense">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Building className="h-5 w-5 text-primary" />
@@ -332,7 +612,7 @@ const Settings = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleEstablishmentSubmit} className="space-y-8">
+                  <form onSubmit={handleEstablishmentSubmit} className="space-y-8 form-dense">
                     {/* Personal Profile Section */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -579,7 +859,7 @@ const Settings = () => {
 
             {/* API Tab */}
             <TabsContent value="api" className="space-y-4">
-              <Card className="border-2">
+              <Card className="border-2 card-dense">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Key className="h-5 w-5 text-primary" />
@@ -682,7 +962,7 @@ const Settings = () => {
 
             {/* Security Tab */}
             <TabsContent value="security" className="space-y-4">
-              <Card className="border-2">
+              <Card className="border-2 card-dense">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Shield className="h-5 w-5 text-primary" />
@@ -693,7 +973,7 @@ const Settings = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleChangePassword} className="space-y-4">
+                  <form onSubmit={handleChangePassword} className="space-y-4 form-dense">
                     <div className="space-y-2">
                       <Label htmlFor="current_password">Senha Atual *</Label>
                       <Input
@@ -747,6 +1027,33 @@ const Settings = () => {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* Diálogo modal global para forçar criação do Master no primeiro acesso */}
+          {forceMasterDialog && (
+            <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/40"></div>
+              <div className="relative w-full max-w-md rounded-xl border border-border bg-card text-card-foreground shadow-xl p-5">
+                <h3 className="text-lg font-semibold mb-2">Definir Usuário Master</h3>
+                <p className="text-sm text-muted-foreground mb-4">Crie o usuário Master (dono) deste estabelecimento. Ele terá acesso total.</p>
+                <div className="grid gap-3">
+                  <div>
+                    <Label>Nome</Label>
+                    <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} placeholder="Ex.: Dono" />
+                  </div>
+                  <div>
+                    <Label>PIN (4 dígitos)</Label>
+                    <Input value={memberPin} onChange={(e) => setMemberPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="0000" maxLength={4} />
+                    <p className="text-xs text-muted-foreground mt-1">Este PIN será solicitado para ações críticas.</p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button onClick={() => { setMemberRole('master'); createMember(); }}>
+                    Confirmar Master
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

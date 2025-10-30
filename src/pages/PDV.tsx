@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1162,7 +1163,7 @@ const PDV = () => {
                               </h3>
                               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {categoryProducts.map((product) => (
-                                  <Card key={product.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                                  <Card key={product.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleProductClick(product)}>
                                     <CardContent className="p-2">
                                       <div className="space-y-1">
                                         <h4 className="font-medium text-xs leading-tight line-clamp-2">{product.name}</h4>
@@ -1186,7 +1187,7 @@ const PDV = () => {
                                           })()}
                                            <Button 
                                              size="sm" 
-                                             onClick={() => handleProductClick(product)}
+                                             onClick={(e) => { e.stopPropagation(); handleProductClick(product); }}
                                              className="h-6 w-6 p-0"
                                            >
                                             <Plus className="h-3 w-3" />
@@ -1313,17 +1314,16 @@ const PDV = () => {
                       <Truck className="h-4 w-4" />
                       <Label htmlFor="delivery-toggle">Incluir entrega</Label>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-2">
+                      {/* Reserva de espaço para não empurrar o switch ao mostrar o valor */}
+                      <span className={cn("text-sm text-muted-foreground w-16 text-right transition-opacity", includeDelivery ? "opacity-100" : "opacity-0")}>
+                        R$ {deliveryFee.toFixed(2)}
+                      </span>
                       <Switch
                         id="delivery-toggle"
                         checked={includeDelivery}
                         onCheckedChange={setIncludeDelivery}
                       />
-                      {includeDelivery && (
-                        <span className="text-sm text-muted-foreground">
-                          R$ {deliveryFee.toFixed(2)}
-                        </span>
-                      )}
                     </div>
                   </div>
 

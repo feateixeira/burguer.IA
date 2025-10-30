@@ -56,6 +56,8 @@ import {
   Truck
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 // Dados mock zerados inicialmente
 const salesData = [
@@ -109,6 +111,8 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('hoje');
   const [monthlyTotals, setMonthlyTotals] = useState({ revenue: 0, orders: 0 });
+  const [activeProductsCount, setActiveProductsCount] = useState(0);
+  const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
   const [dashboardData, setDashboardData] = useState({
     totalRevenue: 0,
     totalOrders: 0,
@@ -128,6 +132,9 @@ const Dashboard = () => {
     weeklyComparison: [] as any[]
   });
   const navigate = useNavigate();
+  const [showMasterSetup, setShowMasterSetup] = useState(false);
+  const [masterName, setMasterName] = useState("");
+  const [masterPin, setMasterPin] = useState("");
 
   useEffect(() => {
     checkAuth();
@@ -137,7 +144,48 @@ const Dashboard = () => {
     if (establishment) {
       loadDashboardData();
     }
-  }, [establishment, timeRange]);
+  }, [establishment, timeRange, customRange]);
+
+  // Após carregar estabelecimento, verificar se já existe MASTER
+  useEffect(() => {
+    const checkMaster = async () => {
+      if (!establishment) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, establishment_id')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+
+        const { count } = await supabase
+          .from('team_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('establishment_id', establishment.id)
+          .eq('role', 'master');
+
+        if (!count || count === 0) {
+          setMasterName(profile?.full_name || 'Master');
+          setShowMasterSetup(true);
+        }
+      } catch (e) {
+        console.error('checkMaster', e);
+      }
+    };
+    checkMaster();
+  }, [establishment]);
+
+  // Expor função global para o modal do index.html
+  useEffect(() => {
+    (window as any).atualizarDashboard = (startISO: string, endISO: string) => {
+      setCustomRange({ start: startISO, end: endISO });
+      setTimeRange('custom');
+    };
+    return () => {
+      try { delete (window as any).atualizarDashboard; } catch {}
+    };
+  }, []);
 
   // Real-time updates for orders
   useEffect(() => {
@@ -178,18 +226,24 @@ const Dashboard = () => {
 
       if (!profile?.establishment_id) return;
 
-      // Calculate date range
+      // Calculate date range (suporta customRange)
       let startDate = new Date();
-      switch (timeRange) {
-        case 'hoje':
-          startDate.setHours(0, 0, 0, 0);
-          break;
-        case 'semana':
-          startDate.setDate(startDate.getDate() - 7);
-          break;
-        case 'mes':
-          startDate.setMonth(startDate.getMonth() - 1);
-          break;
+      let endDate = new Date();
+      if (customRange) {
+        startDate = new Date(`${customRange.start}T00:00:00`);
+        endDate = new Date(`${customRange.end}T23:59:59`);
+      } else {
+        switch (timeRange) {
+          case 'hoje':
+            startDate.setHours(0, 0, 0, 0);
+            break;
+          case 'semana':
+            startDate.setDate(startDate.getDate() - 7);
+            break;
+          case 'mes':
+            startDate.setMonth(startDate.getMonth() - 1);
+            break;
+        }
       }
 
       // Calculate month start for monthly goals
@@ -197,12 +251,13 @@ const Dashboard = () => {
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      // Get orders data (flat) - for display based on timeRange
+      // Get orders data (flat) - filter by range
       const { data: orders } = await supabase
         .from("orders")
         .select("*")
         .eq("establishment_id", profile.establishment_id)
         .gte("created_at", startDate.toISOString())
+        .lte("created_at", endDate.toISOString())
         .order("created_at", { ascending: false });
 
       // Get monthly orders count for goals
@@ -218,6 +273,14 @@ const Dashboard = () => {
         .select("*", { count: 'exact', head: true })
         .eq("establishment_id", profile.establishment_id)
         .gte("created_at", monthStart.toISOString());
+
+      // Get active products count
+      const { count: activeCount } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('establishment_id', profile.establishment_id)
+        .eq('active', true);
+      setActiveProductsCount(activeCount || 0);
 
       // Get top 5 customers by total spending
       const { data: topCustomersData } = await supabase
@@ -451,6 +514,32 @@ const Dashboard = () => {
     navigate("/");
   };
 
+  const submitCreateMaster = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !establishment) return;
+      if (!/^\d{4}$/.test(masterPin)) {
+        toast.error('PIN deve ter 4 dígitos');
+        return;
+      }
+      const payload = {
+        establishment_id: establishment.id,
+        user_id: session.user.id,
+        name: masterName || 'Master',
+        role: 'master',
+        pin: masterPin,
+        active: true,
+      } as any;
+      const { error } = await supabase.from('team_members').insert([payload]);
+      if (error) throw error;
+      toast.success('Usuário master criado');
+      setShowMasterSetup(false);
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao criar master');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -467,6 +556,29 @@ const Dashboard = () => {
       <Sidebar />
       
       <main className="flex-1 p-6 space-y-6 overflow-auto">
+        <Dialog open={showMasterSetup}>
+          <DialogContent className="form-dense">
+            <DialogHeader>
+              <DialogTitle>Configurar usuário Master</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Crie o usuário Master do estabelecimento. Ele terá acesso total.
+              </p>
+              <div>
+                <label className="text-sm">Nome</label>
+                <Input value={masterName} onChange={(e) => setMasterName(e.target.value)} placeholder="Nome do Master" />
+              </div>
+              <div>
+                <label className="text-sm">PIN (4 dígitos)</label>
+                <Input value={masterPin} onChange={(e) => setMasterPin(e.target.value.replace(/\D/g, '').slice(0,4))} placeholder="0000" maxLength={4} />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={submitCreateMaster}>Salvar</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
           <div>
@@ -476,14 +588,14 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="flex items-center space-x-2">
-            <Tabs value={timeRange} onValueChange={setTimeRange} className="w-auto">
+            <Tabs value={timeRange} onValueChange={setTimeRange} className="w-auto tabs-compact">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="hoje">Hoje</TabsTrigger>
                 <TabsTrigger value="semana">Semana</TabsTrigger>
                 <TabsTrigger value="mes">Mês</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button variant="outline" size="sm">
+            <Button id="btn-filtro" variant="outline" size="sm">
               <Calendar className="h-4 w-4 mr-2" />
               Filtrar
             </Button>
@@ -496,7 +608,7 @@ const Dashboard = () => {
 
         {/* KPI Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-l-4 border-l-primary">
+          <Card className="border-l-4 border-l-primary card-dense">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Faturamento {timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
@@ -522,7 +634,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
           
-          <Card className="border-l-4 border-l-blue-500">
+          <Card className="border-l-4 border-l-blue-500 card-dense">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Pedidos {timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
@@ -548,7 +660,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
           
-          <Card className="border-l-4 border-l-green-500">
+          <Card className="border-l-4 border-l-green-500 card-dense">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Ticket Médio
@@ -569,7 +681,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
           
-          <Card className="border-l-4 border-l-orange-500">
+          <Card className="border-l-4 border-l-orange-500 card-dense">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Clientes
@@ -599,7 +711,7 @@ const Dashboard = () => {
         {/* Charts Section */}
         <div className="grid gap-6 lg:grid-cols-7">
           {/* Main Sales Chart */}
-          <Card className="lg:col-span-4">
+          <Card className="lg:col-span-4 card-dense">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 Análise de Vendas
@@ -672,7 +784,7 @@ const Dashboard = () => {
           </Card>
 
           {/* Category Distribution */}
-          <Card className="lg:col-span-3">
+          <Card className="lg:col-span-3 card-dense">
             <CardHeader>
               <CardTitle>Vendas por Categoria</CardTitle>
               <CardDescription>
@@ -866,7 +978,7 @@ const Dashboard = () => {
                   <span className="text-sm">Produtos Ativos</span>
                 </div>
                 <Badge variant="secondary">
-                  0
+                  {activeProductsCount}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">

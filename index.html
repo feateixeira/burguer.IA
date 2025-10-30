@@ -20,10 +20,149 @@
   <meta name="twitter:title" content="burguer.IA - Sistema de Gestão Completo para Restaurantes">
   <meta property="og:description" content="PDV moderno, dashboard inteligente e gestão multiestabelecimento. Sistema SaaS completo para aumentar vendas e otimizar operações de restaurantes.">
   <meta name="twitter:description" content="PDV moderno, dashboard inteligente e gestão multiestabelecimento. Sistema SaaS completo para aumentar vendas e otimizar operações de restaurantes.">
-</head>
+    <!-- Litepicker CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css" />
+    <!-- Litepicker JS -->
+    <script defer src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+  </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Modal de Filtro -->
+    <div id="modal-filtro" class="hidden fixed inset-0 z-[2000] flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-black/40"></div>
+      <div class="relative w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-xl">
+        <div class="flex items-center justify-between border-b border-border px-5 py-3">
+          <div class="text-base font-semibold tracking-tight">Filtrar por período</div>
+          <button id="btn-fechar-filtro" type="button" class="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+        <div class="p-5">
+          <div class="mb-3 text-xs text-muted-foreground">Selecione um intervalo de datas para filtrar os dados do dashboard.</div>
+          <div id="picker-container" class="w-full"></div>
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 bg-secondary/20">
+          <button id="btn-cancelar-filtro" type="button" class="px-3 py-1.5 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-muted">Cancelar</button>
+          <button id="btn-aplicar-filtro" type="button" class="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">Aplicar Filtro</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function(){
+        // Utilitário para formato YYYY-MM-DD (caso não exista)
+        if (!Date.prototype.toISODateString) {
+          Date.prototype.toISODateString = function() {
+            const pad = (n) => String(n).padStart(2, '0');
+            const y = this.getFullYear();
+            const m = pad(this.getMonth() + 1);
+            const d = pad(this.getDate());
+            return `${y}-${m}-${d}`;
+          }
+        }
+
+        const modal = document.getElementById('modal-filtro');
+        const btnFechar = document.getElementById('btn-fechar-filtro');
+        const btnCancelar = document.getElementById('btn-cancelar-filtro');
+        const btnAplicar = document.getElementById('btn-aplicar-filtro');
+        const container = document.getElementById('picker-container');
+        let picker;
+        let lastRange = { start: null, end: null };
+
+        function openModal(){
+          if (!picker) {
+            // cria input auxiliar para o Litepicker renderizar inline no container
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'hidden';
+            container.appendChild(input);
+            if (typeof Litepicker === 'undefined') {
+              console.warn('Litepicker ainda não carregado. Tentando novamente em breve...');
+              setTimeout(openModal, 50);
+              return;
+            }
+            picker = new Litepicker({
+              element: input,
+              singleMode: false,
+              inlineMode: true,
+              numberOfMonths: 2,
+              numberOfColumns: 2,
+              autoApply: true,
+              mobileFriendly: true,
+              format: 'YYYY-MM-DD',
+              tooltipText: { one: 'dia', other: 'dias' },
+              lockDaysFilter: (day) => false,
+              setup: (inst) => {
+                inst.on('selected', (date1, date2) => {
+                  lastRange.start = date1;
+                  lastRange.end = date2;
+                });
+              }
+            });
+            // Se já houver range anterior, aplica
+            if (lastRange.start && lastRange.end && picker.setDateRange) {
+              try { picker.setDateRange(lastRange.start, lastRange.end); } catch {}
+            }
+          }
+          modal.classList.remove('hidden');
+        }
+
+        function closeModal(){
+          modal.classList.add('hidden');
+        }
+
+        // Delegação: só no Dashboard
+        document.addEventListener('click', function(e){
+          if (window.location.pathname !== '/dashboard') return;
+          const target = e.target;
+          if (target && typeof target.closest === 'function' && target.closest('#btn-filtro')) {
+            openModal();
+          }
+        });
+        if (btnFechar) btnFechar.addEventListener('click', closeModal);
+        if (btnCancelar) btnCancelar.addEventListener('click', closeModal);
+        // fecha ao clicar no overlay
+        document.addEventListener('click', function(e){
+          const content = document.querySelector('#modal-filtro > div.relative');
+          if (!content) return;
+          if (modal.classList.contains('hidden')) return;
+          if (!content.contains(e.target) && modal.contains(e.target)) closeModal();
+        });
+        // fecha no Esc
+        document.addEventListener('keydown', function(e){
+          if (e.key === 'Escape') closeModal();
+        });
+
+        if (btnAplicar) {
+          btnAplicar.addEventListener('click', function(){
+            if (!picker) return closeModal();
+            let startDate = (picker.getStartDate && picker.getStartDate()) || lastRange.start;
+            let endDate = (picker.getEndDate && picker.getEndDate()) || lastRange.end;
+            if (startDate && endDate) {
+              // Caso a função global exista, chama com ISODateString
+              const fn = window.atualizarDashboard || window.updateDashboard || null;
+              try {
+                if (typeof fn === 'function') {
+                  const toISO = (d) => {
+                    try {
+                      if (d && typeof d.format === 'function') return d.format('YYYY-MM-DD');
+                      if (d && typeof d.toDate === 'function') return d.toDate().toISOString().slice(0,10);
+                      if (d && typeof d.toISODateString === 'function') return d.toISODateString();
+                      const js = (d instanceof Date) ? d : new Date(d);
+                      return js.toISOString().slice(0,10);
+                    } catch (_) { return new Date(d).toISOString().slice(0,10); }
+                  };
+                  fn(toISO(startDate), toISO(endDate));
+                }
+              } catch (e) { /* silencioso */ }
+            }
+            closeModal();
+          });
+        }
+      })();
+    </script>
   </body>
 </html>

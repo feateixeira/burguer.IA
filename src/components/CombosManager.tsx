@@ -17,6 +17,7 @@ import {
 import { Plus, Pencil, Trash2, Package, X, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface Combo {
   id: string;
@@ -50,6 +51,7 @@ interface CombosManagerProps {
 }
 
 export default function CombosManager({ establishmentId }: CombosManagerProps) {
+  const confirmDialog = useConfirm();
   const [combos, setCombos] = useState<Combo[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,7 +202,8 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Deseja excluir este combo?")) return;
+    const ok = await confirmDialog({ title: 'Excluir combo', description: 'Deseja excluir este combo?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase.from("combos").delete().eq("id", id);

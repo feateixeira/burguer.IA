@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Edit, Trash2, Package, HelpCircle, ExternalLink } from "lucide-react";
+import { useConfirm } from "@/hooks/useConfirm";
 import Sidebar from "@/components/Sidebar";
 import CombosManager from "@/components/CombosManager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,6 +41,7 @@ interface Category {
 
 const Products = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const confirmDialog = useConfirm();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -136,7 +138,8 @@ const Products = () => {
   };
 
   const handleDelete = async (product: Product) => {
-    if (!confirm(`Tem certeza que deseja excluir "${product.name}"?`)) return;
+    const ok = await confirmDialog({ title: 'Excluir produto', description: `Tem certeza que deseja excluir "${product.name}"?` });
+    if (!ok) return;
 
     try {
       const { error } = await supabase

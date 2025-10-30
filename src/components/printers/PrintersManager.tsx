@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useConfirm } from "@/hooks/useConfirm";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ interface Printer {
 }
 
 export function PrintersManager({ establishmentId }: { establishmentId: string }) {
+  const confirmDialog = useConfirm();
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -100,7 +102,8 @@ export function PrintersManager({ establishmentId }: { establishmentId: string }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente excluir esta impressora?')) return;
+    const ok = await confirmDialog({ title: 'Excluir impressora', description: 'Deseja realmente excluir esta impressora?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, Trash2, ArrowRight, Package } from "lucide-react";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface PrinterRoute {
   id: string;
@@ -43,6 +44,7 @@ interface Product {
 }
 
 export function PrinterRouting({ establishmentId }: { establishmentId: string }) {
+  const confirmDialog = useConfirm();
   const [routes, setRoutes] = useState<PrinterRoute[]>([]);
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -154,7 +156,8 @@ export function PrinterRouting({ establishmentId }: { establishmentId: string })
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente excluir esta rota?')) return;
+    const ok = await confirmDialog({ title: 'Excluir rota', description: 'Deseja realmente excluir esta rota?' });
+    if (!ok) return;
 
     try {
       const { error } = await supabase

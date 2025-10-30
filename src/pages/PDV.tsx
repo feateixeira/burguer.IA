@@ -101,6 +101,7 @@ const PDV = () => {
   const [showCashModal, setShowCashModal] = useState(false);
   const [cashGiven, setCashGiven] = useState<number>(0);
   const [cashChange, setCashChange] = useState<number>(0);
+  const [generalInstructions, setGeneralInstructions] = useState<string>("");
 
   const sauceOptions = ["Mostarda e Mel", "Bacon", "Alho", "Ervas"];
 
@@ -602,6 +603,12 @@ const PDV = () => {
 
       // Create order - se for PIX, status fica como pending
       const isPix = paymentMethod === "pix";
+      
+      // Preparar notes com instruções gerais se houver
+      const orderNotes = generalInstructions.trim() 
+        ? `Instruções do Pedido: ${generalInstructions.trim()}`
+        : null;
+      
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -615,7 +622,8 @@ const PDV = () => {
           payment_method: paymentMethod,
           subtotal: subtotal,
           discount_amount: discountAmount,
-          total_amount: finalTotal
+          total_amount: finalTotal,
+          notes: orderNotes
         })
         .select()
         .single();
@@ -701,7 +709,8 @@ const PDV = () => {
         paymentMethod: paymentMethod,
         orderType: includeDelivery ? "delivery" : "balcao",
         cashGiven: paymentMethod === 'dinheiro' ? cashGiven : undefined,
-        cashChange: paymentMethod === 'dinheiro' ? Math.max(0, Number(cashGiven) - Number(finalTotal)) : undefined
+        cashChange: paymentMethod === 'dinheiro' ? Math.max(0, Number(cashGiven) - Number(finalTotal)) : undefined,
+        generalInstructions: generalInstructions.trim() || undefined
       };
 
       // Se for PIX, abrir modal de pagamento
@@ -725,6 +734,7 @@ const PDV = () => {
       setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
       setIncludeDelivery(false);
       setPaymentMethod("");
+      setGeneralInstructions("");
 
       toast.success(`Venda finalizada! Pedido: ${orderNumber}`);
     } catch (error) {
@@ -748,6 +758,7 @@ const PDV = () => {
     setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
     setIncludeDelivery(false);
     setPaymentMethod("");
+    setGeneralInstructions("");
     setPendingOrderId("");
     setPendingOrderAmount(0);
     setPendingReceiptData(null);
@@ -1341,6 +1352,19 @@ const PDV = () => {
                       <option value="cartao_debito">Cartão de Débito</option>
                       <option value="pix">PIX</option>
                     </select>
+                  </div>
+
+                  {/* General Instructions */}
+                  <div className="space-y-2">
+                    <Label htmlFor="general-instructions" className="text-sm font-medium">Instruções do Pedido</Label>
+                    <Textarea
+                      id="general-instructions"
+                      placeholder="Ex: Enviar em sacos separados, não colocar talheres, etc..."
+                      value={generalInstructions}
+                      onChange={(e) => setGeneralInstructions(e.target.value)}
+                      rows={3}
+                      className="resize-none"
+                    />
                   </div>
 
                   {/* Cart Items */}

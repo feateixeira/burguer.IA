@@ -413,12 +413,23 @@
 
       // Nome + endereço ao lado do nome
       let customerDisplay = order.customer_name || '';
+      let generalInstructions: string | undefined = undefined;
+      
       if (order.notes) {
         const text = order.notes.replace(/\*/g, '');
+        
+        // Extrair endereço
         const mAddr = text.match(/Endereç[oa]:\s*([^*\n]+)/i);
         if (mAddr && mAddr[1]) {
           const addr = mAddr[1].trim();
           if (addr) customerDisplay = `${customerDisplay} - ${addr}`.trim();
+        }
+        
+        // Extrair instruções gerais do pedido
+        // Tenta encontrar "Instruções do Pedido:" seguido do texto
+        const instructionsMatch = text.match(/Instruções\s+do\s+Pedido:\s*([\s\S]*?)(?:\n\n|$)/i);
+        if (instructionsMatch && instructionsMatch[1]) {
+          generalInstructions = instructionsMatch[1].trim();
         }
       }
 
@@ -435,7 +446,8 @@
         establishmentAddress: (establishment as any)?.address,
         establishmentPhone: (establishment as any)?.phone,
         paymentMethod: order.payment_method,
-        orderType: order.order_type || "delivery"
+        orderType: order.order_type || "delivery",
+        generalInstructions: generalInstructions
       };
 
       await printReceipt(receiptData);

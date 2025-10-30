@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Edit, Trash2, Package, HelpCircle, ExternalLink } from "lucide-react";
-import { useConfirm } from "@/hooks/useConfirm";
 import Sidebar from "@/components/Sidebar";
 import CombosManager from "@/components/CombosManager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,9 +38,90 @@ interface Category {
   description?: string;
 }
 
+function CategoryManager({ categories, onRefresh, establishmentId }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [newCat, setNewCat] = useState("");
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+
+  const handleAdd = async () => {
+    if (!newCat.trim()) return toast.error("Digite o nome da categoria");
+    const { error } = await supabase.from("categories").insert({
+      name: newCat,
+      establishment_id: establishmentId,
+      active: true,
+      sort_order: categories.length + 1
+    });
+    if (error) return toast.error(error.message);
+    setNewCat("");
+    onRefresh();
+  };
+
+  const handleDelete = async (cat: Category) => {
+    if (!window.confirm(`Excluir categoria ${cat.name}?`)) return;
+    const { error } = await supabase.from("categories").delete().eq('id', cat.id);
+    if (error) return toast.error(error.message);
+    onRefresh();
+  };
+
+  const handleEdit = async () => {
+    if (!editingCat || !editingCat.name.trim()) return;
+    const { error } = await supabase.from("categories").update({ name: editingCat.name }).eq("id", editingCat.id);
+    if (error) return toast.error(error.message);
+    setEditingCat(null);
+    onRefresh();
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="ml-3">Gerenciar Categorias</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Categorias</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <div>
+            <Label htmlFor="new-category">Nova Categoria</Label>
+            <Input
+              id="new-category"
+              value={newCat}
+              onChange={e => setNewCat(e.target.value)}
+              placeholder="Nome da categoria"
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            />
+            <Button onClick={handleAdd} size="sm" className="mt-2">Adicionar</Button>
+          </div>
+          <div className="mt-4">
+            <h4 className="font-bold">Suas Categorias:</h4>
+            {categories.map(cat => (
+              <div key={cat.id} className="flex items-center gap-2 py-1">
+                {editingCat?.id === cat.id ? (
+                  <>
+                    <Input value={editingCat.name}
+                      onChange={e => setEditingCat({ ...editingCat, name: e.target.value })} size="sm"
+                    />
+                    <Button size="sm" onClick={handleEdit}>Salvar</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingCat(null)}>Cancelar</Button>
+                  </>
+                ) : (
+                  <>
+                    <span>{cat.name}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingCat(cat)}>Editar</Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleDelete(cat)}>Excluir</Button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const Products = () => {
   const [products, setProducts] = useState<Product[]>([]);
-  const confirmDialog = useConfirm();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -138,8 +218,7 @@ const Products = () => {
   };
 
   const handleDelete = async (product: Product) => {
-    const ok = await confirmDialog({ title: 'Excluir produto', description: `Tem certeza que deseja excluir "${product.name}"?` });
-    if (!ok) return;
+    if (!confirm(`Tem certeza que deseja excluir "${product.name}"?`)) return;
 
     try {
       const { error } = await supabase
@@ -197,129 +276,136 @@ const Products = () => {
                 <p className="text-muted-foreground">
                   Gerencie os produtos do seu estabelecimento
                 </p>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button onClick={openCreateDialog}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Adicionar Produto
-                    </Button>
-                  </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>
-                    {editingProduct ? "Editar Produto" : "Novo Produto"}
-                  </DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <Label htmlFor="name">Nome</Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      defaultValue={editingProduct?.name || ""}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="description">Descrição</Label>
-                    <Textarea
-                      id="description"
-                      name="description"
-                      defaultValue={editingProduct?.description || ""}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="price">Preço</Label>
-                    <Input
-                      id="price"
-                      name="price"
-                      type="number"
-                      step="0.01"
-                      defaultValue={editingProduct?.price || ""}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="category_id">Categoria</Label>
-                    <select
-                      id="category_id"
-                      name="category_id"
-                      defaultValue={editingProduct?.category_id || ""}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="">Selecionar categoria</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Label htmlFor="image_url">Imagem do Produto (URL)</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0">
-                            <HelpCircle className="h-4 w-4" />
+                <div className="flex items-center">
+                  <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button onClick={openCreateDialog}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Adicionar Produto
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>
+                          {editingProduct ? "Editar Produto" : "Novo Produto"}
+                        </DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                          <Label htmlFor="name">Nome</Label>
+                          <Input
+                            id="name"
+                            name="name"
+                            defaultValue={editingProduct?.name || ""}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="description">Descrição</Label>
+                          <Textarea
+                            id="description"
+                            name="description"
+                            defaultValue={editingProduct?.description || ""}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="price">Preço</Label>
+                          <Input
+                            id="price"
+                            name="price"
+                            type="number"
+                            step="0.01"
+                            defaultValue={editingProduct?.price || ""}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="category_id">Categoria</Label>
+                          <select
+                            id="category_id"
+                            name="category_id"
+                            defaultValue={editingProduct?.category_id || ""}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <option value="">Selecionar categoria</option>
+                            {categories.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Label htmlFor="image_url">Imagem do Produto (URL)</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                  <HelpCircle className="h-4 w-4" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-80">
+                                <Alert>
+                                  <HelpCircle className="h-4 w-4" />
+                                  <AlertTitle>Como adicionar imagem usando Imgur</AlertTitle>
+                                  <AlertDescription className="space-y-2 mt-2">
+                                    <ol className="list-decimal list-inside space-y-2 text-sm">
+                                      <li>Acesse <a href="https://imgur.com/upload" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">imgur.com/upload <ExternalLink className="h-3 w-3" /></a></li>
+                                      <li>Arraste sua imagem ou clique em "Escolher imagens"</li>
+                                      <li>Após o upload, clique com botão direito na imagem</li>
+                                      <li>Selecione "Copiar link da imagem" ou "Copy image address"</li>
+                                      <li>Cole o link aqui (deve começar com https://i.imgur.com/...)</li>
+                                    </ol>
+                                    <p className="text-xs text-muted-foreground mt-3">
+                                      <strong>Dica:</strong> Use imagens quadradas (1:1) para melhor visualização no totem. 
+                                      O tamanho ideal é 500x500px ou 800x800px.
+                                    </p>
+                                  </AlertDescription>
+                                </Alert>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <Input
+                            id="image_url"
+                            name="image_url"
+                            type="url"
+                            placeholder="https://i.imgur.com/exemplo.jpg"
+                            defaultValue={editingProduct?.image_url || ""}
+                          />
+                          {editingProduct?.image_url && (
+                            <div className="mt-2">
+                              <img 
+                                src={editingProduct.image_url} 
+                                alt="Preview" 
+                                className="w-24 h-24 object-cover rounded-md border"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex justify-end space-x-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsDialogOpen(false)}
+                          >
+                            Cancelar
                           </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-80">
-                          <Alert>
-                            <HelpCircle className="h-4 w-4" />
-                            <AlertTitle>Como adicionar imagem usando Imgur</AlertTitle>
-                            <AlertDescription className="space-y-2 mt-2">
-                              <ol className="list-decimal list-inside space-y-2 text-sm">
-                                <li>Acesse <a href="https://imgur.com/upload" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">imgur.com/upload <ExternalLink className="h-3 w-3" /></a></li>
-                                <li>Arraste sua imagem ou clique em "Escolher imagens"</li>
-                                <li>Após o upload, clique com botão direito na imagem</li>
-                                <li>Selecione "Copiar link da imagem" ou "Copy image address"</li>
-                                <li>Cole o link aqui (deve começar com https://i.imgur.com/...)</li>
-                              </ol>
-                              <p className="text-xs text-muted-foreground mt-3">
-                                <strong>Dica:</strong> Use imagens quadradas (1:1) para melhor visualização no totem. 
-                                O tamanho ideal é 500x500px ou 800x800px.
-                              </p>
-                            </AlertDescription>
-                          </Alert>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <Input
-                      id="image_url"
-                      name="image_url"
-                      type="url"
-                      placeholder="https://i.imgur.com/exemplo.jpg"
-                      defaultValue={editingProduct?.image_url || ""}
-                    />
-                    {editingProduct?.image_url && (
-                      <div className="mt-2">
-                        <img 
-                          src={editingProduct.image_url} 
-                          alt="Preview" 
-                          className="w-24 h-24 object-cover rounded-md border"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex justify-end space-x-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsDialogOpen(false)}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button type="submit">
-                      {editingProduct ? "Atualizar" : "Criar"}
-                    </Button>
-                  </div>
-                </form>
-                  </DialogContent>
-                </Dialog>
+                          <Button type="submit">
+                            {editingProduct ? "Atualizar" : "Criar"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <CategoryManager
+                    categories={categories}
+                    onRefresh={loadData}
+                    establishmentId={establishmentId}
+                  />
+                </div>
               </div>
 
               {/* Busca de produtos */}

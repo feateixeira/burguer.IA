@@ -107,6 +107,20 @@ serve(async (req) => {
     const discountAmount = order.totals?.discount || 0;
     const totalAmount = order.totals?.final_total || (subtotal + deliveryFee - discountAmount);
 
+    // Capturar instruções gerais do pedido (pode vir em vários campos)
+    const generalInstructions = order.instructions || order.general_instructions || order.order_instructions || null;
+    
+    // Combinar notas do cliente e instruções gerais no campo notes
+    let orderNotes = order.customer?.notes || order.meta?.whatsapp_message_preview || null;
+    if (generalInstructions) {
+      // Se já houver notes, adicionar as instruções separadamente
+      if (orderNotes) {
+        orderNotes = `${orderNotes}\n\nInstruções do Pedido: ${generalInstructions}`;
+      } else {
+        orderNotes = `Instruções do Pedido: ${generalInstructions}`;
+      }
+    }
+
     // Create order
     const { data: newOrder, error: orderError } = await supabase
       .from('orders')
@@ -123,7 +137,7 @@ serve(async (req) => {
         status: 'pending',
         payment_status: order.payment?.status || 'pending',
         payment_method: order.payment?.method || 'whatsapp',
-        notes: order.customer?.notes || order.meta?.whatsapp_message_preview || null,
+        notes: orderNotes,
         source_domain: source_domain || null,
         external_id: order.external_id || null,
         channel: order.channel || 'online',

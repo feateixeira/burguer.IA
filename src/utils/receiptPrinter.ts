@@ -15,6 +15,7 @@ export interface ReceiptData {
   orderType: string;
   cashGiven?: number;
   cashChange?: number;
+  generalInstructions?: string;
 }
 
 export const printReceipt = async (r: ReceiptData) => {
@@ -107,6 +108,16 @@ export const printReceipt = async (r: ReceiptData) => {
 
         .items .item { margin: 3px 0; }
         .notes { font-size: ${Math.max(12, Math.round(fontSize * .9))}px; line-height: 1.15; }
+        .general-instructions {
+          margin: 9px 0;
+          padding: 6px;
+          background: #f5f5f5;
+          border-left: 3px solid #000;
+          font-size: ${Math.max(12, Math.round(fontSize * .9))}px;
+          line-height: 1.3;
+          word-break: break-word;
+          font-weight: 600;
+        }
 
         .customer{
           margin: 6px 0;
@@ -138,6 +149,13 @@ export const printReceipt = async (r: ReceiptData) => {
         <div class="items">
           ${itemsHtml}
         </div>
+
+        ${r.generalInstructions ? `
+          <div class="sep"></div>
+          <div class="general-instructions">
+            <strong>OBS:</strong> ${r.generalInstructions}
+          </div>
+        ` : ""}
 
         <div class="sep"></div>
 

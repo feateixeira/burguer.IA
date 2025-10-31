@@ -152,48 +152,49 @@ Deno.serve(async (req) => {
     // Create or get establishment
     let establishmentId: string | null = null
     
-    if (establishmentName) {
-      try {
-        // Check if establishment exists (using service role bypasses RLS)
-        const { data: existingEstab, error: selectError } = await supabaseAdmin
-          .from('establishments')
-          .select('id')
-          .eq('name', establishmentName)
-          .maybeSingle()
+    // Sempre cria um estabelecimento, mesmo se não fornecido um nome
+    const finalEstablishmentName = establishmentName || email.split('@')[0] || `Estabelecimento ${newUser.user.id.substring(0, 8)}`
+    
+    try {
+      // Check if establishment exists (using service role bypasses RLS)
+      const { data: existingEstab, error: selectError } = await supabaseAdmin
+        .from('establishments')
+        .select('id')
+        .eq('name', finalEstablishmentName)
+        .maybeSingle()
 
-        if (selectError && selectError.code !== 'PGRST116') {
-          console.error('Error checking establishment:', selectError)
-          throw new Error(`Failed to check establishment: ${selectError.message}`)
-        }
-
-        if (existingEstab) {
-          establishmentId = existingEstab.id
-        } else {
-          // Create new establishment
-          const { data: newEstablishment, error: estabError } = await supabaseAdmin
-            .from('establishments')
-            .insert({
-              name: establishmentName,
-              slug: establishmentName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-            })
-            .select('id')
-            .single()
-
-          if (estabError) {
-            console.error('Error creating establishment:', estabError)
-            throw new Error(`Failed to create establishment: ${estabError.message || estabError.code}`)
-          }
-          
-          if (!newEstablishment?.id) {
-            throw new Error('Establishment created but no ID returned')
-          }
-          
-          establishmentId = newEstablishment.id
-        }
-      } catch (estabErr: any) {
-        console.error('Establishment creation/check failed:', estabErr)
-        throw estabErr
+      if (selectError && selectError.code !== 'PGRST116') {
+        console.error('Error checking establishment:', selectError)
+        throw new Error(`Failed to check establishment: ${selectError.message}`)
       }
+
+      if (existingEstab) {
+        establishmentId = existingEstab.id
+      } else {
+        // Create new establishment
+        const { data: newEstablishment, error: estabError } = await supabaseAdmin
+          .from('establishments')
+          .insert({
+            name: finalEstablishmentName,
+            slug: finalEstablishmentName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').substring(0, 50)
+          })
+          .select('id')
+          .single()
+
+        if (estabError) {
+          console.error('Error creating establishment:', estabError)
+          throw new Error(`Failed to create establishment: ${estabError.message || estabError.code}`)
+        }
+        
+        if (!newEstablishment?.id) {
+          throw new Error('Establishment created but no ID returned')
+        }
+        
+        establishmentId = newEstablishment.id
+      }
+    } catch (estabErr: any) {
+      console.error('Establishment creation/check failed:', estabErr)
+      throw estabErr
     }
 
     // Create profile for the new user (using service role bypasses RLS)

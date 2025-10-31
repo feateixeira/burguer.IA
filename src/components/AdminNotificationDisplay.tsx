@@ -37,22 +37,30 @@ export function AdminNotificationDisplay() {
         }
 
         if (notificationsData) {
-          // Filtrar apenas notificações criadas por admin (created_by não é null e não é o próprio usuário)
-          // Verificar se o created_by é um admin
-          const adminIds: string[] = [];
-          const { data: adminProfiles } = await supabase
-            .from("profiles")
-            .select("user_id")
-            .eq("is_admin", true);
+          // Buscar o user_id do admin do sistema (fellipe_1693@outlook.com) via RPC
+          // Como apenas ele envia notificações, precisamos apenas verificar o ID dele
+          let systemAdminId: string | null = null;
           
-          if (adminProfiles) {
-            adminIds.push(...adminProfiles.map(p => p.user_id));
+          try {
+            const { data: adminId, error: rpcError } = await supabase
+              .rpc('get_system_admin_id');
+            
+            if (!rpcError && adminId) {
+              systemAdminId = adminId;
+            } else {
+              // Fallback: usar o ID conhecido diretamente (hardcoded como fallback)
+              console.warn('Não foi possível buscar ID do admin via RPC, usando ID conhecido');
+              systemAdminId = 'f8d2fdd1-c62f-4476-b657-d46738309941';
+            }
+          } catch (err) {
+            // Se tudo falhar, usar o ID conhecido diretamente
+            console.warn('Erro ao buscar ID do admin, usando ID conhecido:', err);
+            systemAdminId = 'f8d2fdd1-c62f-4476-b657-d46738309941';
           }
 
+          // Filtrar apenas notificações criadas pelo admin do sistema
           const adminNotifications = notificationsData.filter(
-            (notif) => notif.created_by !== null && 
-                       notif.created_by !== session.user.id &&
-                       adminIds.includes(notif.created_by)
+            (notif) => notif.created_by !== null && notif.created_by === systemAdminId
           );
 
           // Verificar se a notificação foi criada há menos de 10 minutos (600000ms)

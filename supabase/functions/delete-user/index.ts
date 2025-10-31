@@ -18,11 +18,17 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    // Tenta múltiplas variáveis de ambiente para compatibilidade
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('SUPABASE_PROJECT_URL')
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY')
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing environment variables')
+      console.error('Missing environment variables:', {
+        hasUrl: !!supabaseUrl,
+        hasServiceKey: !!supabaseServiceKey,
+        envKeys: Object.keys(Deno.env.toObject())
+      })
+      throw new Error('Missing environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY or SERVICE_ROLE_KEY required')
     }
 
     const supabaseAdmin = createClient(
@@ -140,4 +146,3 @@ Deno.serve(async (req) => {
     )
   }
 })
-

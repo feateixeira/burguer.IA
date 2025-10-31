@@ -327,23 +327,43 @@ export default function Admin() {
     }
 
     try {
-      // Primeiro tentar via RPC (sem problemas de CORS)
-      const { data: rpcData, error: rpcError } = await supabase
-        .rpc('delete_user_completely', { target_user_id: userId });
-
-      if (rpcError) {
-        throw rpcError;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Sessão expirada. Por favor, faça login novamente.');
+        return;
       }
 
-      if (rpcData && !rpcData.success) {
-        throw new Error(rpcData.error || 'Falha ao excluir usuário');
+      // Usa a Edge Function para deletar completamente, incluindo auth.users
+      const response = await supabase.functions.invoke('delete-user', {
+        body: { user_id: userId },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+
+      // Verificar se houve erro na resposta
+      if (response.error) {
+        let errorMessage = response.error.message || 'Erro desconhecido ao excluir usuário';
+        
+        // Tentar obter mensagem do data se disponível
+        if (response.data?.error) {
+          errorMessage = response.data.error;
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      // Usuário excluído com sucesso via RPC
-      // O profile foi deletado, então o usuário não consegue mais fazer login
-      // O registro em auth.users pode permanecer, mas é inofensivo sem o profile
-      
-      toast.success('Usuário excluído permanentemente do sistema!');
+      // Verificar se a resposta tem erro no objeto data
+      if (response.data?.error) {
+        throw new Error(response.data.error);
+      }
+
+      // Verificar se foi bem-sucedido
+      if (!response.data?.success) {
+        throw new Error('Falha ao excluir usuário. Tente novamente.');
+      }
+
+      toast.success('Usuário excluído permanentemente do sistema e do banco de dados!');
       loadUsers();
     } catch (error: any) {
       console.error('Error deleting user:', error);
@@ -373,7 +393,12 @@ export default function Admin() {
           created_by: session.user.id
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error inserting notification:', error);
+        throw error;
+      }
+      
+      console.log('Notification sent successfully to user:', selectedUser.id);
 
       toast.success('Notificação enviada com sucesso!');
       setNotificationDialogOpen(false);

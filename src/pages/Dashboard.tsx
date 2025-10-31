@@ -536,8 +536,10 @@ const Dashboard = () => {
         .maybeSingle();
 
       if (!profile?.establishment_id) {
-        toast.error('Perfil sem estabelecimento vinculado');
-        navigate('/auth');
+        // Não redireciona imediatamente - permite que o TeamUserProvider mostre o dialog de criação de master
+        // O usuário pode criar o master, que automaticamente criará/vincul fará um estabelecimento
+        console.warn('Usuário sem estabelecimento vinculado. Aguardando criação de master...');
+        setLoading(false);
         return;
       }
 
@@ -1212,7 +1214,7 @@ const Dashboard = () => {
         </div>
 
         {/* Recent Orders, Delivery and Quick Actions */}
-        <div className={`grid gap-6 ${dashboardData.deliveryBoysData.length > 0 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+        <div className="grid gap-6 lg:grid-cols-3">
           {/* Recent Orders */}
           <Card>
             <CardHeader>
@@ -1269,18 +1271,18 @@ const Dashboard = () => {
           </Card>
 
           {/* Delivery Boys Summary */}
-          {dashboardData.deliveryBoysData.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Truck className="h-4 w-4 mr-2" />
-                  Delivery - Pagamentos aos Motoboys
-                </CardTitle>
-                <CardDescription>
-                  Valores a pagar aos motoboys no período selecionado
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Truck className="h-4 w-4 mr-2" />
+                Delivery - Pagamentos aos Motoboys
+              </CardTitle>
+              <CardDescription>
+                Valores a pagar aos motoboys no período selecionado
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.deliveryBoysData.length > 0 ? (
                 <div className="space-y-3">
                   {dashboardData.deliveryBoysData.map((boy) => (
                     <div key={boy.id} className="p-4 border rounded-lg">
@@ -1316,12 +1318,18 @@ const Dashboard = () => {
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          ) : null}
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Truck className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-sm">Nenhuma entrega registrada no período selecionado</p>
+                  <p className="text-xs mt-2">Os pagamentos aos motoboys aparecerão aqui após criar pedidos de entrega</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Quick Actions */}
-          <Card className={dashboardData.deliveryBoysData.length === 0 ? 'lg:col-span-2' : ''}>
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Zap className="h-4 w-4 mr-2" />

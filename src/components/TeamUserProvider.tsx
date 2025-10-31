@@ -79,6 +79,25 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setInitialized(true);
           return; 
         }
+
+        // Verifica se é o usuário admin do sistema
+        const isSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+        
+        if (isSystemAdmin) {
+          // Para o admin do sistema, criar um teamUser virtual com permissões máximas
+          const virtualTeamUser: TeamUser = {
+            id: 'system-admin',
+            name: 'Administrador do Sistema',
+            role: 'master',
+            active: true,
+            user_id: session.user.id
+          };
+          setTeamUser(virtualTeamUser);
+          setTeamList([]);
+          setLoading(false);
+          setInitialized(true);
+          return;
+        }
         // Carrega establishment_id do profile
         const { data: prof } = await supabase
           .from('profiles')
@@ -161,15 +180,27 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Contexto exportado
   const ctxValue: TeamUserContextType = { teamUser, setTeamUser, resetTeamUser: handleLogout };
 
-  // TEMPORARIAMENTE DESABILITADO - será arrumado amanhã
   // CALCULA se deve mostrar o dialog: SEMPRE quando não há teamUser em rotas privadas
+  // NÃO mostra o dialog se o usuário é o admin do sistema (fellipe_1693@outlook.com)
   const mustShowDialog = useMemo(() => {
-    // DESABILITADO TEMPORARIAMENTE
-    return false; // !isPublic && initialized && !loading && !teamUser;
+    // Verifica se é o admin do sistema
+    let isSystemAdmin = false;
+    if (teamUser && teamUser.id === 'system-admin') {
+      isSystemAdmin = true;
+    }
+    
+    // Mostra o dialog quando:
+    // - Não é rota pública
+    // - Já inicializou (terminou de carregar)
+    // - Não está carregando
+    // - Não há teamUser selecionado
+    // - NÃO é o admin do sistema
+    return !isPublic && initialized && !loading && !teamUser && !isSystemAdmin;
   }, [isPublic, initialized, loading, teamUser]);
 
   // Bloquear o conteúdo enquanto não houver teamUser em rotas privadas
-  const shouldBlockContent = false; // mustShowDialog;
+  // Só bloqueia se há membros na equipe (se não há, apenas mostra o dialog mas não bloqueia)
+  const shouldBlockContent = mustShowDialog && teamList.length > 0;
 
   return (
     <TeamUserContext.Provider value={ctxValue}>
@@ -202,9 +233,13 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       {/* DIALOG SEMPRE ABERTO quando não tem teamUser - IMPOSSÍVEL FECHAR */}
       <Dialog 
         open={mustShowDialog}
-        onOpenChange={() => {
-          // COMPLETAMENTE IGNORA qualquer tentativa de fechar se não tem teamUser
-          // Não faz NADA - o dialog é controlado apenas por mustShowDialog
+        onOpenChange={(open) => {
+          // IMPEDE fechar o dialog se não tem teamUser selecionado
+          // O dialog só pode fechar quando um usuário é selecionado (via handleSelectAndProceed)
+          if (!teamUser && open === false) {
+            // Não permite fechar sem selecionar um usuário
+            return;
+          }
         }}
         modal={true}
       >

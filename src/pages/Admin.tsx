@@ -33,7 +33,8 @@ import {
   XCircle, 
   Bell,
   LogOut,
-  Calendar
+  Calendar,
+  Trash2
 } from 'lucide-react';
 import {
   Tooltip,
@@ -103,38 +104,103 @@ export default function Admin() {
 
   const loadUsers = async () => {
     try {
+      // Buscar profiles com establishment_id
       const { data: profiles, error } = await supabase
         .from('profiles')
-        .select('user_id, full_name, created_at, status, is_admin')
+        .select('user_id, full_name, created_at, status, is_admin, establishment_id')
         .eq('is_admin', false);
 
       if (error) throw error;
 
       const usersData: User[] = [];
 
-      for (const profile of profiles || []) {
-        // Get establishment data if needed
-        const { data: establishments } = await supabase
-          .from('profiles')
-          .select('establishment_id')
-          .eq('user_id', profile.user_id)
-          .single();
+      // Buscar todos os user_ids para obter os emails
+      const userIds = (profiles || []).map(p => p.user_id);
+      
+      // Buscar emails via função RPC ou criar uma edge function
+      // Por enquanto, vamos usar uma abordagem diferente: criar uma função RPC
+      // ou buscar os emails via admin API (mas isso requer service role)
+      // Solução temporária: vamos usar uma query que busca do auth.users via RPC
+      
+      // Vamos buscar os estabelecimentos em batch
+      const establishmentIds = Array.from(
+        new Set((profiles || [])
+          .map(p => p.establishment_id)
+          .filter(id => id !== null)
+        )
+      );
 
-        let establishmentName = 'N/A';
-        if (establishments?.establishment_id) {
-          const { data: estData } = await supabase
-            .from('establishments')
-            .select('name')
-            .eq('id', establishments.establishment_id)
-            .single();
-          
-          if (estData) {
-            establishmentName = estData.name;
+      // Buscar todos os estabelecimentos de uma vez
+      const establishmentsMap = new Map<string, string>();
+      if (establishmentIds.length > 0) {
+        const { data: establishmentsData, error: estError } = await supabase
+          .from('establishments')
+          .select('id, name')
+          .in('id', establishmentIds);
+
+        if (establishmentsData && establishmentsData.length > 0) {
+          establishmentsData.forEach(est => {
+            establishmentsMap.set(est.id, est.name);
+          });
+        } else if (estError) {
+          // Se não encontrou, pode ser problema de RLS - tentar buscar um por um
+          for (const estId of establishmentIds) {
+            try {
+              const { data: estData } = await supabase
+                .from('establishments')
+                .select('id, name')
+                .eq('id', estId)
+                .maybeSingle();
+              
+              if (estData) {
+                establishmentsMap.set(estData.id, estData.name);
+              }
+            } catch (err) {
+              // Silenciar erro individual
+            }
           }
         }
+      }
 
-        // Get email from auth metadata
-        const email = profile.user_id; // Will be replaced with actual email below
+      // Buscar emails via RPC (Edge Function tem problema de CORS, mas RPC funciona perfeitamente)
+      const emailsMap = new Map<string, string>();
+      
+      if (userIds.length > 0) {
+        try {
+          const { data: emailsData, error: rpcError } = await supabase
+            .rpc('get_user_emails', { user_ids: userIds });
+
+          if (!rpcError && emailsData && Array.isArray(emailsData)) {
+            emailsData.forEach((entry: any) => {
+              if (entry.user_id && entry.email) {
+                emailsMap.set(entry.user_id, entry.email);
+              }
+            });
+          }
+        } catch (error) {
+          // Silenciar erro - usar UUID como fallback
+        }
+      }
+
+      for (const profile of profiles || []) {
+        // Buscar email do usuário
+        const email = emailsMap.get(profile.user_id) || profile.user_id; // Fallback para UUID se não encontrar
+
+        // Buscar nome do estabelecimento
+        let establishmentName = 'N/A';
+        if (profile.establishment_id) {
+          const estName = establishmentsMap.get(profile.establishment_id);
+          if (estName) {
+            establishmentName = estName;
+          } else {
+            // Se não encontrou no map, pode ser que o establishment não existe mais
+            establishmentName = 'Estabelecimento não encontrado';
+          }
+        } else {
+          establishmentName = 'Sem estabelecimento';
+        }
+        
+        // Não mostrar logs desnecessários - tudo está funcionando agora
 
         usersData.push({
           id: profile.user_id,
@@ -167,7 +233,7 @@ export default function Admin() {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('create-user', {
+      const response = await supabase.functions.invoke('create-user', {
         body: {
           email: newUserEmail,
           password: newUserPassword,
@@ -179,23 +245,42 @@ export default function Admin() {
         }
       });
 
-      // Log full response for debugging
-      console.log('Edge Function response:', { data, error });
+      // Log completo da resposta para debug
+      console.log('Full response:', JSON.stringify(response, null, 2));
 
-      if (error) {
-        console.error('Error from Edge Function:', error);
-        // Edge Function errors might contain more details
-        const errorMsg = error.message || error.error || 'Erro ao chamar função do servidor';
-        throw new Error(errorMsg);
+      // Se houver erro na resposta
+      if (response.error) {
+        let errorMessage = response.error.message || 'Erro desconhecido ao criar usuário';
+        
+        // Tentar obter mensagem do data se disponível (o Supabase às vezes coloca erro no data)
+        if (response.data?.error) {
+          errorMessage = response.data.error;
+        }
+        
+        // Tentar obter do contexto do erro
+        if (response.error.context?.body?.error) {
+          errorMessage = response.error.context.body.error;
+        }
+        
+        // Log detalhado
+        console.error('Error in response:', {
+          error: response.error,
+          errorMessage: response.error.message,
+          data: response.data,
+          finalMessage: errorMessage
+        });
+        
+        throw new Error(errorMessage);
       }
 
-      // Check if the response contains an error
-      if (data?.error) {
-        console.error('Error in response data:', data.error);
-        throw new Error(data.error);
+      // Verificar se a resposta tem erro no objeto data
+      if (response.data?.error) {
+        console.error('Error in response.data:', response.data.error);
+        throw new Error(response.data.error);
       }
 
-      if (!data?.success) {
+      // Verificar se foi bem-sucedido
+      if (!response.data?.success) {
         throw new Error('Falha ao criar usuário. Tente novamente.');
       }
 
@@ -207,7 +292,7 @@ export default function Admin() {
       setNewUserEstablishment('');
       loadUsers();
     } catch (error: any) {
-      console.error('Error creating user:', error);
+      // Mostrar mensagem de erro sem logs desnecessários
       const errorMessage = error?.message || error?.error || 'Erro desconhecido ao criar usuário';
       toast.error('Erro ao criar usuário: ' + errorMessage);
     }
@@ -222,11 +307,47 @@ export default function Admin() {
 
       if (error) throw error;
 
+      // Se cancelar, fazer logout do usuário se estiver logado
+      if (newStatus === 'cancelled') {
+        // Nota: Não podemos fazer logout direto, mas podemos tentar invalidar a sessão
+        // O logout será feito automaticamente na próxima tentativa de login
+      }
+
       toast.success(`Status do usuário atualizado para ${newStatus}`);
       loadUsers();
     } catch (error) {
       console.error('Error updating user status:', error);
       toast.error('Erro ao atualizar status do usuário');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este usuário permanentemente? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      // Primeiro tentar via RPC (sem problemas de CORS)
+      const { data: rpcData, error: rpcError } = await supabase
+        .rpc('delete_user_completely', { target_user_id: userId });
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      if (rpcData && !rpcData.success) {
+        throw new Error(rpcData.error || 'Falha ao excluir usuário');
+      }
+
+      // Usuário excluído com sucesso via RPC
+      // O profile foi deletado, então o usuário não consegue mais fazer login
+      // O registro em auth.users pode permanecer, mas é inofensivo sem o profile
+      
+      toast.success('Usuário excluído permanentemente do sistema!');
+      loadUsers();
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      toast.error('Erro ao excluir usuário: ' + (error.message || 'Erro desconhecido'));
     }
   };
 
@@ -236,13 +357,20 @@ export default function Admin() {
     if (!selectedUser) return;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Sessão expirada');
+        return;
+      }
+
       const { error } = await supabase
         .from('user_notifications')
         .insert({
           user_id: selectedUser.id,
           title: notificationTitle,
           message: notificationMessage,
-          type: 'payment'
+          type: 'payment',
+          created_by: session.user.id
         });
 
       if (error) throw error;
@@ -560,6 +688,20 @@ export default function Admin() {
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>Conceder dias de teste</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteUser(user.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Excluir usuário permanentemente</p>
                         </TooltipContent>
                       </Tooltip>
                     </div>

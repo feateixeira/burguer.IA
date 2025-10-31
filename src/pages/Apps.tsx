@@ -7,6 +7,7 @@ import { Monitor, Smartphone, Settings, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 interface AppSettings {
   password_panel_enabled: boolean;
@@ -22,6 +23,15 @@ export default function Apps() {
     establishment_id: "",
   });
   const [loading, setLoading] = useState(true);
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -102,20 +112,38 @@ export default function Apps() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen">
+      <div className="min-h-screen bg-background">
         <Sidebar />
-        <div className="flex-1 p-6">
-          <p>Carregando...</p>
-        </div>
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="w-full">Carregando...</div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full space-y-6">
           <div>
             <h1 className="text-3xl font-bold">APPS</h1>
             <p className="text-muted-foreground">
@@ -228,7 +256,7 @@ export default function Apps() {
             </Card>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

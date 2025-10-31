@@ -18,6 +18,8 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +81,8 @@ const PDV = () => {
   const [establishmentSettings, setEstablishmentSettings] = useState<any>({});
   const [establishmentInfo, setEstablishmentInfo] = useState<{ name: string; address?: string; phone?: string; storeNumber?: string }>({ name: '' });
   const [includeDelivery, setIncludeDelivery] = useState(false);
+  const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
+  const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState<string>("");
   const [showSauceDialog, setShowSauceDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [sauceNote, setSauceNote] = useState("");
@@ -101,6 +105,15 @@ const PDV = () => {
   const [showCashModal, setShowCashModal] = useState(false);
   const [cashGiven, setCashGiven] = useState<number>(0);
   const [cashChange, setCashChange] = useState<number>(0);
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
   const [generalInstructions, setGeneralInstructions] = useState<string>("");
 
   const sauceOptions = ["Mostarda e Mel", "Bacon", "Alho", "Ervas"];
@@ -227,6 +240,33 @@ const PDV = () => {
       toast.error("Erro ao carregar produtos");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDeliveryBoys = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("establishment_id")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (!profile?.establishment_id) return;
+
+      const { data, error } = await supabase
+        .from("delivery_boys")
+        .select("*")
+        .eq("establishment_id", profile.establishment_id)
+        .eq("active", true)
+        .order("name");
+
+      if (error) throw error;
+      setDeliveryBoys(data || []);
+    } catch (error) {
+      console.error("Error loading delivery boys:", error);
     }
   };
 
@@ -617,6 +657,7 @@ const PDV = () => {
           customer_name: customerName || "Cliente Balcão",
           customer_phone: customerPhone,
           order_type: includeDelivery ? "delivery" : "balcao",
+          delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
           status: isPix ? "pending" : "completed",
           payment_status: isPix ? "pending" : "paid",
           payment_method: paymentMethod,
@@ -733,6 +774,7 @@ const PDV = () => {
       setSelectedCustomer(null);
       setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
       setIncludeDelivery(false);
+      setSelectedDeliveryBoy("");
       setPaymentMethod("");
       setGeneralInstructions("");
 
@@ -757,6 +799,7 @@ const PDV = () => {
     setSelectedCustomer(null);
     setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
     setIncludeDelivery(false);
+    setSelectedDeliveryBoy("");
     setPaymentMethod("");
     setGeneralInstructions("");
     setPendingOrderId("");
@@ -1088,11 +1131,20 @@ const PDV = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <main className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-foreground">PDV - Ponto de Venda</h1>
           </div>
@@ -1333,10 +1385,48 @@ const PDV = () => {
                       <Switch
                         id="delivery-toggle"
                         checked={includeDelivery}
-                        onCheckedChange={setIncludeDelivery}
+                        onCheckedChange={(checked) => {
+                          setIncludeDelivery(checked);
+                          if (checked) {
+                            loadDeliveryBoys();
+                          } else {
+                            setSelectedDeliveryBoy("");
+                          }
+                        }}
                       />
                     </div>
                   </div>
+
+                  {/* Delivery Boy Selection */}
+                  {includeDelivery && (
+                    <div className="space-y-2">
+                      <Label htmlFor="delivery-boy" className="text-sm font-medium">Motoboy</Label>
+                      {deliveryBoys.length === 0 ? (
+                        <div className="p-3 border rounded-lg bg-muted/50">
+                          <p className="text-sm text-muted-foreground">
+                            Nenhum motoboy cadastrado. Cadastre em Configurações → Delivery
+                          </p>
+                        </div>
+                      ) : (
+                        <Select
+                          value={selectedDeliveryBoy || undefined}
+                          onValueChange={setSelectedDeliveryBoy}
+                        >
+                          <SelectTrigger id="delivery-boy">
+                            <SelectValue placeholder="Selecione o motoboy" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {deliveryBoys.map((boy) => (
+                              <SelectItem key={boy.id} value={boy.id}>
+                                {boy.name}
+                                {boy.daily_rate > 0 && ` (Diária: R$ ${boy.daily_rate.toFixed(2)})`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  )}
 
                   {/* Payment Method */}
                   <div className="space-y-2">

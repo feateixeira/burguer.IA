@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Plus, Minus, ShoppingCart, Home, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ export default function Totem() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [customerName, setCustomerName] = useState("");
+  const [orderType, setOrderType] = useState<"balcao" | "delivery">("balcao"); // true = comer aqui, false = levar
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [establishmentId, setEstablishmentId] = useState("");
 
@@ -291,7 +293,13 @@ export default function Totem() {
         description: item.description || null
       }]);
     }
-    toast.success("Adicionado ao carrinho!");
+    toast.success("Adicionado ao carrinho!", {
+      position: "top-left",
+      duration: 2000,
+      style: {
+        zIndex: 9999,
+      },
+    });
   };
 
   const removeFromCart = (productId: string) => {
@@ -355,6 +363,11 @@ export default function Totem() {
       return;
     }
 
+    if (!customerName || customerName.trim() === "") {
+      toast.error("Por favor, informe seu nome");
+      return;
+    }
+
     try {
       // Generate order number
       const orderNumber = `TT-${Date.now()}`;
@@ -368,8 +381,8 @@ export default function Totem() {
         .insert({
           establishment_id: establishmentId,
           order_number: orderNumber,
-          customer_name: customerName || "Cliente Totem",
-          order_type: "balcao",
+          customer_name: customerName.trim(),
+          order_type: orderType,
           subtotal,
           total_amount: subtotal,
           status: "pending",
@@ -458,6 +471,7 @@ export default function Totem() {
       setTimeout(() => {
         setCart([]);
         setCustomerName("");
+        setOrderType("balcao");
         setShowCart(false);
         setOrderSuccess(false);
       }, 5000);
@@ -533,7 +547,7 @@ export default function Totem() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="customerName" className="text-lg">
-                Seu nome (opcional)
+                Seu nome *
               </Label>
               <Input
                 id="customerName"
@@ -541,8 +555,33 @@ export default function Totem() {
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Digite seu nome"
                 className="text-xl p-8 h-16 text-lg"
+                required
               />
             </div>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <Label htmlFor="order-type" className="text-lg font-semibold mb-2">
+                      Tipo de Pedido
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {orderType === "balcao" ? "Comer aqui" : "Levar"}
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm text-muted-foreground">Comer aqui</span>
+                    <Switch
+                      id="order-type"
+                      checked={orderType === "delivery"}
+                      onCheckedChange={(checked) => setOrderType(checked ? "delivery" : "balcao")}
+                    />
+                    <span className="text-sm text-muted-foreground">Levar</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {cart.map((item) => (
               <Card key={item.id}>
@@ -721,10 +760,10 @@ export default function Totem() {
 
         {/* Floating Cart Button */}
         {cart.length > 0 && (
-          <div className="fixed bottom-8 right-8">
+          <div className="fixed bottom-8 right-8 z-[10000]">
             <Button
               size="lg"
-              className="h-20 px-8 text-xl shadow-2xl"
+              className="h-20 px-8 text-xl shadow-2xl relative"
               onClick={() => setShowCart(true)}
             >
               <ShoppingCart className="h-6 w-6 mr-3" />

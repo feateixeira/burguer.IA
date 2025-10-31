@@ -70,12 +70,26 @@ const Auth = () => {
 
       if (error) throw error;
 
-      // Check if user is admin
+      // Check user status first
       const { data: profile } = await supabase
         .from('profiles')
-        .select('is_admin')
+        .select('is_admin, status')
         .eq('user_id', authData.user?.id)
         .single();
+
+      // Block cancelled users
+      if (profile?.status === 'cancelled') {
+        await supabase.auth.signOut();
+        toast.error('Acesso negado. Sua conta foi cancelada.');
+        return;
+      }
+
+      // Block blocked users
+      if (profile?.status === 'blocked') {
+        await supabase.auth.signOut();
+        toast.error('Acesso negado. Sua conta está bloqueada.');
+        return;
+      }
 
       if (profile?.is_admin) {
         navigate("/admin");
@@ -102,13 +116,28 @@ const Auth = () => {
 
       if (error) throw error;
 
-      // Verify admin status
+      // Check user status first
       const { data: profile } = await supabase
         .from('profiles')
-        .select('is_admin')
+        .select('is_admin, status')
         .eq('user_id', authData.user?.id)
         .single();
 
+      // Block cancelled users
+      if (profile?.status === 'cancelled') {
+        await supabase.auth.signOut();
+        toast.error('Acesso negado. Sua conta foi cancelada.');
+        return;
+      }
+
+      // Block blocked users
+      if (profile?.status === 'blocked') {
+        await supabase.auth.signOut();
+        toast.error('Acesso negado. Sua conta está bloqueada.');
+        return;
+      }
+
+      // Verify admin status
       if (!profile?.is_admin) {
         await supabase.auth.signOut();
         throw new Error("Acesso negado. Usuário não é administrador.");

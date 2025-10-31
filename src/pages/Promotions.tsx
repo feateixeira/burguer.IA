@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import Sidebar from "@/components/Sidebar";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,15 @@ export default function Promotions() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
   const [establishmentId, setEstablishmentId] = useState("");
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -216,18 +226,38 @@ export default function Promotions() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen">
+      <div className="min-h-screen bg-background">
         <Sidebar />
-        <div className="flex-1 p-6">Carregando...</div>
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="w-full">Carregando...</div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full space-y-6">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -542,7 +572,7 @@ export default function Promotions() {
             )}
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

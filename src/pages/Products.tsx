@@ -11,6 +11,7 @@ import { Plus, Edit, Trash2, Package, HelpCircle, ExternalLink } from "lucide-re
 import Sidebar from "@/components/Sidebar";
 import CombosManager from "@/components/CombosManager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import {
   Alert,
   AlertDescription,
@@ -128,9 +129,18 @@ const Products = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [establishmentId, setEstablishmentId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
   const loadData = async () => {
@@ -248,21 +258,45 @@ const Products = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
-          <p className="mt-4 text-muted-foreground">Carregando produtos...</p>
-        </div>
+      <div className="min-h-screen bg-background">
+        <Sidebar />
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+            <p className="mt-4 text-muted-foreground">Carregando produtos...</p>
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <main className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full">
           <h1 className="text-3xl font-bold text-foreground mb-6">Produtos e Combos</h1>
           
           <Tabs defaultValue="products" className="w-full">

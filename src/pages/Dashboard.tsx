@@ -58,6 +58,7 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 // Dados mock zerados inicialmente
 const salesData = [
@@ -129,12 +130,22 @@ const Dashboard = () => {
     ],
     salesData: [] as any[],
     dailyData: [] as any[],
-    weeklyComparison: [] as any[]
+    weeklyComparison: [] as any[],
+    deliveryBoysData: [] as any[]
   });
   const navigate = useNavigate();
   const [showMasterSetup, setShowMasterSetup] = useState(false);
   const [masterName, setMasterName] = useState("");
   const [masterPin, setMasterPin] = useState("");
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   useEffect(() => {
     checkAuth();
@@ -450,6 +461,41 @@ const Dashboard = () => {
         
         setMonthlyTotals({ revenue: monthlyRevenue, orders: monthlyOrdersCount });
 
+        // Calculate delivery boys data
+        const deliveryOrders = orders.filter((o: any) => o.delivery_boy_id && o.order_type === 'delivery');
+        const deliveryBoyIds = Array.from(new Set(deliveryOrders.map((o: any) => o.delivery_boy_id)));
+        
+        let deliveryBoysData: any[] = [];
+        if (deliveryBoyIds.length > 0) {
+          const { data: deliveryBoys } = await supabase
+            .from('delivery_boys')
+            .select('id, name, daily_rate, delivery_fee')
+            .in('id', deliveryBoyIds);
+
+          if (deliveryBoys) {
+            deliveryBoysData = deliveryBoys.map(boy => {
+              const deliveries = deliveryOrders.filter((o: any) => o.delivery_boy_id === boy.id);
+              const deliveriesCount = deliveries.length;
+              const dailyRate = Number(boy.daily_rate) || 0;
+              const deliveryFee = Number(boy.delivery_fee) || 0;
+              const deliveriesTotal = deliveriesCount * deliveryFee;
+              // Diária aplicada apenas uma vez por período se houver entregas no período
+              // Se não há entregas, não cobra diária
+              const total = (deliveriesCount > 0 ? dailyRate : 0) + deliveriesTotal;
+
+              return {
+                id: boy.id,
+                name: boy.name,
+                dailyRate: deliveriesCount > 0 ? dailyRate : 0,
+                deliveryFee,
+                deliveriesCount,
+                deliveriesTotal,
+                total
+              };
+            }).sort((a, b) => b.total - a.total);
+          }
+        }
+
         setDashboardData({
           totalRevenue: timeRange === 'mes' ? monthlyRevenue : totalRevenue,
           totalOrders: timeRange === 'mes' ? monthlyOrdersCount : totalOrders,
@@ -461,7 +507,8 @@ const Dashboard = () => {
           categoryData,
           salesData,
           dailyData,
-          weeklyComparison
+          weeklyComparison,
+          deliveryBoysData
         });
       }
     } catch (error) {
@@ -552,10 +599,19 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <main className="flex-1 p-6 space-y-6 overflow-auto">
+      <main 
+        className="space-y-6 transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
         <Dialog open={showMasterSetup}>
           <DialogContent className="form-dense">
             <DialogHeader>
@@ -1155,8 +1211,8 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Recent Orders and Other Data */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        {/* Recent Orders, Delivery and Quick Actions */}
+        <div className={`grid gap-6 ${dashboardData.deliveryBoysData.length > 0 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
           {/* Recent Orders */}
           <Card>
             <CardHeader>
@@ -1212,128 +1268,180 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          {/* Additional Metrics placeholder - can be customized */}
-          <Card>
+          {/* Delivery Boys Summary */}
+          {dashboardData.deliveryBoysData.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Truck className="h-4 w-4 mr-2" />
+                  Delivery - Pagamentos aos Motoboys
+                </CardTitle>
+                <CardDescription>
+                  Valores a pagar aos motoboys no período selecionado
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {dashboardData.deliveryBoysData.map((boy) => (
+                    <div key={boy.id} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold">{boy.name}</h3>
+                        <Badge variant="default" className="text-base font-bold">
+                          R$ {boy.total.toFixed(2)}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                        {boy.dailyRate > 0 && (
+                          <div>
+                            <span className="font-medium">Diária:</span> R$ {boy.dailyRate.toFixed(2)}
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium">Entregas:</span> {boy.deliveriesCount}x
+                        </div>
+                        <div className="col-span-2">
+                          <span className="font-medium">Total por entregas:</span> R$ {boy.deliveriesTotal.toFixed(2)}
+                          {boy.deliveriesCount > 0 && (
+                            <span className="text-xs ml-2">
+                              ({boy.deliveriesCount} × R$ {boy.deliveryFee.toFixed(2)})
+                            </span>
+                          )}
+                        </div>
+                        {boy.dailyRate > 0 && (
+                          <div className="col-span-2 pt-2 border-t">
+                            <span className="font-medium text-foreground">Total: R$ {boy.dailyRate.toFixed(2)} + R$ {boy.deliveriesTotal.toFixed(2)} = R$ {boy.total.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {/* Quick Actions */}
+          <Card className={dashboardData.deliveryBoysData.length === 0 ? 'lg:col-span-2' : ''}>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Activity className="h-4 w-4 mr-2" />
-                Resumo do Período
+                <Zap className="h-4 w-4 mr-2" />
+                Central de Ações
               </CardTitle>
+              <CardDescription>
+                Acesse rapidamente as principais funcionalidades do sistema
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <DollarSign className="h-5 w-5 text-green-500" />
-                    <span className="text-sm">Faturamento Total</span>
-                  </div>
-                  <span className="font-medium">R$ {dashboardData.totalRevenue.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <ShoppingCart className="h-5 w-5 text-blue-500" />
-                    <span className="text-sm">Total de Pedidos</span>
-                  </div>
-                  <span className="font-medium">{dashboardData.totalOrders}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Target className="h-5 w-5 text-orange-500" />
-                    <span className="text-sm">Ticket Médio</span>
-                  </div>
-                  <span className="font-medium">R$ {dashboardData.averageTicket.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Users className="h-5 w-5 text-purple-500" />
-                    <span className="text-sm">Total de Clientes</span>
-                  </div>
-                  <span className="font-medium">{dashboardData.totalCustomers}</span>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+                <Button 
+                  className="h-20 flex-col space-y-2" 
+                  onClick={() => navigate("/pdv")}
+                >
+                  <Receipt className="h-6 w-6" />
+                  <span>Abrir PDV</span>
+                </Button>
+                <Button 
+                  className="h-20 flex-col space-y-2" 
+                  variant="outline"
+                  onClick={() => navigate("/products")}
+                >
+                  <Package className="h-6 w-6" />
+                  <span>Produtos</span>
+                </Button>
+                <Button 
+                  className="h-20 flex-col space-y-2" 
+                  variant="outline"
+                  onClick={() => navigate("/customers")}
+                >
+                  <Users className="h-6 w-6" />
+                  <span>Clientes</span>
+                </Button>
+                <Button 
+                  className="h-20 flex-col space-y-2" 
+                  variant="outline"
+                  onClick={() => navigate("/orders")}
+                >
+                  <CreditCard className="h-6 w-6" />
+                  <span>Pedidos</span>
+                </Button>
+              </div>
+              
+              <div className="mt-6 pt-6 border-t">
+                <h4 className="text-sm font-medium mb-4 flex items-center">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Configurações Rápidas
+                </h4>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="justify-start"
+                    onClick={() => navigate("/settings")}
+                  >
+                    <MapPin className="h-4 w-4 mr-2" />
+                    Dados do Estabelecimento
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="justify-start"
+                    onClick={() => navigate("/costs")}
+                  >
+                    <Percent className="h-4 w-4 mr-2" />
+                    Custos e Impostos
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="justify-start"
+                    onClick={() => navigate("/settings")}
+                  >
+                    <Truck className="h-4 w-4 mr-2" />
+                    Delivery
+                  </Button>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Quick Actions */}
+        {/* Additional Metrics */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
-              <Zap className="h-4 w-4 mr-2" />
-              Central de Ações
+              <Activity className="h-4 w-4 mr-2" />
+              Resumo do Período
             </CardTitle>
-            <CardDescription>
-              Acesse rapidamente as principais funcionalidades do sistema
-            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Button 
-                className="h-20 flex-col space-y-2" 
-                onClick={() => navigate("/pdv")}
-              >
-                <Receipt className="h-6 w-6" />
-                <span>Abrir PDV</span>
-              </Button>
-              <Button 
-                className="h-20 flex-col space-y-2" 
-                variant="outline"
-                onClick={() => navigate("/products")}
-              >
-                <Package className="h-6 w-6" />
-                <span>Produtos</span>
-              </Button>
-              <Button 
-                className="h-20 flex-col space-y-2" 
-                variant="outline"
-                onClick={() => navigate("/customers")}
-              >
-                <Users className="h-6 w-6" />
-                <span>Clientes</span>
-              </Button>
-              <Button 
-                className="h-20 flex-col space-y-2" 
-                variant="outline"
-                onClick={() => navigate("/orders")}
-              >
-                <CreditCard className="h-6 w-6" />
-                <span>Pedidos</span>
-              </Button>
-            </div>
-            
-            <div className="mt-6 pt-6 border-t">
-              <h4 className="text-sm font-medium mb-4 flex items-center">
-                <Settings className="h-4 w-4 mr-2" />
-                Configurações Rápidas
-              </h4>
-              <div className="grid gap-3 md:grid-cols-3">
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  className="justify-start"
-                  onClick={() => navigate("/settings")}
-                >
-                  <MapPin className="h-4 w-4 mr-2" />
-                  Dados do Estabelecimento
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  className="justify-start"
-                  onClick={() => navigate("/costs")}
-                >
-                  <Percent className="h-4 w-4 mr-2" />
-                  Custos e Impostos
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  className="justify-start"
-                  onClick={() => navigate("/settings")}
-                >
-                  <Truck className="h-4 w-4 mr-2" />
-                  Delivery
-                </Button>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <DollarSign className="h-5 w-5 text-green-500" />
+                  <span className="text-sm">Faturamento Total</span>
+                </div>
+                <span className="font-medium">R$ {dashboardData.totalRevenue.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <ShoppingCart className="h-5 w-5 text-blue-500" />
+                  <span className="text-sm">Total de Pedidos</span>
+                </div>
+                <span className="font-medium">{dashboardData.totalOrders}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <Target className="h-5 w-5 text-orange-500" />
+                  <span className="text-sm">Ticket Médio</span>
+                </div>
+                <span className="font-medium">R$ {dashboardData.averageTicket.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <Users className="h-5 w-5 text-purple-500" />
+                  <span className="text-sm">Total de Clientes</span>
+                </div>
+                <span className="font-medium">{dashboardData.totalCustomers}</span>
               </div>
             </div>
           </CardContent>

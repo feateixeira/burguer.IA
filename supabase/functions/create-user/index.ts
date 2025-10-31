@@ -8,19 +8,75 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { 
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+      status: 200 
+    })
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    // No Supabase Edge Functions, tentar diferentes formas de obter as variáveis
+    // Listar todas as variáveis disponíveis para debug
+    const allEnvVars = Deno.env.toObject()
+    const allKeys = Object.keys(allEnvVars)
     
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Missing environment variables:', {
-        hasUrl: !!supabaseUrl,
-        hasServiceKey: !!supabaseServiceKey
-      })
-      throw new Error('Server configuration error: Missing required environment variables')
+    console.log('=== ENVIRONMENT DEBUG START ===')
+    console.log('All env var keys:', allKeys)
+    console.log('SUPABASE keys:', allKeys.filter(k => k.includes('SUPABASE')))
+    console.log('KEY keys:', allKeys.filter(k => k.includes('KEY')))
+    
+    // Tentar obter a URL de diferentes formas
+    // No Supabase, algumas variáveis são injetadas automaticamente
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || 
+                       Deno.env.get('SUPABASE_SERVICE_URL') ||
+                       (Deno.env.get('SUPABASE_PROJECT_REF') ? 
+                         `https://${Deno.env.get('SUPABASE_PROJECT_REF')}.supabase.co` : null) ||
+                       `https://tndiwjznitnualtorbpk.supabase.co` // Fallback hardcoded
+    
+    // Tentar obter a service role key - Supabase não permite prefixo SUPABASE_ em secrets
+    // Então devemos usar SERVICE_ROLE_KEY
+    const supabaseServiceKey = Deno.env.get('SERVICE_ROLE_KEY') ||
+                              Deno.env.get('SERVICE_ROLE_SECRET') ||
+                              Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || // Fallback caso esteja configurada
+                              Deno.env.get('SUPABASE_SERVICE_KEY')
+    
+    // Logs de debug detalhados
+    console.log('Environment check results:', {
+      hasUrl: !!supabaseUrl,
+      url: supabaseUrl,
+      hasServiceKey: !!supabaseServiceKey,
+      serviceKeyLength: supabaseServiceKey?.length || 0,
+      serviceKeyFirstChars: supabaseServiceKey?.substring(0, 20) || 'none',
+      checkingKeys: {
+        SERVICE_ROLE_KEY: !!Deno.env.get('SERVICE_ROLE_KEY'),
+        SERVICE_ROLE_SECRET: !!Deno.env.get('SERVICE_ROLE_SECRET'),
+        SUPABASE_SERVICE_ROLE_KEY: !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+        SUPABASE_SERVICE_KEY: !!Deno.env.get('SUPABASE_SERVICE_KEY')
+      }
+    })
+    console.log('=== ENVIRONMENT DEBUG END ===')
+    
+    if (!supabaseUrl) {
+      console.error('ERROR: Missing SUPABASE_URL')
+      console.error('Available SUPABASE env vars:', allKeys.filter(k => k.includes('SUPABASE')))
+      throw new Error('Configuração do servidor incompleta: SUPABASE_URL não encontrada. Configure a URL do projeto na Edge Function.')
+    }
+    
+    if (!supabaseServiceKey) {
+      console.error('ERROR: Missing SERVICE_ROLE_KEY')
+      console.error('Available env vars with "KEY":', allKeys.filter(k => k.includes('KEY')))
+      console.error('Available env vars with "SERVICE":', allKeys.filter(k => k.includes('SERVICE')))
+      console.error('All available keys:', allKeys)
+      throw new Error('Configuração do servidor incompleta: SERVICE_ROLE_KEY não encontrada. Verifique se você adicionou o secret "SERVICE_ROLE_KEY" (sem prefixo SUPABASE_) em Edge Functions → create-user → Settings → Secrets.')
+    }
+    
+    // Verificar se a key parece válida (JWT geralmente tem ~200+ caracteres)
+    if (supabaseServiceKey.length < 50) {
+      console.error('ERROR: Service key too short:', supabaseServiceKey.length, 'characters')
+      throw new Error('A SERVICE_ROLE_KEY configurada parece estar incorreta (muito curta: ' + supabaseServiceKey.length + ' caracteres). Verifique se o valor completo da service_role key foi copiado (deve ter ~200+ caracteres).')
     }
 
     const supabaseAdmin = createClient(
@@ -190,18 +246,32 @@ Deno.serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error in create-user function:', error)
-    
-    // Log more details for debugging
-    const errorDetails = {
+    console.error('Error stack:', error.stack)
+    console.error('Error details:', {
       message: error.message,
       name: error.name,
-      stack: error.stack,
       code: error.code,
       status: error.status,
-      details: error.details
-    }
+      cause: error.cause
+    })
     
-    console.error('Error details:', JSON.stringify(errorDetails, null, 2))
+    // Mensagem de erro mais amigável
+    let errorMessage = error.message || 'Erro inesperado ao criar usuário';
+    
+    // Mensagens específicas para erros comuns
+    if (error.message?.includes('Missing') || error.message?.includes('SERVICE_ROLE_KEY')) {
+      errorMessage = 'Configuração do servidor incompleta. Verifique se SERVICE_ROLE_KEY está configurada nos Secrets da Edge Function.';
+    } else if (error.message?.includes('Invalid authentication')) {
+      errorMessage = 'Autenticação inválida. Faça login novamente.';
+    } else if (error.message?.includes('Access denied') || error.message?.includes('Admin privileges')) {
+      errorMessage = 'Acesso negado. Apenas administradores podem criar usuários.';
+    } else if (error.message?.includes('already registered') || error.message?.includes('already exists') || error.message?.includes('User already registered')) {
+      errorMessage = 'Este email já está cadastrado no sistema.';
+    } else if (error.code === '23505') {
+      errorMessage = 'Este email já está cadastrado no sistema.';
+    } else if (error.message?.includes('password')) {
+      errorMessage = 'Erro na senha: ' + error.message;
+    }
     
     // Return appropriate status code
     const statusCode = error.status || error.code === 'PGRST116' ? 404 : 
@@ -211,8 +281,10 @@ Deno.serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'An unexpected error occurred',
-        details: process.env.DENO_ENV === 'development' ? errorDetails : undefined
+        error: errorMessage,
+        success: false,
+        // Incluir código de erro para debug (apenas em desenvolvimento)
+        ...(process.env.DENO_ENV !== 'production' ? { debug: error.message, code: error.code } : {})
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

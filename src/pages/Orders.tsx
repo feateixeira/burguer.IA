@@ -25,6 +25,7 @@
   } from "lucide-react";
   import Sidebar from "@/components/Sidebar";
   import { printReceipt } from "@/utils/receiptPrinter";
+  import { useSidebarWidth } from "@/hooks/useSidebarWidth";
   import {
     Dialog,
     DialogContent,
@@ -88,6 +89,15 @@
     const [establishment, setEstablishment] = useState<any>(null);
     const [activeTab, setActiveTab] = useState<string>("pending");
     const navigate = useNavigate();
+    const sidebarWidth = useSidebarWidth();
+    const [isDesktop, setIsDesktop] = useState(false);
+
+    useEffect(() => {
+      const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+      checkDesktop();
+      window.addEventListener('resize', checkDesktop);
+      return () => window.removeEventListener('resize', checkDesktop);
+    }, []);
 
     useEffect(() => {
       checkAuth();
@@ -557,11 +567,20 @@
     }
 
     return (
-      <div className="min-h-screen bg-background flex">
+      <div className="min-h-screen bg-background">
         <Sidebar />
         
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto">
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="w-full">
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-3xl font-bold text-foreground">Gerenciar Pedidos</h1>
               <div className="flex items-center space-x-4">
@@ -716,6 +735,16 @@
                                 <Printer className="h-4 w-4" />
                               </Button>
                             )}
+
+                            {/* Reimprimir button for ALL orders - site, totem, PDV */}
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handlePrintOrder(order)}
+                              title="Reimprimir pedido"
+                            >
+                              <Printer className="h-4 w-4 mr-2" />
+                            </Button>
 
                             {/* Standard view button for all orders */}
                             <Dialog>

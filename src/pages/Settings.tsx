@@ -10,14 +10,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff, Users, Plus, Trash2 } from "lucide-react";
+import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff, Users, Plus, Trash2, Truck } from "lucide-react";
 import { useConfirm } from "@/hooks/useConfirm";
 import Sidebar from "@/components/Sidebar";
 import { PrinterConfigComponent } from "@/components/PrinterConfig";
 import { PrintersManager } from "@/components/printers/PrintersManager";
 import { PrinterRouting } from "@/components/printers/PrinterRouting";
 import { PixConfig } from "@/components/PixConfig";
+import { DeliveryBoysManager } from "@/components/delivery/DeliveryBoysManager";
 import { useTeamUser } from "@/components/TeamUserProvider";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 
 interface Profile {
@@ -65,6 +67,15 @@ const Settings = () => {
   const [showMemberForm, setShowMemberForm] = useState(false);
   const [memberFormStep, setMemberFormStep] = useState(0); // etapas: 0-início, 1-nome, 2-função, 3-pin
   const { setTeamUser } = useTeamUser();
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -412,11 +423,20 @@ const Settings = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
       <Sidebar />
         
-        <main className="flex-1 p-4 md:p-8">
-          <div className="max-w-5xl mx-auto">
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="w-full">
             {/* Header */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-2">
@@ -431,7 +451,7 @@ const Settings = () => {
             </div>
 
           <Tabs defaultValue="establishment" className="space-y-6 tabs-compact">
-            <TabsList className="grid w-full grid-cols-6 h-auto p-1">
+            <TabsList className="grid w-full grid-cols-7 h-auto p-1">
               <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
                 <Building className="h-4 w-4" />
                 <span className="hidden sm:inline">Estabelecimento</span>
@@ -447,6 +467,10 @@ const Settings = () => {
               <TabsTrigger value="pix" className="flex items-center gap-2 py-3">
                 <CreditCard className="h-4 w-4" />
                 <span className="hidden sm:inline">PIX</span>
+              </TabsTrigger>
+              <TabsTrigger value="delivery" className="flex items-center gap-2 py-3">
+                <Truck className="h-4 w-4" />
+                <span className="hidden sm:inline">Delivery</span>
               </TabsTrigger>
               <TabsTrigger value="security" className="flex items-center gap-2 py-3">
                 <Shield className="h-4 w-4" />
@@ -958,6 +982,11 @@ const Settings = () => {
             {/* PIX Tab */}
             <TabsContent value="pix">
               {establishment && <PixConfig establishmentId={establishment.id} />}
+            </TabsContent>
+
+            {/* Delivery Tab */}
+            <TabsContent value="delivery" className="space-y-4">
+              {establishment && <DeliveryBoysManager establishmentId={establishment.id} />}
             </TabsContent>
 
             {/* Security Tab */}

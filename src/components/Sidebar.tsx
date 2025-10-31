@@ -29,8 +29,40 @@ const Sidebar = () => {
     const saved = localStorage.getItem("sidebar_collapsed");
     return saved === "true";
   });
+  const [establishmentName, setEstablishmentName] = useState<string>("burguer.IA");
   const location = useLocation();
   const { teamUser, resetTeamUser } = useTeamUser();
+
+  useEffect(() => {
+    const loadEstablishmentName = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("establishment_id")
+          .eq("user_id", session.user.id)
+          .single();
+
+        if (profile?.establishment_id) {
+          const { data: establishment } = await supabase
+            .from("establishments")
+            .select("name")
+            .eq("id", profile.establishment_id)
+            .single();
+
+          if (establishment?.name) {
+            setEstablishmentName(establishment.name);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading establishment name:", error);
+      }
+    };
+
+    loadEstablishmentName();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("sidebar_collapsed", isCollapsed.toString());
@@ -48,6 +80,12 @@ const Sidebar = () => {
     }
   };
 
+  // Filtra itens baseado no role do teamUser
+  // Se não há teamUser, não mostra itens (pois o modal de seleção deve aparecer)
+  const visibleItems = teamUser 
+    ? items.filter(it => it.show.includes(teamUser.role))
+    : [];
+
   return (
     <>
       {/* Mobile menu button */}
@@ -63,16 +101,19 @@ const Sidebar = () => {
 
       {/* Sidebar */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-40 bg-card border-r border-border transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
+        "fixed top-0 left-0 bottom-0 z-40 bg-card border-r border-border transition-all duration-300 ease-in-out",
+        "h-screen overflow-hidden",
         isCollapsed ? "w-16" : "w-64",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        <div className="flex h-full flex-col">
+      )}
+      style={{ height: '100vh' }}
+      >
+        <div className="flex h-full flex-col overflow-hidden">
           {/* Logo and Toggle */}
           <div className="flex h-16 items-center justify-between border-b border-border px-4">
             {!isCollapsed && (
-              <div className="text-xl font-bold bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-                burguer.IA
+              <div className="text-xl font-bold bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent truncate">
+                {establishmentName}
               </div>
             )}
             <Button
@@ -90,29 +131,43 @@ const Sidebar = () => {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 space-y-1 p-2">
-            {teamUser && items.filter(it => it.show.includes(teamUser.role)).map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={cn(
-                    "flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    isCollapsed && "justify-center"
-                  )}
-                  title={isCollapsed ? item.name : undefined}
-                >
-                  <Icon className={cn("h-5 w-5", !isCollapsed && "mr-3")} />
-                  {!isCollapsed && item.name}
-                </Link>
-              );
-            })}
+          <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
+            {visibleItems.length > 0 ? (
+              visibleItems.map((item) => {
+                const IconComponent = item.icon;
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                      isCollapsed && "justify-center gap-0"
+                    )}
+                    title={isCollapsed ? item.name : undefined}
+                  >
+                    {IconComponent && (
+                      <IconComponent 
+                        className={cn(
+                          "h-5 w-5 flex-shrink-0",
+                          !isCollapsed && "mr-0"
+                        )}
+                        strokeWidth={2}
+                      />
+                    )}
+                    {!isCollapsed && <span>{item.name}</span>}
+                  </Link>
+                );
+              })
+            ) : (
+              <div className="px-3 py-2 text-sm text-muted-foreground">
+                Carregando usuário...
+              </div>
+            )}
           </nav>
 
           {/* Botão minimalista para trocar usuário da equipe */}
@@ -125,7 +180,7 @@ const Sidebar = () => {
               )}
               title="Trocar usuário"
             >
-              <Users className={cn("h-5 w-5", !isCollapsed && "mr-3")}/>
+              <Users className={cn("h-5 w-5 flex-shrink-0", !isCollapsed && "mr-3")}/>
               {!isCollapsed && "Trocar Usuário"}
             </button>
           </div>
@@ -140,7 +195,7 @@ const Sidebar = () => {
               )}
               title={isCollapsed ? "Sair" : undefined}
             >
-              <LogOut className={cn("h-5 w-5", !isCollapsed && "mr-3")} />
+              <LogOut className={cn("h-5 w-5 flex-shrink-0", !isCollapsed && "mr-3")} />
               {!isCollapsed && "Sair"}
             </button>
           </div>

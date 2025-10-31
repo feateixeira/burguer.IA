@@ -1,19 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SuppliersList } from "@/components/suppliers/SuppliersList";
 import { SuppliersDashboard } from "@/components/suppliers/SuppliersDashboard";
 import { SupplierOrders } from "@/components/suppliers/SupplierOrders";
 import { Package, BarChart3, ShoppingCart } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 export default function Suppliers() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+      <div className="w-full space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
           <p className="text-muted-foreground">
@@ -50,7 +69,7 @@ export default function Suppliers() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+      </main>
     </div>
   );
 }

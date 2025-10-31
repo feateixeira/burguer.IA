@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Edit, Trash2, Users, UserPlus, Crown } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 interface Customer {
   id: string;
@@ -48,6 +49,15 @@ const Customers = () => {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [editingGroup, setEditingGroup] = useState<CustomerGroup | null>(null);
   const [establishmentId, setEstablishmentId] = useState<string>("");
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{type: 'customer' | 'group', id: string, name: string} | null>(null);
 
   useEffect(() => {
@@ -321,11 +331,20 @@ const Customers = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background">
       <Sidebar />
       
-      <main className="flex-1 p-6">
-        <div className="max-w-7xl mx-auto">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-foreground">Clientes</h1>
             <div className="flex gap-2">

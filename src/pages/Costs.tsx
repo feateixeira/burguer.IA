@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { supabase } from "@/integrations/supabase/client";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,6 +34,15 @@ interface Ingredient {
 const Costs = () => {
   const [loading, setLoading] = useState(true);
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
+  const sidebarWidth = useSidebarWidth();
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const { toast } = useToast();
@@ -112,12 +122,40 @@ const Costs = () => {
     return sum; // one_time costs are not included in monthly totals
   }, 0);
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Sidebar />
+        <main 
+          className="transition-all duration-300 ease-in-out"
+          style={{
+            marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+            padding: '1.5rem',
+            minHeight: '100vh',
+            height: '100vh',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="w-full">Loading...</div>
+        </main>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen w-full">
+    <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="flex-1 p-6">
+      <main 
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
+          padding: '1.5rem',
+          minHeight: '100vh',
+          height: '100vh',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="w-full">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-3xl font-bold">Gestão de Custos</h1>
@@ -238,6 +276,7 @@ const Costs = () => {
             />
           </TabsContent>
         </Tabs>
+        </div>
       </main>
     </div>
   );

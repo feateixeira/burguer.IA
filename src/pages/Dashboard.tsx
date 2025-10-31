@@ -139,6 +139,8 @@ const Dashboard = () => {
   const [masterPin, setMasterPin] = useState("");
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
+  const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [subscriptionType, setSubscriptionType] = useState<string | null>(null);
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
@@ -531,9 +533,37 @@ const Dashboard = () => {
       // Get user profile and establishment id
       const { data: profile } = await supabase
         .from('profiles')
-        .select('establishment_id')
+        .select('establishment_id, subscription_type, trial_end_date, status')
         .eq('user_id', session.user.id)
         .maybeSingle();
+
+      setSubscriptionType(profile?.subscription_type || null);
+
+      // Verificar se teste expirou e bloquear se necessário
+      if (profile?.subscription_type === 'trial' && profile.trial_end_date) {
+        const trialEnd = new Date(profile.trial_end_date);
+        const now = new Date();
+        
+        // Calcular dias restantes
+        const diffTime = trialEnd.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        setTrialDaysLeft(diffDays > 0 ? diffDays : 0);
+
+        if (now > trialEnd && profile.status === 'active') {
+          // Bloquear usuário automaticamente
+          await supabase
+            .from('profiles')
+            .update({ status: 'blocked' })
+            .eq('user_id', session.user.id);
+          
+          toast.error('Seu período de teste expirou. Entre em contato para converter para assinatura mensal.');
+          await supabase.auth.signOut();
+          navigate('/auth');
+          return;
+        }
+      } else {
+        setTrialDaysLeft(null);
+      }
 
       if (!profile?.establishment_id) {
         // Não redireciona imediatamente - permite que o TeamUserProvider mostre o dialog de criação de master
@@ -637,6 +667,32 @@ const Dashboard = () => {
             </div>
           </DialogContent>
         </Dialog>
+        {/* Trial Warning */}
+        {subscriptionType === 'trial' && trialDaysLeft !== null && trialDaysLeft >= 0 && (
+          <Card className={`border-2 ${trialDaysLeft <= 3 ? 'border-red-500 bg-red-50' : trialDaysLeft <= 7 ? 'border-yellow-500 bg-yellow-50' : 'border-blue-500 bg-blue-50'}`}>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className={`h-5 w-5 ${trialDaysLeft <= 3 ? 'text-red-600' : trialDaysLeft <= 7 ? 'text-yellow-600' : 'text-blue-600'}`} />
+                  <div>
+                    <p className="font-semibold">
+                      {trialDaysLeft === 0 
+                        ? 'Seu período de teste expirou!'
+                        : trialDaysLeft === 1
+                        ? `Restam ${trialDaysLeft} dia de teste`
+                        : `Restam ${trialDaysLeft} dias de teste`
+                      }
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Entre em contato para converter para assinatura mensal e continuar usando o sistema.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
           <div>

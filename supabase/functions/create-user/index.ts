@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
       }
     )
 
-    const { email, password, name, establishmentName } = await req.json()
+    const { email, password, name, establishmentName, subscriptionType, trialDays, trialEndDate, nextPaymentDate } = await req.json()
     
     // Validate required fields
     if (!email || !password) {
@@ -199,14 +199,26 @@ Deno.serve(async (req) => {
 
     // Create profile for the new user (using service role bypasses RLS)
     try {
+      const profileData: any = {
+        user_id: newUser.user.id,
+        full_name: name || email,
+        status: 'active',
+        establishment_id: establishmentId,
+        subscription_type: subscriptionType || 'trial',
+        payment_status: subscriptionType === 'monthly' ? 'pending' : null
+      }
+
+      // Adicionar campos de assinatura baseado no tipo
+      if (subscriptionType === 'trial' && trialEndDate) {
+        profileData.trial_end_date = trialEndDate
+      } else if (subscriptionType === 'monthly' && nextPaymentDate) {
+        profileData.next_payment_date = nextPaymentDate
+        profileData.payment_status = 'pending'
+      }
+
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
-        .insert({
-          user_id: newUser.user.id,
-          full_name: name || email,
-          status: 'active',
-          establishment_id: establishmentId
-        })
+        .insert(profileData)
 
       if (profileError) {
         console.error('Error creating profile:', profileError)

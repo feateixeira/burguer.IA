@@ -42,6 +42,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { DollarSign, CreditCard, AlertTriangle } from 'lucide-react';
 
 interface User {
   id: string;
@@ -50,6 +58,10 @@ interface User {
   establishment_name: string;
   created_at: string;
   status: 'active' | 'blocked' | 'cancelled';
+  subscription_type?: 'monthly' | 'trial';
+  trial_end_date?: string;
+  next_payment_date?: string;
+  payment_status?: 'paid' | 'pending' | 'overdue';
 }
 
 export default function Admin() {
@@ -66,6 +78,8 @@ export default function Admin() {
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserEstablishment, setNewUserEstablishment] = useState('');
+  const [newUserSubscriptionType, setNewUserSubscriptionType] = useState<'monthly' | 'trial'>('trial');
+  const [newUserTrialDays, setNewUserTrialDays] = useState('7');
   
   // Notification form
   const [notificationTitle, setNotificationTitle] = useState('');
@@ -73,6 +87,14 @@ export default function Admin() {
   
   // Trial form
   const [trialDays, setTrialDays] = useState('7');
+  
+  // Financial stats
+  const [financialStats, setFinancialStats] = useState({
+    totalMonthly: 0,
+    totalRevenue: 0,
+    pendingPayments: 0,
+    overduePayments: 0
+  });
 
   useEffect(() => {
     checkAdminAuth();
@@ -104,13 +126,40 @@ export default function Admin() {
 
   const loadUsers = async () => {
     try {
-      // Buscar profiles com establishment_id
-      const { data: profiles, error } = await supabase
+      // Buscar profiles - primeiro tentar com campos de assinatura, se falhar, buscar sem eles
+      let profiles: any[] = [];
+      let error: any = null;
+      
+      // Tentar buscar com campos de assinatura (se a migration foi aplicada)
+      const { data: profilesWithSubscription, error: errorWithSubscription } = await supabase
         .from('profiles')
-        .select('user_id, full_name, created_at, status, is_admin, establishment_id')
+        .select('user_id, full_name, created_at, status, is_admin, establishment_id, subscription_type, trial_end_date, next_payment_date, payment_status')
         .eq('is_admin', false);
 
-      if (error) throw error;
+      if (errorWithSubscription) {
+        // Verificar se o erro é porque os campos não existem (migration não aplicada)
+        const isColumnMissingError = 
+          errorWithSubscription.message?.includes('column') ||
+          errorWithSubscription.message?.includes('does not exist') ||
+          errorWithSubscription.code === '42703' || // undefined_column
+          errorWithSubscription.code === 'PGRST116'; // column not found
+        
+        if (isColumnMissingError) {
+          // Campo não existe - buscar sem os campos de assinatura
+          console.warn('Campos de assinatura não encontrados. Aplique a migration para ativar essas funcionalidades.');
+          const { data: profilesBasic, error: errorBasic } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, created_at, status, is_admin, establishment_id')
+            .eq('is_admin', false);
+          
+          if (errorBasic) throw errorBasic;
+          profiles = profilesBasic || [];
+        } else {
+          throw errorWithSubscription;
+        }
+      } else {
+        profiles = profilesWithSubscription || [];
+      }
 
       const usersData: User[] = [];
 
@@ -208,11 +257,28 @@ export default function Admin() {
           name: profile.full_name || 'Sem nome',
           establishment_name: establishmentName,
           created_at: profile.created_at,
-          status: (profile.status || 'active') as 'active' | 'blocked' | 'cancelled'
+          status: (profile.status || 'active') as 'active' | 'blocked' | 'cancelled',
+          subscription_type: (profile.subscription_type as 'monthly' | 'trial') || 'trial',
+          trial_end_date: profile.trial_end_date || undefined,
+          next_payment_date: profile.next_payment_date || undefined,
+          payment_status: (profile.payment_status as 'paid' | 'pending' | 'overdue') || 'pending'
         });
       }
 
       setUsers(usersData);
+      
+      // Calcular estatísticas financeiras
+      const monthlyUsers = usersData.filter(u => u.subscription_type === 'monthly');
+      const totalRevenue = monthlyUsers.length * 250;
+      const pendingPayments = monthlyUsers.filter(u => u.payment_status === 'pending' || !u.payment_status).length;
+      const overduePayments = monthlyUsers.filter(u => u.payment_status === 'overdue').length;
+      
+      setFinancialStats({
+        totalMonthly: monthlyUsers.length,
+        totalRevenue,
+        pendingPayments,
+        overduePayments
+      });
     } catch (error) {
       console.error('Error loading users:', error);
       toast.error('Erro ao carregar usuários');
@@ -233,12 +299,32 @@ export default function Admin() {
         return;
       }
 
+      // Calcular trial_end_date se for trial
+      let trialEndDate = null;
+      if (newUserSubscriptionType === 'trial') {
+        const trialEnd = new Date();
+        trialEnd.setDate(trialEnd.getDate() + parseInt(newUserTrialDays));
+        trialEndDate = trialEnd.toISOString();
+      }
+      
+      // Calcular next_payment_date se for monthly (dia 05 do próximo mês)
+      let nextPaymentDate = null;
+      if (newUserSubscriptionType === 'monthly') {
+        const currentDate = new Date();
+        const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+        nextPaymentDate = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 5).toISOString();
+      }
+
       const response = await supabase.functions.invoke('create-user', {
         body: {
           email: newUserEmail,
           password: newUserPassword,
           name: newUserName,
-          establishmentName: newUserEstablishment
+          establishmentName: newUserEstablishment,
+          subscriptionType: newUserSubscriptionType,
+          trialDays: newUserSubscriptionType === 'trial' ? parseInt(newUserTrialDays) : null,
+          trialEndDate: trialEndDate,
+          nextPaymentDate: nextPaymentDate
         },
         headers: {
           Authorization: `Bearer ${session.access_token}`
@@ -290,6 +376,8 @@ export default function Admin() {
       setNewUserPassword('');
       setNewUserName('');
       setNewUserEstablishment('');
+      setNewUserSubscriptionType('trial');
+      setNewUserTrialDays('7');
       loadUsers();
     } catch (error: any) {
       // Mostrar mensagem de erro sem logs desnecessários
@@ -411,6 +499,56 @@ export default function Admin() {
     }
   };
 
+  const handleMarkPaymentAsPaid = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .rpc('mark_payment_as_paid', { target_user_id: userId });
+
+      if (error) throw error;
+
+      if (data && !data.success) {
+        throw new Error(data.error || 'Erro ao marcar pagamento');
+      }
+
+      toast.success('Pagamento marcado como pago!');
+      loadUsers();
+    } catch (error: any) {
+      console.error('Error marking payment:', error);
+      toast.error('Erro ao marcar pagamento: ' + (error.message || 'Erro desconhecido'));
+    }
+  };
+
+  const handleConvertToMonthly = async (userId: string) => {
+    if (!confirm('Deseja converter este usuário de teste para assinatura mensal? Isso removerá o período de teste.')) {
+      return;
+    }
+
+    try {
+      // Calcular próxima data de pagamento (dia 05 do próximo mês)
+      const currentDate = new Date();
+      const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      const nextPaymentDate = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 5);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          subscription_type: 'monthly',
+          trial_end_date: null,
+          next_payment_date: nextPaymentDate.toISOString(),
+          payment_status: 'pending'
+        })
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      toast.success('Usuário convertido para assinatura mensal!');
+      loadUsers();
+    } catch (error: any) {
+      console.error('Error converting to monthly:', error);
+      toast.error('Erro ao converter: ' + (error.message || 'Erro desconhecido'));
+    }
+  };
+
   const handleSetTrial = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -422,7 +560,10 @@ export default function Admin() {
 
       const { error } = await supabase
         .from('profiles')
-        .update({ trial_end_date: trialEndDate.toISOString() })
+        .update({ 
+          trial_end_date: trialEndDate.toISOString(),
+          subscription_type: 'trial'
+        })
         .eq('user_id', selectedUser.id);
 
       if (error) throw error;
@@ -431,6 +572,7 @@ export default function Admin() {
       setTrialDialogOpen(false);
       setTrialDays('7');
       setSelectedUser(null);
+      loadUsers();
     } catch (error) {
       console.error('Error setting trial:', error);
       toast.error('Erro ao conceder dias de teste');
@@ -486,6 +628,42 @@ export default function Admin() {
           </TooltipContent>
         </Tooltip>
       </div>
+
+      {/* Financial Dashboard */}
+      <Card className="border-2 border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Dashboard Financeiro
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">Estabelecimentos Mensais</p>
+              <p className="text-2xl font-bold">{financialStats.totalMonthly}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">Receita Total Mensal</p>
+              <p className="text-2xl font-bold text-green-600">
+                R$ {financialStats.totalRevenue.toFixed(2)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">Pagamentos Pendentes</p>
+              <p className="text-2xl font-bold text-yellow-600">
+                {financialStats.pendingPayments}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">Pagamentos Atrasados</p>
+              <p className="text-2xl font-bold text-red-600">
+                {financialStats.overduePayments}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -601,6 +779,37 @@ export default function Admin() {
                       onChange={(e) => setNewUserEstablishment(e.target.value)}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="subscription-type">Tipo de Assinatura *</Label>
+                    <Select
+                      value={newUserSubscriptionType}
+                      onValueChange={(value: 'monthly' | 'trial') => setNewUserSubscriptionType(value)}
+                    >
+                      <SelectTrigger id="subscription-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Mensal (R$ 250,00/mês)</SelectItem>
+                        <SelectItem value="trial">Teste (dias)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {newUserSubscriptionType === 'trial' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="trial-days">Dias de Teste *</Label>
+                      <Input
+                        id="trial-days"
+                        type="number"
+                        min="1"
+                        value={newUserTrialDays}
+                        onChange={(e) => setNewUserTrialDays(e.target.value)}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        O usuário será bloqueado automaticamente após o término do teste
+                      </p>
+                    </div>
+                  )}
                   <DialogFooter>
                     <Button type="submit">Criar Usuário</Button>
                   </DialogFooter>
@@ -616,6 +825,7 @@ export default function Admin() {
                 <TableHead>Email</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Estabelecimento</TableHead>
+                <TableHead>Assinatura</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Criado em</TableHead>
                 <TableHead>Ações</TableHead>
@@ -627,12 +837,34 @@ export default function Admin() {
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.name}</TableCell>
                   <TableCell>{user.establishment_name}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <Badge variant={user.subscription_type === 'monthly' ? 'default' : 'outline'}>
+                        {user.subscription_type === 'monthly' ? 'Mensal' : 'Teste'}
+                      </Badge>
+                      {user.subscription_type === 'monthly' && (
+                        <div className="text-xs text-muted-foreground">
+                          {user.payment_status === 'paid' && <span className="text-green-600">✓ Pago</span>}
+                          {user.payment_status === 'pending' && <span className="text-yellow-600">⏳ Pendente</span>}
+                          {user.payment_status === 'overdue' && <span className="text-red-600">⚠ Atrasado</span>}
+                          {user.next_payment_date && (
+                            <div>Próximo: {new Date(user.next_payment_date).toLocaleDateString('pt-BR')}</div>
+                          )}
+                        </div>
+                      )}
+                      {user.subscription_type === 'trial' && user.trial_end_date && (
+                        <div className="text-xs text-muted-foreground">
+                          Termina em: {new Date(user.trial_end_date).toLocaleDateString('pt-BR')}
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>{getStatusBadge(user.status)}</TableCell>
                   <TableCell>
                     {new Date(user.created_at).toLocaleDateString('pt-BR')}
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       {user.status !== 'active' && (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -698,6 +930,39 @@ export default function Admin() {
                           <p>Enviar notificação</p>
                         </TooltipContent>
                       </Tooltip>
+                      {user.subscription_type === 'monthly' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={user.payment_status === 'paid' ? 'bg-green-50 border-green-500' : ''}
+                              onClick={() => handleMarkPaymentAsPaid(user.id)}
+                            >
+                              <CreditCard className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Marcar pagamento como pago</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {user.subscription_type === 'trial' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleConvertToMonthly(user.id)}
+                            >
+                              <DollarSign className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Converter para mensal</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button

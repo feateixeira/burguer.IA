@@ -49,6 +49,7 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [masterName, setMasterName] = useState("");
   const [masterPin, setMasterPin] = useState("");
   const [masterError, setMasterError] = useState("");
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
 
   const setTeamUser = useCallback((u: TeamUser | null) => {
     setTeamUserState(u);
@@ -86,10 +87,12 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
 
         // Verifica se é o usuário admin do sistema
-        const isSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+        const userIsSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+        setIsSystemAdmin(userIsSystemAdmin);
         
-        if (isSystemAdmin) {
+        if (userIsSystemAdmin) {
           // Para o admin do sistema, criar um teamUser virtual com permissões máximas
+          // NÃO mostra diálogo e permite acesso direto
           const virtualTeamUser: TeamUser = {
             id: 'system-admin',
             name: 'Administrador do Sistema',
@@ -99,6 +102,7 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           };
           setTeamUser(virtualTeamUser);
           setTeamList([]);
+          setHasMaster(false); // Não precisa de master
           setLoading(false);
           setInitialized(true);
           return;
@@ -136,6 +140,7 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setHasMaster(hasMasterMember);
 
         // Verifica se o usuário do localStorage ainda existe e está ativo na equipe
+        // IMPORTANTE: Não auto-seleciona usuário - sempre mostra diálogo para o usuário escolher
         const cached = window.localStorage.getItem(TEAM_USER_KEY);
         if (cached && list && list.length > 0) {
           try {
@@ -144,31 +149,19 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const userExists = list.find(u => u.id === cachedUser.id && u.active);
             if (userExists) {
               // Usa os dados atualizados da lista, não do cache
+              // Só define se realmente existe na lista atual
               setTeamUser(userExists);
             } else {
-              // Se não encontrou, tenta encontrar qualquer master ativo
-              const activeMaster = list.find(u => u.role === 'master' && u.active);
-              if (activeMaster) {
-                setTeamUser(activeMaster);
-              } else {
-                setTeamUser(null);
-              }
-            }
-          } catch (e) {
-            // Em caso de erro, tenta encontrar um master ativo
-            const activeMaster = list.find(u => u.role === 'master' && u.active);
-            if (activeMaster) {
-              setTeamUser(activeMaster);
-            } else {
+              // Se não encontrou no cache, deixa null para mostrar diálogo
               setTeamUser(null);
             }
+          } catch (e) {
+            // Em caso de erro, deixa null para mostrar diálogo
+            setTeamUser(null);
           }
-        } else if (list && list.length > 0) {
-          // Se não tem cache mas há lista, tenta encontrar master
-          const activeMaster = list.find(u => u.role === 'master' && u.active);
-          if (activeMaster) {
-            setTeamUser(activeMaster);
-          }
+        } else {
+          // Sem cache ou sem lista - deixa null para mostrar diálogo
+          setTeamUser(null);
         }
       } catch (e) {
         setTeamList([]);
@@ -326,20 +319,15 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // CALCULA se deve mostrar o dialog: SEMPRE quando não há teamUser em rotas privadas
   // NÃO mostra o dialog se o usuário é o admin do sistema (fellipe_1693@outlook.com)
   const mustShowDialog = useMemo(() => {
-    // Verifica se é o admin do sistema
-    let isSystemAdmin = false;
-    if (teamUser && teamUser.id === 'system-admin') {
-      isSystemAdmin = true;
-    }
-    
     // Mostra o dialog quando:
     // - Não é rota pública
     // - Já inicializou (terminou de carregar)
     // - Não está carregando
-    // - Não há teamUser selecionado
+    // - Não há teamUser selecionado (usuário precisa escolher)
     // - NÃO é o admin do sistema
-    return !isPublic && initialized && !loading && !teamUser && !isSystemAdmin;
-  }, [isPublic, initialized, loading, teamUser]);
+    const shouldShow = !isPublic && initialized && !loading && !teamUser && !isSystemAdmin;
+    return shouldShow;
+  }, [isPublic, initialized, loading, teamUser, isSystemAdmin]);
 
   // Bloquear o conteúdo enquanto não houver teamUser em rotas privadas
   // Só bloqueia se há master cadastrado e há membros na equipe

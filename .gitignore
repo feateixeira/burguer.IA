@@ -13,12 +13,10 @@ dist
 dist-ssr
 *.local
 
-# Environment variables
-.env
+# Environment variables (mantendo apenas .local e production)
 .env.local
 .env.*.local
 .env.production
-.env.development
 
 # Secrets and sensitive data
 *.key

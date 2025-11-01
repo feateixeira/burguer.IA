@@ -6,8 +6,14 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  const missingVars = [];
+  if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
+  if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
+  
   throw new Error(
-    "Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file"
+    `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
+    `Please set them in your .env file and RESTART the development server. ` +
+    `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
   );
 }
 

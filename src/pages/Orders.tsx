@@ -103,28 +103,56 @@
       checkAuth();
     }, []);
 
-    useEffect(() => {
-      if (establishment) {
-        loadOrders();
+     useEffect(() => {
+       if (establishment) {
+         loadOrders();
 
-        // Realtime: orders and order_items
-        const channel = supabase
-          .channel('orders-realtime')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `establishment_id=eq.${establishment.id}` }, () => loadOrders({ background: true }))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadOrders({ background: true }))
-          .subscribe();
+         // Realtime: escuta INSERT de novos pedidos para atualização imediata
+         const channel = supabase
+           .channel('orders-realtime')
+           .on('postgres_changes', { 
+             event: 'INSERT', 
+             schema: 'public', 
+             table: 'orders', 
+             filter: `establishment_id=eq.${establishment.id}` 
+           }, (payload) => {
+             // Quando um novo pedido é inserido, recarregar imediatamente
+             console.log('🆕 Novo pedido detectado via Realtime:', payload.new);
+             loadOrders({ background: true });
+           })
+           .on('postgres_changes', { 
+             event: '*', 
+             schema: 'public', 
+             table: 'orders', 
+             filter: `establishment_id=eq.${establishment.id}` 
+           }, () => {
+             // Para updates/deletes, também atualizar
+             loadOrders({ background: true });
+           })
+           .on('postgres_changes', { 
+             event: '*', 
+             schema: 'public', 
+             table: 'order_items' 
+           }, () => {
+             // Quando itens são alterados, atualizar também
+             loadOrders({ background: true });
+           })
+           .subscribe();
 
-        // Polling como redundância para garantir baixa latência
-        const interval = setInterval(() => {
-          if (activeTab === 'pending') loadOrders({ background: true });
-        }, 3000);
+         // Escuta eventos customizados para atualização quando notificação chegar
+         const handleNewOrderNotification = () => {
+           console.log('📢 Notificação de novo pedido recebida, recarregando lista...');
+           loadOrders({ background: true });
+         };
+         
+         window.addEventListener('new-order-notification', handleNewOrderNotification);
 
-        return () => {
-          clearInterval(interval);
-          supabase.removeChannel(channel);
-        };
-      }
-    }, [establishment, activeTab]);
+         return () => {
+           supabase.removeChannel(channel);
+           window.removeEventListener('new-order-notification', handleNewOrderNotification);
+         };
+       }
+     }, [establishment]);
 
     useEffect(() => {
       filterOrdersByTab();

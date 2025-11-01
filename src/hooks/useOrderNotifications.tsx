@@ -116,6 +116,11 @@ export function useOrderNotifications(establishmentId: string | null) {
           // Tocar beep chamativo
           playBeep();
           
+          // Disparar evento customizado para atualizar a lista de pedidos
+          window.dispatchEvent(new CustomEvent('new-order-notification', { 
+            detail: { orderId: order.id } 
+          }));
+          
           // Notificação toast
           const orderTypeText = order.order_type === 'delivery' ? 'Entrega' : 
                                 order.order_type === 'balcao' ? 'Balcão' : 
@@ -205,6 +210,11 @@ export function useOrderNotifications(establishmentId: string | null) {
 
             // Tocar beep
             playBeep();
+
+            // Disparar evento customizado para atualizar a lista de pedidos
+            window.dispatchEvent(new CustomEvent('new-order-notification', { 
+              detail: { orderId: newestOrder.id } 
+            }));
 
             // Notificação toast
             const orderTypeText = newestOrder.order_type === 'delivery' ? 'Entrega' : 

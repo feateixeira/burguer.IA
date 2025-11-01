@@ -918,7 +918,7 @@ const Settings = () => {
                     <div className="p-4 rounded-lg bg-muted/50 border">
                       <h3 className="font-semibold mb-2">Endpoint de Integração</h3>
                       <code className="text-sm bg-background px-2 py-1 rounded">
-                        POST https://tndiwjznitnualtorbpk.supabase.co/functions/v1/online-order-intake
+                        POST {(import.meta.env.VITE_SUPABASE_URL?.replace('/rest/v1', '') || 'https://seu-projeto.supabase.co')}/functions/v1/online-order-intake
                       </code>
                     </div>
 

@@ -33,8 +33,11 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || 
                        Deno.env.get('SUPABASE_SERVICE_URL') ||
                        (Deno.env.get('SUPABASE_PROJECT_REF') ? 
-                         `https://${Deno.env.get('SUPABASE_PROJECT_REF')}.supabase.co` : null) ||
-                       `https://tndiwjznitnualtorbpk.supabase.co` // Fallback hardcoded
+                         `https://${Deno.env.get('SUPABASE_PROJECT_REF')}.supabase.co` : null)
+    
+    if (!supabaseUrl) {
+      throw new Error('SUPABASE_URL or SUPABASE_PROJECT_REF must be configured as an environment variable')
+    }
     
     // Tentar obter a service role key - Supabase não permite prefixo SUPABASE_ em secrets
     // Então devemos usar SERVICE_ROLE_KEY

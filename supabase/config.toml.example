@@ -1,3 +1,6 @@
+# Configuração do Supabase
+# Copie este arquivo para config.toml e preencha com seus dados
+
 project_id = "seu-project-id-aqui"
 
 [functions.import-whatsapp-order]
@@ -5,3 +8,4 @@ verify_jwt = false
 
 [functions.online-order-intake]
 verify_jwt = false
+

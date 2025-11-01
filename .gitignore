@@ -7,10 +7,25 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
 dist
 dist-ssr
 *.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Secrets and sensitive data
+*.key
+*.pem
+*.p12
+secrets/
+*.secret
 
 # Editor directories and files
 .vscode/*
@@ -22,3 +37,28 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+*.txt.bak
+
+# OS files
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+
+# Build files
+.next
+out
+build
+.cache
+.parcel-cache
+
+# Supabase config (mantém apenas o .example)
+supabase/config.toml
+!supabase/config.toml.example

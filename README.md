@@ -1,73 +1,86 @@
-# Welcome to your Lovable project
+# Sistema de Gestão para Hamburgueria - SaaS
 
-## Project info
+Sistema completo de gestão para hamburguerias, incluindo PDV, gestão de pedidos, produtos, clientes e muito mais.
 
-**URL**: https://lovable.dev/projects/fbe0b1eb-c70b-4e97-be15-8e962f72cb08
+## 🚀 Tecnologias
 
-## How can I edit this code?
+- **Frontend**: React + TypeScript + Vite
+- **Backend**: Supabase (PostgreSQL + Edge Functions)
+- **UI**: Tailwind CSS + shadcn/ui
+- **Deploy**: Vercel
 
-There are several ways of editing your application.
+## 📋 Pré-requisitos
 
-**Use Lovable**
+- Node.js 18+ 
+- npm ou bun
+- Conta no Supabase
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/fbe0b1eb-c70b-4e97-be15-8e962f72cb08) and start prompting.
+## 🛠️ Instalação
 
-Changes made via Lovable will be committed automatically to this repo.
+```bash
+# Clone o repositório
+git clone <seu-repo-url>
 
-**Use your preferred IDE**
+# Instale as dependências
+npm install
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Configure as variáveis de ambiente
+cp .env.example .env
+# Edite o .env com suas credenciais do Supabase
 ```
 
-**Edit a file directly in GitHub**
+## 🔧 Configuração
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. Crie um projeto no Supabase
+2. Configure as variáveis de ambiente no arquivo `.env`:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. Execute as migrations do Supabase:
+   ```bash
+   supabase db reset
+   ```
+4. Faça deploy das Edge Functions:
+   ```bash
+   supabase functions deploy create-user
+   supabase functions deploy delete-user
+   supabase functions deploy online-order-intake
+   # ... outras functions
+   ```
 
-**Use GitHub Codespaces**
+## 📦 Scripts Disponíveis
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+# Desenvolvimento
+npm run dev
 
-## What technologies are used for this project?
+# Build para produção
+npm run build
 
-This project is built with:
+# Preview do build
+npm run preview
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 📁 Estrutura do Projeto
 
-## How can I deploy this project?
+```
+├── src/
+│   ├── pages/          # Páginas principais
+│   ├── components/     # Componentes reutilizáveis
+│   ├── hooks/          # Custom hooks
+│   ├── utils/          # Funções utilitárias
+│   └── integrations/   # Integrações (Supabase)
+├── supabase/
+│   ├── functions/      # Edge Functions
+│   └── migrations/     # Migrations do banco
+└── public/             # Arquivos estáticos
+```
 
-Simply open [Lovable](https://lovable.dev/projects/fbe0b1eb-c70b-4e97-be15-8e962f72cb08) and click on Share -> Publish.
+## 🔒 Segurança
 
-## Can I connect a custom domain to my Lovable project?
+- Nunca commite arquivos `.env` ou secrets
+- Use variáveis de ambiente para todas as credenciais
+- Mantenha o `SERVICE_ROLE_KEY` apenas nas variáveis de ambiente do Supabase
 
-Yes, you can!
+## 📝 Licença
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+Fellipe Teixeira (@feteixeiraz) Proprietário - Todos os direitos reservados

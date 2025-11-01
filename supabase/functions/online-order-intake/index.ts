@@ -190,30 +190,66 @@ serve(async (req) => {
         }
       }
 
-      const orderItems = order.items.map((item: any) => {
-        const unitPrice = item.unit_price || 0;
-        const quantity = item.qty || 1;
-        let productId = item.sku && productMap[item.sku] ? productMap[item.sku] : (item.name && nameMap[item.name] ? nameMap[item.name] : null);
-        
-        // Build notes with complements
-        let itemNotes = item.obs || '';
-        if (item.complements && item.complements.length > 0) {
-          const complementsText = item.complements
-            .map((c: any) => `${c.name} (+R$ ${c.price?.toFixed(2) || '0.00'})`)
-            .join(', ');
-          itemNotes += (itemNotes ? '\n' : '') + `Complementos: ${complementsText}`;
-        }
+      const orderItems = order.items
+        .filter((item: any) => {
+          // FILTRO DE SEGURANÇA: Remove itens que são apenas observações
+          // Um item válido DEVE ter nome e preço
+          const hasName = item.name && item.name.trim().length > 0;
+          const hasPrice = (item.unit_price || 0) > 0 || (item.price || 0) > 0;
+          const hasQuantity = (item.qty || item.quantity || 1) > 0;
+          
+          // Se é apenas uma observação sem preço/quantidade válida, ignora
+          const isObservationOnly = !hasPrice && !hasQuantity && 
+                                   (item.obs || item.notes || '').toLowerCase().includes('obs');
+          
+          return hasName && (hasPrice || hasQuantity) && !isObservationOnly;
+        })
+        .map((item: any) => {
+          const unitPrice = item.unit_price || item.price || 0;
+          const quantity = item.qty || item.quantity || 1;
+          let productId = item.sku && productMap[item.sku] ? productMap[item.sku] : (item.name && nameMap[item.name] ? nameMap[item.name] : null);
+          
+          // Build notes with complements - garante que observações fiquem apenas em notes
+          let itemNotes = '';
+          
+          // Adiciona obs se houver
+          if (item.obs && item.obs.trim()) {
+            itemNotes = item.obs.trim();
+          }
+          
+          // Adiciona complements se houver
+          if (item.complements && item.complements.length > 0) {
+            const complementsText = item.complements
+              .map((c: any) => {
+                const compName = c.name || '';
+                const compPrice = c.price || 0;
+                return compPrice > 0 ? `${compName} (+R$ ${compPrice.toFixed(2)})` : compName;
+              })
+              .filter(Boolean)
+              .join(', ');
+            if (complementsText) {
+              itemNotes += (itemNotes ? ' | ' : '') + `Molhos: ${complementsText}`;
+            }
+          }
+          
+          // Limpa o nome do item (remove observações que possam ter vindo misturadas)
+          let cleanItemName = (item.name || '').trim();
+          // Remove observações do nome se vieram misturadas
+          cleanItemName = cleanItemName.replace(/\s*(Obs:|Observação:|Molhos?:).*$/i, '').trim();
+          
+          // Atualiza o nome do produto no productMap se necessário (para referência futura)
+          // Mas não altera o item.name original pois pode ser usado em outros lugares
 
-        return {
-          order_id: newOrder.id,
-          product_id: productId,
-          quantity: quantity,
-          unit_price: unitPrice,
-          total_price: unitPrice * quantity,
-          notes: itemNotes || null,
-          customizations: item.complements ? { complements: item.complements } : {},
-        };
-      });
+          return {
+            order_id: newOrder.id,
+            product_id: productId,
+            quantity: quantity,
+            unit_price: unitPrice,
+            total_price: (unitPrice || 0) * (quantity || 1),
+            notes: itemNotes || null,
+            customizations: item.complements ? { complements: item.complements } : {},
+          };
+        });
 
       const { error: itemsError } = await supabase
         .from('order_items')

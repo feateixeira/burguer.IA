@@ -294,38 +294,86 @@
       }
     };
 
-    const handlePrintOrder = async (order: Order) => {
-      let items: Array<{ name: string; quantity: number; unitPrice: number; totalPrice: number; notes?: string }> = (order.order_items || []).map(item => ({
-        name: item.products?.name || 'Item',
-        quantity: item.quantity,
-        unitPrice: item.unit_price,
-        totalPrice: item.total_price,
-        notes: item.notes || undefined // Garantir que notes seja passado mesmo se null
-      }));
-
-      // Fallback: se não veio com itens, buscar diretamente no banco antes de desistir
-      if (items.length === 0) {
-        try {
-          const { data, error } = await supabase
-            .from('order_items')
-            .select('quantity, unit_price, total_price, notes, products(name)')
-            .eq('order_id', order.id);
-          if (!error && data && data.length > 0) {
-            items = data.map((it: any) => ({
-              name: it.products?.name || 'Item',
-              quantity: it.quantity,
-              unitPrice: it.unit_price,
-              totalPrice: it.total_price,
-              notes: it.notes || undefined, // Garantir que notes seja preservado
-            }));
-          }
-        } catch {}
+    // Função auxiliar para remover informações duplicadas que já aparecem no cupom
+    const removeDuplicateReceiptInfo = (text: string): string | null => {
+      if (!text) return null;
+      
+      // Primeiro, normaliza quebras de linha e espaços para facilitar matching
+      let cleaned = text
+        // Normaliza múltiplos espaços em um só
+        .replace(/\s+/g, ' ')
+        // Normaliza quebras de linha para facilitar matching de padrões multilinha
+        .replace(/\n/g, ' ')
+        .replace(/\r/g, ' ')
+        .trim();
+      
+      // Remove informações que já aparecem no cupom (agora tratando como texto contínuo)
+      // Primeiro, tenta padrões mais específicos para capturar variações
+      cleaned = cleaned
+        // Remove subtotal (com ou sem asteriscos, variáveis de formatação)
+        .replace(/\*?Subtotal[:\s]*R\$\s*[\d.,\s]+/gi, '')
+        // Remove taxa de entrega/entrega (várias variações, incluindo sem ":" e quebrado)
+        .replace(/\*?Taxa\s+de\s+entrega[:\s]*R\$\s*[\d.,\s]+/gi, '')
+        .replace(/\*?Entrega[:\s]*R\$\s*[\d.,\s]+/gi, '')
+        .replace(/\*?Taxa\s+de\s+entrega\s*R\$\s*[\d.,\s]+/gi, '')
+        // Remove total (case insensitive)
+        .replace(/\*?Total[:\s]*R\$\s*[\d.,\s]+/gi, '')
+        .replace(/\*?TOTAL[:\s]*R\$\s*[\d.,\s]+/gi, '')
+        // Remove forma de entrega (pode estar quebrado: "Forma de entrega:" ou "Forma de entrega: Entrega")
+        // Usa padrão mais flexível para capturar mesmo que esteja em múltiplas palavras
+        .replace(/\*?Forma\s+de\s+entrega[:\s]*[^\*]*Entrega[^\*]*/gi, '')
+        .replace(/\*?Forma\s+entrega[:\s]*[^\*]*Entrega[^\*]*/gi, '')
+        .replace(/\*?Entrega[:\s]*[^\*]*Entrega[^\*]*/gi, '')
+        .replace(/\*?Forma\s+de\s+entrega[:\s]*[^\*]+/gi, '')
+        // Remove cliente (nome já aparece no cupom)
+        .replace(/\*?Cliente[:\s]*[^\*]+/gi, '')
+        // Remove endereço (já extraído e aparece no cupom - pode estar quebrado)
+        .replace(/\*?Endereço[:\s]*[^\*]+/gi, '')
+        .replace(/\*?Endereco[:\s]*[^\*]+/gi, '')
+        // Remove forma de pagamento/pagamento (pode estar quebrado: "Forma de pagamento:" ou "Forma de pagamento: cartao")
+        .replace(/\*?Forma\s+de\s+pagamento[:\s]*[^\*]+/gi, '')
+        .replace(/\*?Forma\s+pagamento[:\s]*[^\*]+/gi, '')
+        .replace(/\*?Pagamento[:\s]*[^\*]+/gi, '')
+        // Remove padrões comuns que podem sobrar após quebras de linha (apenas se estiverem isolados)
+        // Ex: "Forma de" sem o resto, "passado" sozinho após endereço removido
+        .replace(/\bForma\s+de\s*$/gi, '')
+        .replace(/^\s*passado\s*$/gi, '')
+        // Remove asteriscos soltos
+        .replace(/\*+/g, '')
+        // Remove múltiplos espaços novamente após remoções
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      // Verifica se o texto contém APENAS informações duplicadas (não deve ser impresso)
+      const duplicateKeywords = [
+        'subtotal', 'total', 'entrega', 'taxa', 'cliente', 'endereço', 'endereco',
+        'pagamento', 'forma', 'cartao', 'cartão', 'dinheiro', 'pix'
+      ];
+      
+      const words = cleaned.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const duplicateWordCount = words.filter(w => 
+        duplicateKeywords.some(kw => w.includes(kw))
+      ).length;
+      
+      // Se mais de 50% das palavras são de informações duplicadas, considera como apenas duplicatas
+      if (words.length > 0 && (duplicateWordCount / words.length) > 0.5) {
+        return null;
       }
+      
+      // Se sobrou apenas espaços ou ficou vazio, retorna null
+      if (!cleaned || cleaned.length < 2) return null;
+      
+      return cleaned;
+    };
 
-      // Último fallback: tentar extrair itens do texto em notes (WhatsApp preview)
-      if (items.length === 0 && order.notes) {
-        const lines = order.notes.split('\n').map(l => l.trim()).filter(Boolean);
+    const handlePrintOrder = async (order: Order) => {
+      let items: Array<{ name: string; quantity: number; unitPrice: number; totalPrice: number; notes?: string }> = [];
+      
+      // PRIORIDADE 1: Tentar extrair itens do texto em notes usando colchetes [ ]
+      // Este é o novo formato padrão vindo do site hamburguerianabrasa.com.br
+      if (order.notes) {
         const parsed: Array<{ name: string; quantity: number; unitPrice: number; totalPrice: number; notes?: string }> = [];
+        
         const parsePrice = (raw: string) => {
           const s = raw.trim();
           if (s.includes(',')) {
@@ -333,87 +381,249 @@
           }
           return parseFloat(s) || 0;
         };
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          // Formatos possíveis: "*2x Nome* - R$ 23,00" ou "2x Nome - R$ 23,00" ou "*1x Na Brasa Clássico* - Simples - R$ 15.00 Sem molho"
-          // Limpa asteriscos mas preserva o texto
-          const clean = line.replace(/^\*/g,'').replace(/\*$/g,'');
+        
+        // Encontra todos os blocos entre colchetes [ ]
+        // Usa regex global para encontrar todas as ocorrências, mesmo que estejam em múltiplas linhas
+        const bracketRegex = /\[([^\]]+)\]/g;
+        const text = order.notes;
+        let match;
+        
+        while ((match = bracketRegex.exec(text)) !== null) {
+          const itemText = match[1].trim(); // Texto dentro dos colchetes
           
-          // Tenta vários padrões de matching
-          // Padrão 1: "1x Nome - Variante - R$ 15.00 Obs: ... Molhos: ..." 
-          // Captura tudo até encontrar "R$" seguido de preço, depois captura tudo após o preço
-          let m = clean.match(/(\d+)x\s+(.+?)\s*-\s*R\$\s*([\d,.]+)\s*(.*)$/i);
+          if (!itemText) continue;
           
-          // Se não encontrou, tenta um padrão mais específico com variante separada
-          // Mas no caso do site, geralmente vem tudo junto na mesma linha, então o padrão acima deve funcionar
-          // Padrão 2: apenas para casos onde não há variante ou a estrutura é diferente
-          // (mantido como fallback, mas raramente será usado)
+          // Extrai quantidade: "1x", "2x", etc.
+          const qtyMatch = itemText.match(/^(\d+)x\s+/i);
+          if (!qtyMatch) continue; // Se não tem quantidade, não é um item válido
           
-          if (m) {
-            const qty = parseInt(m[1], 10) || 1;
-            let name = m[2].replace(/\*/g,'').trim();
-            // Remove possíveis informações de molho/obs do nome se vieram misturadas
-            // Mas só remove se realmente estiver no nome, não nas notes
-            name = name.replace(/\s*(Sem molho|Molhos?:.*|Obs:.*)$/i, '').trim();
-            const total = parsePrice(m[3]);
-            const unit = total / qty;
+          const qty = parseInt(qtyMatch[1], 10) || 1;
+          if (qty <= 0 || qty > 1000) continue;
+          
+          // Remove a quantidade do texto para processar o resto
+          let remainingText = itemText.replace(/^\d+x\s+/i, '').trim();
+          
+          // Extrai o preço: "R$ 15.00" ou "R$15,00"
+          const priceMatch = remainingText.match(/R\$\s*([\d.,]+)/i);
+          if (!priceMatch) continue; // Se não tem preço, não é um item válido
+          
+          const total = parsePrice(priceMatch[1]);
+          if (total <= 0) continue;
+          
+          const unit = total / qty;
+          
+          // Remove o preço do texto para obter o nome e observações
+          remainingText = remainingText.replace(/R\$\s*[\d.,]+\s*/i, '').trim();
+          
+          // Separa nome e observações
+          // Observações geralmente começam com "Obs:", "Observação:", "Molhos:", etc.
+          // Pode ter múltiplas observações no mesmo item
+          // Procura por qualquer padrão de observação no texto
+          const notesKeywords = ['Obs:', 'Observação:', 'Molhos:', 'Molho:'];
+          let firstNotesIndex = -1;
+          
+          for (const keyword of notesKeywords) {
+            const index = remainingText.toLowerCase().indexOf(keyword.toLowerCase());
+            if (index !== -1 && (firstNotesIndex === -1 || index < firstNotesIndex)) {
+              firstNotesIndex = index;
+            }
+          }
+          
+          let name = remainingText;
+          let notes: string | undefined = undefined;
+          
+          if (firstNotesIndex !== -1) {
+            // Separa nome (antes da primeira observação) e observações (resto)
+            name = remainingText.substring(0, firstNotesIndex).trim();
+            const notesText = remainingText.substring(firstNotesIndex).trim();
             
-            // Capturar TODAS as informações após o preço (Obs + Molhos)
-            // A regex já captura tudo após o preço em m[4], então usamos isso diretamente
-            let notes = (m[4] || '').trim();
+            // Limpa o nome de qualquer hífen ou espaço extra no final
+            name = name.replace(/-\s*$/, '').trim();
             
-            // Se não capturou na linha atual, verifica se há informação na próxima linha
-            if (!notes && i + 1 < lines.length) {
-              const nextLine = lines[i + 1].trim();
-              // Se não é um novo item (não começa com número seguido de "x"), adiciona às notas
-              if (!nextLine.match(/^\d+x\s+/i) && nextLine.length > 0 && 
-                  !nextLine.match(/^(Subtotal|Total|Taxa|Forma|Cliente|Endereço|Pagamento)/i)) {
-                notes = nextLine;
-                i++; // Consome a próxima linha
-                
-                // Verifica se há mais uma linha do mesmo item (ex: Molhos na linha seguinte de Obs)
-                if (i + 1 < lines.length) {
-                  const nextNextLine = lines[i + 1].trim();
-                  if (!nextNextLine.match(/^\d+x\s+/i) && 
-                      !nextNextLine.match(/^(Subtotal|Total|Taxa|Forma|Cliente|Endereço|Pagamento)/i) &&
-                      (nextNextLine.match(/(Molhos?:|Obs:|Observação)/i) || nextNextLine.length > 0)) {
-                    notes += ' ' + nextNextLine;
-                    i++; // Consome mais uma linha
-                  }
-                }
+            // As observações podem ter múltiplas partes (ex: "Obs: Sem cebola Molhos: Ervas")
+            // Limpa espaços extras
+            notes = notesText.replace(/\s+/g, ' ').trim();
+            
+            // Remove "Obs:" duplicado no início
+            notes = notes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+            notes = notes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+            
+            // CRÍTICO: Se começa com "Obs:" seguido imediatamente por outro marcador (Molhos:, Observação:, etc.)
+            // Remove o "Obs:" completamente, pois não há conteúdo real após ele
+            // Ex: "Obs: Molhos: Bacon" -> "Molhos: Bacon"
+            if (notes.match(/^Obs:\s+(Molhos?|Observação|Obs):\s*/i)) {
+              notes = notes.replace(/^Obs:\s+/i, '').trim();
+              // Verifica se após remover "Obs:" ficou apenas o marcador sem conteúdo
+              // Ex: "Molhos: " (sem valor) -> undefined
+              const afterMarker = notes.replace(/^(Molhos?|Observação|Obs):\s*/i, '').trim();
+              if (!afterMarker || afterMarker.length < 1) {
+                notes = undefined;
               }
             }
             
-            // Garantir que capturou tudo da linha original (fallback de segurança)
-            if (notes) {
-              // Verifica se a linha original tem mais informação que não foi capturada
-              const afterPriceMatch = clean.match(/R\$\s*[\d,.]+(.*)$/i);
-              if (afterPriceMatch && afterPriceMatch[1]) {
-                const originalAfterPrice = afterPriceMatch[1].trim();
-                // Se o texto original é maior ou tem "Molhos" que notes não tem, usa o original
-                if (originalAfterPrice.length > notes.length) {
-                  notes = originalAfterPrice;
-                } else if (!notes.includes('Molhos') && originalAfterPrice.includes('Molhos')) {
-                  // Se original tem Molhos mas notes não tem, combina ambos
-                  notes = originalAfterPrice;
-                }
-              }
-            } else {
-              // Último fallback: extrai tudo após o preço da linha original
-              const afterPriceMatch = clean.match(/R\$\s*[\d,.]+(.*)$/i);
-              if (afterPriceMatch && afterPriceMatch[1]) {
-                notes = afterPriceMatch[1].trim();
-              }
+            // Se começa com "Obs:" mas não tem conteúdo após (só espaços, vazio)
+            if (notes && notes.match(/^Obs:\s*$/i)) {
+              notes = undefined;
             }
             
-            parsed.push({ name, quantity: qty, unitPrice: unit, totalPrice: total, notes: notes || undefined });
+            // Se está vazio ou só tem espaços, não adiciona
+            if (!notes || notes.length < 2) {
+              notes = undefined;
+            }
+          } else {
+            // Se não tem observações explícitas, o texto todo é o nome
+            // Remove hífens extras e espaços
+            name = remainingText.replace(/\s*-\s*$/, '').trim();
+          }
+          
+          // Valida o nome
+          if (!name || name.length < 2) continue;
+          
+          // Limpa e valida as notas - remove informações duplicadas
+          if (notes) {
+            notes = notes.replace(/^\*\s*/, '').replace(/\s*\*$/, '').trim();
+            
+            // Remove "Obs:" duplicado ou no início se já estiver presente
+            // Ex: "Obs: Obs: Sem cebola" -> "Obs: Sem cebola"
+            notes = notes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+            // Remove múltiplas ocorrências consecutivas de "Obs:"
+            notes = notes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+            
+            // CRÍTICO: Se começa com "Obs:" seguido imediatamente por outro marcador, remove o "Obs:"
+            if (notes.match(/^Obs:\s+(Molhos?|Observação|Obs):\s*/i)) {
+              notes = notes.replace(/^Obs:\s+/i, '').trim();
+            }
+            
+            // Remove "Obs:" solto sem conteúdo após ou só com marcadores
+            if (notes.match(/^Obs:\s*$/i) || notes.match(/^Obs:\s+(Molhos?|Observação|Obs):\s*$/i)) {
+              notes = undefined;
+            } else if (notes) {
+              notes = removeDuplicateReceiptInfo(notes) || undefined;
+              
+              // Se após limpeza ficou apenas "Obs:" sem conteúdo, remove
+              if (notes && notes.match(/^Obs:\s*$/i)) {
+                notes = undefined;
+              }
+            }
+          }
+          
+          parsed.push({ 
+            name, 
+            quantity: qty, 
+            unitPrice: unit, 
+            totalPrice: total, 
+            notes: notes || undefined 
+          });
+        }
+        
+        if (parsed.length > 0) {
+          items = parsed;
+        } else {
+          // Se não encontrou itens entre colchetes, tenta método antigo como fallback
+          const lines = order.notes.split('\n').map(l => l.trim()).filter(Boolean);
+          
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const clean = line.replace(/^\*/g,'').replace(/\*$/g,'');
+            
+            // Tenta padrão antigo: "1x Nome - R$ 15.00"
+            let m = clean.match(/^(\d+)x\s+(.+?)\s*-\s*R\$\s*([\d,.]+)\s*(.*)$/i);
+            if (!m) {
+              m = clean.match(/^(\d+)x\s+(.+?)\s+R\$\s*([\d,.]+)\s*(.*)$/i);
+            }
+            
+            if (m) {
+              const qty = parseInt(m[1], 10) || 1;
+              if (qty <= 0 || qty > 1000) continue;
+              
+              let name = m[2].replace(/\*/g,'').trim();
+              name = name.replace(/\s*(Sem molho|Molhos?:.*|Obs:.*)$/i, '').trim();
+              
+              if (!name || name.length < 2) continue;
+              
+              const total = parsePrice(m[3]);
+              if (total <= 0) continue;
+              
+              const unit = total / qty;
+              let notes = (m[4] || '').trim();
+              
+              if (notes) {
+                // Remove "Obs:" duplicado
+                notes = notes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+                notes = notes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+                // Remove se estiver vazio
+                if (notes.match(/^Obs:\s*$/i)) {
+                  notes = undefined;
+                } else {
+                  notes = removeDuplicateReceiptInfo(notes) || undefined;
+                }
+              }
+              
+              parsed.push({ 
+                name, 
+                quantity: qty, 
+                unitPrice: unit, 
+                totalPrice: total, 
+                notes: notes || undefined 
+              });
+            }
+          }
+          
+          if (parsed.length > 0) {
+            items = parsed;
           }
         }
-        if (parsed.length > 0) items = parsed;
-        // Se ainda vazio, imprime ao menos um item genérico com o total
-        if (parsed.length === 0) {
-          items = [{ name: 'Pedido Online', quantity: 1, unitPrice: order.total_amount, totalPrice: order.total_amount, notes: order.notes }];
-        }
+        
+      }
+      
+      // PRIORIDADE 2: Se não encontrou itens em colchetes, usa order_items do banco
+      if (items.length === 0 && order.order_items && order.order_items.length > 0) {
+        items = (order.order_items || []).map(item => ({
+          name: item.products?.name || 'Item',
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+          totalPrice: item.total_price,
+          notes: item.notes ? removeDuplicateReceiptInfo(item.notes) || undefined : undefined
+        }));
+      }
+
+      // PRIORIDADE 3: Se ainda não tem itens, buscar diretamente no banco
+      if (items.length === 0) {
+        try {
+          const { data, error } = await supabase
+            .from('order_items')
+            .select('quantity, unit_price, total_price, notes, products(name)')
+            .eq('order_id', order.id);
+          if (!error && data && data.length > 0) {
+            items = data.map((it: any) => {
+              let notes = it.notes;
+              if (notes) {
+                notes = notes.trim();
+                // Remove "Obs:" duplicado
+                notes = notes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+                notes = notes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+                // Remove se estiver vazio após limpeza
+                if (notes.match(/^Obs:\s*$/i)) {
+                  notes = undefined;
+                } else {
+                  notes = removeDuplicateReceiptInfo(notes) || undefined;
+                }
+              }
+              return {
+                name: it.products?.name || 'Item',
+                quantity: it.quantity,
+                unitPrice: it.unit_price,
+                totalPrice: it.total_price,
+                notes
+              };
+            });
+          }
+        } catch {}
+      }
+      
+      // PRIORIDADE 4: Último fallback - item genérico
+      if (items.length === 0) {
+        items = [{ name: 'Pedido Online', quantity: 1, unitPrice: order.total_amount, totalPrice: order.total_amount, notes: order.notes }];
       }
 
       // Garantir que as notas dos order_items sejam preservadas
@@ -425,10 +635,48 @@
           const itemName = orderItem.products?.name?.toLowerCase() || '';
           const existingItem = itemsMap.get(itemName);
           if (existingItem && !existingItem.notes && orderItem.notes) {
-            existingItem.notes = orderItem.notes;
+            let cleanedNotes = orderItem.notes.trim();
+            // Remove "Obs:" duplicado
+            cleanedNotes = cleanedNotes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+            cleanedNotes = cleanedNotes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+            // Remove se estiver vazio
+            if (!cleanedNotes.match(/^Obs:\s*$/i)) {
+              cleanedNotes = removeDuplicateReceiptInfo(cleanedNotes) || '';
+              if (cleanedNotes) {
+                existingItem.notes = cleanedNotes;
+              }
+            }
           }
         });
       }
+      
+      // Remove informações duplicadas das notes dos itens que já aparecem no cupom
+      // Também limpa "Obs:" duplicado e remove se estiver vazio
+      items = items.map(item => {
+        if (item.notes) {
+          let cleanedNotes = item.notes.trim();
+          
+          // Remove "Obs:" duplicado ou no início se já estiver presente
+          cleanedNotes = cleanedNotes.replace(/^(Obs:\s*)+/i, 'Obs: ');
+          cleanedNotes = cleanedNotes.replace(/(Obs:\s*){2,}/gi, 'Obs: ');
+          
+          // Se começa com "Obs:" mas só tem outro marcador, remove o "Obs:"
+          if (cleanedNotes.match(/^Obs:\s+(Molhos?|Observação):/i)) {
+            cleanedNotes = cleanedNotes.replace(/^Obs:\s+/i, '').trim();
+          }
+          
+          // Remove "Obs:" solto sem conteúdo
+          if (cleanedNotes.match(/^Obs:\s*$/i)) {
+            cleanedNotes = '';
+          } else {
+            // Aplica remoção de informações duplicadas
+            cleanedNotes = removeDuplicateReceiptInfo(cleanedNotes) || '';
+          }
+          
+          return { ...item, notes: cleanedNotes || undefined };
+        }
+        return item;
+      });
 
       if (items.length === 0) {
         toast.error("Pedido sem itens para imprimir");
@@ -442,18 +690,44 @@
       if (order.notes) {
         const text = order.notes.replace(/\*/g, '');
         
-        // Extrair endereço
+        // Extrair endereço (mas não vamos incluí-lo duplicado nas observações)
         const mAddr = text.match(/Endereç[oa]:\s*([^*\n]+)/i);
         if (mAddr && mAddr[1]) {
           const addr = mAddr[1].trim();
           if (addr) customerDisplay = `${customerDisplay} - ${addr}`.trim();
         }
         
-        // Extrair instruções gerais do pedido
+        // Extrair instruções gerais do pedido (remove informações duplicadas)
         // Tenta encontrar "Instruções do Pedido:" seguido do texto
         const instructionsMatch = text.match(/Instruções\s+do\s+Pedido:\s*([\s\S]*?)(?:\n\n|$)/i);
         if (instructionsMatch && instructionsMatch[1]) {
-          generalInstructions = instructionsMatch[1].trim();
+          const rawInstructions = instructionsMatch[1].trim();
+          generalInstructions = removeDuplicateReceiptInfo(rawInstructions) || undefined;
+        } else {
+          // Remove tudo que está entre colchetes [ ] (itens do pedido) antes de processar
+          // Também remove linhas que começam com "Pedido Na Brasa:" ou similar
+          let cleanedText = text
+            // Remove itens entre colchetes (ex: [1x Na Brasa...])
+            .replace(/\[[^\]]+\]/g, '')
+            // Remove linhas que começam com "Pedido Na Brasa:" ou variações
+            .replace(/^Pedido\s+Na\s+Brasa[:\s]*/gmi, '')
+            // Remove informações de resumo (Subtotal, Total, etc.)
+            .replace(/Subtotal[:\s]*R\$\s*[\d.,\s]+/gi, '')
+            .replace(/Taxa\s+de\s+entrega[:\s]*R\$\s*[\d.,\s]+/gi, '')
+            .replace(/Total[:\s]*R\$\s*[\d.,\s]+/gi, '')
+            .replace(/Forma\s+de\s+entrega[:\s]*[^\n]+/gi, '')
+            .replace(/Cliente[:\s]*[^\n]+/gi, '')
+            .replace(/Endereç[oa][:\s]*[^\n]+/gi, '')
+            .replace(/Forma\s+de\s+pagamento[:\s]*[^\n]+/gi, '')
+            .trim();
+          
+          // Limpa espaços e quebras de linha extras
+          cleanedText = cleanedText.replace(/\n\s*\n+/g, '\n').replace(/\s+/g, ' ').trim();
+          
+          // Só usa se tiver conteúdo relevante (mais de 5 caracteres após limpeza)
+          if (cleanedText && cleanedText.length > 5) {
+            generalInstructions = removeDuplicateReceiptInfo(cleanedText) || undefined;
+          }
         }
       }
 

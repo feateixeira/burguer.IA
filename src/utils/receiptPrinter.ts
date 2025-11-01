@@ -44,7 +44,55 @@ export const printReceipt = async (r: ReceiptData) => {
       <span class="left">${it.quantity}x ${it.name}</span>
       <span class="right">R$ ${it.totalPrice.toFixed(2)}</span>
     </div>
-    ${it.notes ? `<div class="notes">Obs: ${it.notes}</div>` : ""}
+    ${it.notes && it.notes.trim() ? (() => {
+      let cleanNotes = it.notes.trim();
+      
+      // Se está vazio, não imprime
+      if (!cleanNotes) {
+        return "";
+      }
+      
+      // Remove "Obs:" se ele está seguido imediatamente por outro marcador (sem conteúdo real)
+      // Ex: "Obs: Molhos: Bacon" -> "Molhos: Bacon"
+      if (cleanNotes.match(/^Obs:\s+(Molhos?|Observação|Obs):\s*/i)) {
+        cleanNotes = cleanNotes.replace(/^Obs:\s+/i, '').trim();
+      }
+      
+      // Se ficou apenas "Obs:" sem conteúdo após, não imprime
+      if (cleanNotes.match(/^Obs:\s*$/i)) {
+        return "";
+      }
+      
+      // Se começa com outro marcador (Molhos:, Observação:), não adiciona "Obs:" e imprime direto
+      if (cleanNotes.match(/^(Molhos?|Observação):\s*/i)) {
+        // Verifica se há conteúdo após o marcador
+        const afterMarker = cleanNotes.replace(/^(Molhos?|Observação):\s*/i, '').trim();
+        if (!afterMarker || afterMarker.length < 1) {
+          return ""; // Não imprime se não há conteúdo após o marcador
+        }
+        return `<div class="notes">${cleanNotes}</div>`;
+      }
+      
+      // Se a nota já começa com "Obs:", verifica se há conteúdo útil após
+      const hasObsPrefix = cleanNotes.toLowerCase().startsWith('obs:') || cleanNotes.toLowerCase().startsWith('obs ');
+      
+      if (hasObsPrefix) {
+        // Verifica se há conteúdo útil após "Obs:" (não apenas outro marcador sem valor)
+        const afterObs = cleanNotes.replace(/^Obs:\s*/i, '').trim();
+        // Se não tem conteúdo ou só tem marcadores, não imprime
+        if (!afterObs || afterObs.length < 1) {
+          return "";
+        }
+        // Se após "Obs:" só tem outro marcador sem valor, não imprime
+        if (afterObs.match(/^(Molhos?|Observação|Obs):\s*$/i)) {
+          return "";
+        }
+        return `<div class="notes">${cleanNotes}</div>`;
+      }
+      
+      // Se não começa com "Obs:" nem outro marcador, adiciona "Obs:"
+      return `<div class="notes">Obs: ${cleanNotes}</div>`;
+    })() : ""}
     ${i < r.items.length - 1 ? `<div class="sep sep--light"></div>` : ""}
   `).join("");
 
@@ -153,7 +201,7 @@ export const printReceipt = async (r: ReceiptData) => {
         ${r.generalInstructions ? `
           <div class="sep"></div>
           <div class="general-instructions">
-            <strong>OBS:</strong> ${r.generalInstructions}
+            <strong>Instruções do Pedido:</strong> ${r.generalInstructions}
           </div>
         ` : ""}
 

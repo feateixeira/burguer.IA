@@ -36,20 +36,20 @@
     <!-- Modal de Filtro -->
     <div id="modal-filtro" class="hidden fixed inset-0 z-[2000] flex items-center justify-center p-4">
       <div class="absolute inset-0 bg-black/40"></div>
-      <div class="relative w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-xl">
-        <div class="flex items-center justify-between border-b border-border px-5 py-3">
+      <div class="relative w-auto max-w-4xl overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-xl flex flex-col">
+        <div class="flex items-center justify-between border-b border-border px-5 py-3 flex-shrink-0">
           <div class="text-base font-semibold tracking-tight">Filtrar por período</div>
           <button id="btn-fechar-filtro" type="button" class="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted" aria-label="Fechar">
             ✕
           </button>
         </div>
-        <div class="p-5">
-          <div class="mb-3 text-xs text-muted-foreground">Selecione um intervalo de datas para filtrar os dados do dashboard.</div>
-          <div id="picker-container" class="w-full"></div>
+        <div class="px-5 py-4 flex-shrink-0">
+          <div class="mb-3 text-sm text-muted-foreground">Selecione um intervalo de datas para filtrar os dados do dashboard.</div>
+          <div id="picker-container" class="flex items-center justify-center mx-auto"></div>
         </div>
-        <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 bg-secondary/20">
-          <button id="btn-cancelar-filtro" type="button" class="px-3 py-1.5 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-muted">Cancelar</button>
-          <button id="btn-aplicar-filtro" type="button" class="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">Aplicar Filtro</button>
+        <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 bg-secondary/20 flex-shrink-0">
+          <button id="btn-cancelar-filtro" type="button" class="px-4 py-2 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-muted">Cancelar</button>
+          <button id="btn-aplicar-filtro" type="button" class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90">Aplicar Filtro</button>
         </div>
       </div>
     </div>
@@ -87,21 +87,34 @@
               setTimeout(openModal, 50);
               return;
             }
+            // Locale em português do Brasil
+            const locale = {
+              months: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+              monthsShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+              weekdays: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'],
+              weekdaysShort: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+              firstDay: 0 // Domingo como primeiro dia
+            };
+            
             picker = new Litepicker({
               element: input,
               singleMode: false,
               inlineMode: true,
               numberOfMonths: 2,
               numberOfColumns: 2,
-              autoApply: true,
+              autoApply: false,
+              showTooltip: false,
+              showButtons: false, // Remove botões do Litepicker
               mobileFriendly: true,
               format: 'YYYY-MM-DD',
-              tooltipText: { one: 'dia', other: 'dias' },
+              locale: locale,
               lockDaysFilter: (day) => false,
+              minDate: null,
+              maxDate: null,
               setup: (inst) => {
                 inst.on('selected', (date1, date2) => {
                   lastRange.start = date1;
-                  lastRange.end = date2;
+                  lastRange.end = date2 || date1;
                 });
               }
             });
@@ -141,10 +154,19 @@
 
         if (btnAplicar) {
           btnAplicar.addEventListener('click', function(){
-            if (!picker) return closeModal();
+            if (!picker) {
+              console.warn('Picker não inicializado');
+              return closeModal();
+            }
             let startDate = (picker.getStartDate && picker.getStartDate()) || lastRange.start;
             let endDate = (picker.getEndDate && picker.getEndDate()) || lastRange.end;
-            if (startDate && endDate) {
+            
+            // Se não há endDate mas há startDate, usa startDate como endDate (filtro de 1 dia)
+            if (startDate && !endDate) {
+              endDate = startDate;
+            }
+            
+            if (startDate) {
               // Caso a função global exista, chama com ISODateString
               const fn = window.atualizarDashboard || window.updateDashboard || null;
               try {
@@ -158,9 +180,18 @@
                       return js.toISOString().slice(0,10);
                     } catch (_) { return new Date(d).toISOString().slice(0,10); }
                   };
-                  fn(toISO(startDate), toISO(endDate));
+                  const startISO = toISO(startDate);
+                  const endISO = endDate ? toISO(endDate) : startISO;
+                  console.log('Aplicando filtro:', startISO, 'até', endISO);
+                  fn(startISO, endISO);
+                } else {
+                  console.warn('Função atualizarDashboard não encontrada');
                 }
-              } catch (e) { /* silencioso */ }
+              } catch (e) { 
+                console.error('Erro ao aplicar filtro:', e);
+              }
+            } else {
+              console.warn('Nenhuma data selecionada');
             }
             closeModal();
           });

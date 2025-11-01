@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { revalidateHelpers } from "@/utils/revalidateCache";
 import { Plus, Edit, Trash2, Users, UserPlus, Crown } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
@@ -188,6 +189,7 @@ const Customers = () => {
 
       setIsCustomerDialogOpen(false);
       setEditingCustomer(null);
+      await revalidateHelpers.customers();
       loadData();
     } catch (error) {
       console.error("Error saving customer:", error);

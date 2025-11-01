@@ -658,8 +658,8 @@ const PDV = () => {
           customer_phone: customerPhone,
           order_type: includeDelivery ? "delivery" : "balcao",
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-          status: isPix ? "pending" : "completed",
-          payment_status: isPix ? "pending" : "paid",
+          status: "pending",
+          payment_status: "pending",
           payment_method: paymentMethod,
           subtotal: subtotal,
           discount_amount: discountAmount,
@@ -1438,8 +1438,7 @@ const PDV = () => {
                     >
                       <option value="">Selecione...</option>
                       <option value="dinheiro">Dinheiro</option>
-                      <option value="cartao_credito">Cartão de Crédito</option>
-                      <option value="cartao_debito">Cartão de Débito</option>
+                      <option value="cartao credito/debito">Cartão de Crédito/Débito</option>
                       <option value="pix">PIX</option>
                     </select>
                   </div>

@@ -69,6 +69,7 @@ const Settings = () => {
   const { setTeamUser } = useTeamUser();
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isNaBrasa, setIsNaBrasa] = useState(false);
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
@@ -85,6 +86,9 @@ const Settings = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+
+      // Verifica se é admin do sistema
+      const userIsSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
 
       // Load user profile
       const { data: profileData } = await supabase
@@ -105,6 +109,18 @@ const Settings = () => {
 
         if (establishmentData) {
           setEstablishment(establishmentData);
+          
+          // Verifica se é Na Brasa (somente se não for admin do sistema)
+          if (!userIsSystemAdmin) {
+            const establishmentName = establishmentData.name?.toLowerCase() || '';
+            const isNaBrasaUser = establishmentName.includes('na brasa') || 
+                                  establishmentName.includes('nabrasa') ||
+                                  establishmentName === 'hamburgueria na brasa';
+            setIsNaBrasa(isNaBrasaUser);
+          } else {
+            setIsNaBrasa(false);
+          }
+          
           // Carrega papel do usuário atual e equipe
           await loadUserRoleAndTeam(profileData.user_id, establishmentData.id);
           // Verifica se já existe Master
@@ -451,15 +467,18 @@ const Settings = () => {
             </div>
 
           <Tabs defaultValue="establishment" className="space-y-6 tabs-compact">
-            <TabsList className="grid w-full grid-cols-7 h-auto p-1">
+            <TabsList className={`grid w-full h-auto p-1 ${isNaBrasa ? 'grid-cols-7' : 'grid-cols-6'}`}>
               <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
                 <Building className="h-4 w-4" />
                 <span className="hidden sm:inline">Estabelecimento</span>
               </TabsTrigger>
-              <TabsTrigger value="api" className="flex items-center gap-2 py-3">
-                <Key className="h-4 w-4" />
-                <span className="hidden sm:inline">API</span>
-              </TabsTrigger>
+              {/* Aba API apenas para Na Brasa */}
+              {isNaBrasa && (
+                <TabsTrigger value="api" className="flex items-center gap-2 py-3">
+                  <Key className="h-4 w-4" />
+                  <span className="hidden sm:inline">API</span>
+                </TabsTrigger>
+              )}
               <TabsTrigger value="printers" className="flex items-center gap-2 py-3">
                 <Printer className="h-4 w-4" />
                 <span className="hidden sm:inline">Impressoras</span>
@@ -881,9 +900,10 @@ const Settings = () => {
               </Card>
             </TabsContent>
 
-            {/* API Tab */}
-            <TabsContent value="api" className="space-y-4">
-              <Card className="border-2 card-dense">
+            {/* API Tab - Apenas para Na Brasa */}
+            {isNaBrasa && (
+              <TabsContent value="api" className="space-y-4">
+                <Card className="border-2 card-dense">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Key className="h-5 w-5 text-primary" />
@@ -967,7 +987,8 @@ const Settings = () => {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
+              </TabsContent>
+            )}
 
             {/* Printers Tab */}
             <TabsContent value="printers" className="space-y-6">

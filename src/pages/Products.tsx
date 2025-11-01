@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Plus, Edit, Trash2, Package, HelpCircle, ExternalLink } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import CombosManager from "@/components/CombosManager";
+import { revalidateHelpers } from "@/utils/revalidateCache";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import {
@@ -54,6 +55,7 @@ function CategoryManager({ categories, onRefresh, establishmentId }) {
     });
     if (error) return toast.error(error.message);
     setNewCat("");
+    await revalidateHelpers.categories();
     onRefresh();
   };
 
@@ -61,6 +63,7 @@ function CategoryManager({ categories, onRefresh, establishmentId }) {
     if (!window.confirm(`Excluir categoria ${cat.name}?`)) return;
     const { error } = await supabase.from("categories").delete().eq('id', cat.id);
     if (error) return toast.error(error.message);
+    await revalidateHelpers.categories();
     onRefresh();
   };
 
@@ -69,6 +72,7 @@ function CategoryManager({ categories, onRefresh, establishmentId }) {
     const { error } = await supabase.from("categories").update({ name: editingCat.name }).eq("id", editingCat.id);
     if (error) return toast.error(error.message);
     setEditingCat(null);
+    await revalidateHelpers.categories();
     onRefresh();
   };
 
@@ -201,29 +205,51 @@ const Products = () => {
     };
 
     try {
-      if (editingProduct) {
-        const { error } = await supabase
-          .from("products")
-          .update(productData)
-          .eq("id", editingProduct.id);
-
-        if (error) throw error;
-        toast.success("Produto atualizado com sucesso!");
-      } else {
-        const { error } = await supabase
-          .from("products")
-          .insert(productData);
-
-        if (error) throw error;
-        toast.success("Produto criado com sucesso!");
+      // Get session for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Sessão expirada. Por favor, faça login novamente.");
+        return;
       }
+
+      // Use Edge Function for update/insert with revalidation
+      const response = await supabase.functions.invoke('update-product', {
+        body: {
+          productId: editingProduct?.id || null,
+          productData,
+          isUpdate: !!editingProduct
+        },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const result = response.data;
+      if (!result?.success) {
+        throw new Error(result?.error || 'Erro ao salvar produto');
+      }
+
+      toast.success(editingProduct ? "Produto atualizado com sucesso!" : "Produto criado com sucesso!");
+
+      // Get establishment slug for revalidation
+      const { data: establishment } = await supabase
+        .from('establishments')
+        .select('slug')
+        .eq('id', establishmentId)
+        .single();
+      
+      await revalidateHelpers.products(establishment?.slug);
 
       setIsDialogOpen(false);
       setEditingProduct(null);
       loadData();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving product:", error);
-      toast.error("Erro ao salvar produto");
+      toast.error(error?.message || "Erro ao salvar produto");
     }
   };
 
@@ -237,6 +263,15 @@ const Products = () => {
         .eq("id", product.id);
 
       if (error) throw error;
+      
+      // Get establishment slug for revalidation
+      const { data: establishment } = await supabase
+        .from('establishments')
+        .select('slug')
+        .eq('id', establishmentId)
+        .single();
+      
+      await revalidateHelpers.products(establishment?.slug);
       
       toast.success("Produto excluído com sucesso!");
       loadData();

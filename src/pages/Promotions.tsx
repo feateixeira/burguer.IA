@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { toast } from "sonner";
+import { revalidateHelpers } from "@/utils/revalidateCache";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/hooks/useConfirm";
 
@@ -154,6 +155,27 @@ export default function Promotions() {
 
       setDialogOpen(false);
       resetForm();
+      
+      // Get establishment slug for revalidation
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('establishment_id')
+          .eq('user_id', session.user.id)
+          .single();
+        
+        if (profile?.establishment_id) {
+          const { data: establishment } = await supabase
+            .from('establishments')
+            .select('slug')
+            .eq('id', profile.establishment_id)
+            .single();
+          
+          await revalidateHelpers.promotions(establishment?.slug);
+        }
+      }
+      
       loadData();
     } catch (error) {
       console.error("Error saving promotion:", error);
@@ -187,6 +209,27 @@ export default function Promotions() {
       const { error } = await supabase.from("promotions").delete().eq("id", id);
       if (error) throw error;
       toast.success("Promoção excluída!");
+      
+      // Get establishment slug for revalidation
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('establishment_id')
+          .eq('user_id', session.user.id)
+          .single();
+        
+        if (profile?.establishment_id) {
+          const { data: establishment } = await supabase
+            .from('establishments')
+            .select('slug')
+            .eq('id', profile.establishment_id)
+            .single();
+          
+          await revalidateHelpers.promotions(establishment?.slug);
+        }
+      }
+      
       loadData();
     } catch (error) {
       console.error("Error deleting promotion:", error);

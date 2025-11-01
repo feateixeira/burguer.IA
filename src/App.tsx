@@ -22,6 +22,7 @@ import PasswordPanel from "./pages/PasswordPanel";
 import PasswordDisplay from "./pages/PasswordDisplay";
 import Totem from "./pages/Totem";
 import Promotions from "./pages/Promotions";
+import Menu from "./pages/Menu";
 import NotFound from "./pages/NotFound";
 import { TeamUserProvider } from "@/components/TeamUserProvider";
 import { ConfirmProvider } from "@/hooks/useConfirm";
@@ -54,6 +55,7 @@ const App = () => (
                 <Route path="/password-display" element={<PasswordDisplay />} />
                 <Route path="/totem" element={<Totem />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/menu" element={<Menu />} />
                 <Route path="/landing" element={<Index />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />

@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag
+  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag, UtensilsCrossed
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ const items = [
   { name: "Clientes", href: "/customers", icon: Users, show: ["master", "admin", "atendente"] },
   { name: "Promoções", href: "/promotions", icon: Tag, show: ["master", "admin"] },
   { name: "Produtos", href: "/products", icon: Package, show: ["master", "admin", "atendente"] },
+  { name: "Cardápio Online", href: "/menu", icon: UtensilsCrossed, show: ["master", "admin"], excludeAdmin: true },
   { name: "Custos", href: "/costs", icon: Calculator, show: ["master", "admin"] },
   { name: "Fornecedores", href: "/suppliers", icon: Truck, show: ["master", "admin"] },
   { name: "Apps", href: "/apps", icon: Smartphone, show: ["master", "admin"] },
@@ -30,6 +31,8 @@ const Sidebar = () => {
     return saved === "true";
   });
   const [establishmentName, setEstablishmentName] = useState<string>("burguer.IA");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [isNaBrasa, setIsNaBrasa] = useState(false);
   const location = useLocation();
   const { teamUser, resetTeamUser } = useTeamUser();
 
@@ -38,6 +41,8 @@ const Sidebar = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
+
+        setUserEmail(session.user.email || "");
 
         const { data: profile } = await supabase
           .from("profiles")
@@ -54,6 +59,18 @@ const Sidebar = () => {
 
           if (establishment?.name) {
             setEstablishmentName(establishment.name);
+            
+            // Verifica se é Na Brasa (somente se não for admin do sistema)
+            const userIsSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+            if (!userIsSystemAdmin) {
+              const establishmentNameLower = establishment.name?.toLowerCase() || '';
+              const isNaBrasaUser = establishmentNameLower.includes('na brasa') || 
+                                    establishmentNameLower.includes('nabrasa') ||
+                                    establishmentNameLower === 'hamburgueria na brasa';
+              setIsNaBrasa(isNaBrasaUser);
+            } else {
+              setIsNaBrasa(false);
+            }
           }
         }
       } catch (error) {
@@ -80,10 +97,21 @@ const Sidebar = () => {
     }
   };
 
-  // Filtra itens baseado no role do teamUser
+  // Filtra itens baseado no role do teamUser e regras específicas
   // Se não há teamUser, não mostra itens (pois o modal de seleção deve aparecer)
   const visibleItems = teamUser 
-    ? items.filter(it => it.show.includes(teamUser.role))
+    ? items.filter(it => {
+        // Verifica se o role permite ver o item
+        if (!it.show.includes(teamUser.role)) return false;
+        
+        // Se o item tem excludeNaBrasa, não mostrar para Na Brasa
+        if (it.excludeNaBrasa && isNaBrasa) return false;
+        
+        // Se o item tem excludeAdmin, não mostrar para admin do sistema
+        if (it.excludeAdmin && userEmail === 'fellipe_1693@outlook.com') return false;
+        
+        return true;
+      })
     : [];
 
   return (

@@ -192,7 +192,10 @@ const Dashboard = () => {
   // Expor função global para o modal do index.html
   useEffect(() => {
     (window as any).atualizarDashboard = (startISO: string, endISO: string) => {
-      setCustomRange({ start: startISO, end: endISO });
+      // Permite filtrar por 1 dia (quando startISO === endISO) ou vários dias
+      // Se não forneceu endISO, usa startISO como endISO (filtro de 1 dia)
+      const finalEndISO = endISO || startISO;
+      setCustomRange({ start: startISO, end: finalEndISO });
       setTimeRange('custom');
     };
     return () => {
@@ -229,7 +232,9 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        return;
+      }
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -239,22 +244,60 @@ const Dashboard = () => {
 
       if (!profile?.establishment_id) return;
 
+      // Verifica se é Na Brasa (não é admin do sistema)
+      const userIsSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+      let isNaBrasa = false;
+      
+      // Buscar establishment se não estiver carregado
+      let currentEstablishment = establishment;
+      if (!currentEstablishment && profile?.establishment_id) {
+        const { data: estabData } = await supabase
+          .from('establishments')
+          .select('id, name')
+          .eq('id', profile.establishment_id)
+          .single();
+        currentEstablishment = estabData;
+      }
+      
+      if (!userIsSystemAdmin && currentEstablishment) {
+        const establishmentName = currentEstablishment.name?.toLowerCase() || '';
+        isNaBrasa = establishmentName.includes('na brasa') || 
+                    establishmentName.includes('nabrasa') ||
+                    establishmentName === 'hamburgueria na brasa';
+      }
+      
       // Calculate date range (suporta customRange)
       let startDate = new Date();
       let endDate = new Date();
-      if (customRange) {
+      
+      if (timeRange === 'custom' && customRange) {
+        // Filtro personalizado: permite 1 dia ou vários dias
         startDate = new Date(`${customRange.start}T00:00:00`);
         endDate = new Date(`${customRange.end}T23:59:59`);
-      } else {
+      } else if (timeRange !== 'custom') {
+        // Reseta customRange quando muda para outra opção
+        setCustomRange(null);
         switch (timeRange) {
           case 'hoje':
+            // Cria novas instâncias para evitar problemas de referência
+            startDate = new Date();
             startDate.setHours(0, 0, 0, 0);
+            endDate = new Date();
+            endDate.setHours(23, 59, 59, 999);
             break;
           case 'semana':
+            startDate = new Date();
             startDate.setDate(startDate.getDate() - 7);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date();
+            endDate.setHours(23, 59, 59, 999);
             break;
           case 'mes':
+            startDate = new Date();
             startDate.setMonth(startDate.getMonth() - 1);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date();
+            endDate.setHours(23, 59, 59, 999);
             break;
         }
       }
@@ -265,20 +308,41 @@ const Dashboard = () => {
       monthStart.setHours(0, 0, 0, 0);
 
       // Get orders data (flat) - filter by range
-      const { data: orders } = await supabase
+      let ordersQuery = supabase
         .from("orders")
-        .select("*")
+        .select("*, site_category_quantities")
         .eq("establishment_id", profile.establishment_id)
         .gte("created_at", startDate.toISOString())
-        .lte("created_at", endDate.toISOString())
-        .order("created_at", { ascending: false });
+        .lte("created_at", endDate.toISOString());
+      
+      // Para Na Brasa: contar apenas pedidos do site que foram aceitos e impressos
+      // Ou pedidos que não são do site (PDV, balcão, etc)
+      // Para outros usuários: contar todos os pedidos normalmente
+      if (isNaBrasa) {
+        // Filtrar: pedidos do site só contam se accepted_and_printed_at não for null
+        // OU pedidos que não são do site (sem source_domain/channel online)
+        ordersQuery = ordersQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+      }
+      
+      const { data: orders, error: ordersError } = await ordersQuery.order("created_at", { ascending: false });
+      
+      if (ordersError) {
+        console.error('Erro ao carregar pedidos:', ordersError);
+      }
 
       // Get monthly orders count for goals
-      const { data: monthlyOrders } = await supabase
+      let monthlyOrdersQuery = supabase
         .from("orders")
         .select("id")
         .eq("establishment_id", profile.establishment_id)
         .gte("created_at", monthStart.toISOString());
+      
+      // Para Na Brasa: aplicar mesmo filtro
+      if (isNaBrasa) {
+        monthlyOrdersQuery = monthlyOrdersQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+      }
+      
+      const { data: monthlyOrders } = await monthlyOrdersQuery;
 
       // Get new customers count for the current month
       const { count: customersCount } = await supabase
@@ -295,224 +359,695 @@ const Dashboard = () => {
         .eq('active', true);
       setActiveProductsCount(activeCount || 0);
 
-      // Get top 5 customers by total spending
-      const { data: topCustomersData } = await supabase
-        .from("orders")
-        .select("customer_name, customer_phone, total_amount")
+      // Get top 5 customers by number of orders - apenas clientes cadastrados
+      // Buscar clientes cadastrados e calcular quantidade de compras baseado em pedidos vinculados
+      const { data: customersData } = await supabase
+        .from("customers")
+        .select("id, name, phone")
         .eq("establishment_id", profile.establishment_id)
-        .not("customer_name", "is", null)
-        .order("created_at", { ascending: false });
+        .eq("active", true);
 
-      // Aggregate customer data
+      // Para cada cliente cadastrado, buscar seus pedidos (por customer_id OU por nome/telefone correspondente)
       const customerTotals: { [key: string]: { name: string, phone: string, total: number, orders: number } } = {};
-      topCustomersData?.forEach(order => {
-        const key = order.customer_phone || order.customer_name;
-        if (!customerTotals[key]) {
-          customerTotals[key] = {
-            name: order.customer_name || "Cliente",
-            phone: order.customer_phone || "",
-            total: 0,
-            orders: 0
-          };
+      
+      if (customersData && customersData.length > 0) {
+        for (const customer of customersData) {
+          // Buscar pedidos vinculados por customer_id
+          let customerOrdersQueryById = supabase
+            .from("orders")
+            .select("id, total_amount, created_at")
+            .eq("establishment_id", profile.establishment_id)
+            .eq("customer_id", customer.id);
+          
+          // Para Na Brasa: aplicar mesmo filtro
+          if (isNaBrasa) {
+            customerOrdersQueryById = customerOrdersQueryById.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+          }
+          
+          const { data: ordersById } = await customerOrdersQueryById;
+          
+          // Buscar pedidos por correspondência de nome/telefone (caso não tenha customer_id vinculado)
+          let customerOrdersQueryByName = supabase
+            .from("orders")
+            .select("id, total_amount, created_at, customer_id")
+            .eq("establishment_id", profile.establishment_id)
+            .eq("customer_name", customer.name);
+          
+          if (customer.phone) {
+            customerOrdersQueryByName = customerOrdersQueryByName.eq("customer_phone", customer.phone);
+          }
+          
+          // Para Na Brasa: aplicar mesmo filtro
+          if (isNaBrasa) {
+            customerOrdersQueryByName = customerOrdersQueryByName.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+          }
+          
+          const { data: ordersByName } = await customerOrdersQueryByName;
+          
+          // Combinar pedidos, evitando duplicatas
+          const allCustomerOrders = new Map();
+          
+          // Adicionar pedidos por ID
+          if (ordersById) {
+            ordersById.forEach((order: any) => {
+              allCustomerOrders.set(order.id, order);
+            });
+          }
+          
+          // Adicionar pedidos por nome/telefone que não têm customer_id (ou têm customer_id nulo)
+          if (ordersByName) {
+            ordersByName.forEach((order: any) => {
+              // Só adicionar se não tiver customer_id ou se o customer_id for diferente (caso tenha sido atualizado)
+              if (!order.customer_id || order.customer_id !== customer.id) {
+                allCustomerOrders.set(order.id, order);
+              }
+            });
+          }
+          
+          const customerOrders = Array.from(allCustomerOrders.values());
+          
+          if (customerOrders.length > 0) {
+            const total = customerOrders.reduce((sum: number, order: any) => sum + (Number(order.total_amount) || 0), 0);
+            customerTotals[customer.id] = {
+              name: customer.name,
+              phone: customer.phone || "",
+              total: total,
+              orders: customerOrders.length
+            };
+          }
         }
-        customerTotals[key].total += order.total_amount;
-        customerTotals[key].orders += 1;
-      });
+      }
 
+      // Ordenar por quantidade de compras (orders), não por valor total
       const topCustomers = Object.values(customerTotals)
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => b.orders - a.orders)
         .slice(0, 5);
 
-      if (orders) {
-        const totalRevenue = orders.reduce((sum, order) => sum + order.total_amount, 0);
-        const totalOrders = orders.length;
-        const averageTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+      // Sempre inicializa os dados, mesmo sem pedidos
+      const ordersArray = orders || [];
+      
+      const totalRevenue = ordersArray.reduce((sum: number, order: any) => sum + (Number(order.total_amount) || 0), 0);
+      const totalOrders = ordersArray.length;
+      const averageTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-        // Category analysis + Top products without FK embeddings
-        const colorPalette = ['#8884d8','#82ca9d','#ffc658','#ff7300','#34d399','#f43f5e'];
+      // Category analysis + Top products without FK embeddings
+      const colorPalette = ['#8884d8','#82ca9d','#ffc658','#ff7300','#34d399','#f43f5e'];
 
-        let categoryData: { name: string; value: number; color: string }[] = [];
-        let topProducts: { name: string; quantity: number; revenue: number }[] = [];
+      let categoryData: { name: string; value: number; color: string }[] = [];
+      let topProducts: { name: string; quantity: number; revenue: number }[] = [];
 
-        if (orders.length > 0) {
-          const orderIds = orders.map((o: any) => o.id);
-          const { data: items } = await supabase
+      if (ordersArray.length > 0) {
+        // Para Na Brasa: Processar categorias do site primeiro (site_category_quantities)
+        if (isNaBrasa) {
+          const siteCategoryTotals: Record<string, number> = {};
+
+          // Processar pedidos do site que têm site_category_quantities
+          // Apenas pedidos que foram aceitos e impressos devem contar
+          for (const order of ordersArray) {
+            // Verificar se é pedido do site, tem categorias e foi aceito/impresso
+            const isFromSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+            const wasAcceptedAndPrinted = order.accepted_and_printed_at !== null && order.accepted_and_printed_at !== undefined;
+            
+            // Tentar parsear se for string JSON
+            let siteCategories = order.site_category_quantities;
+            if (typeof siteCategories === 'string') {
+              try {
+                siteCategories = JSON.parse(siteCategories);
+              } catch (e) {
+                siteCategories = null;
+              }
+            }
+
+            if (isFromSite && wasAcceptedAndPrinted && siteCategories && typeof siteCategories === 'object') {
+              // Mapear categorias do site para nomes em português
+              const categoryMapping: Record<string, string> = {
+                'burger': 'Hambúrgueres',
+                'side': 'Acompanhamentos',
+                'drink': 'Bebidas'
+              };
+              
+              // Processar cada categoria do site
+              const entries = Object.entries(siteCategories);
+              
+              // Mapear valores reais do notes do pedido
+              const categoryValueMap: Record<string, number> = {};
+              
+              // Extrair valores reais do notes do pedido para cada categoria
+              if (order.notes && order.notes.includes('[')) {
+                // Tentar extrair valores do notes e mapear para categorias
+                const bracketMatches = [...order.notes.matchAll(/\[(\d+)x\s+([^\]]+?)\]/gs)];
+                
+                for (const match of bracketMatches) {
+                  const qty = Number(match[1]) || 1;
+                  const fullContent = match[2] || '';
+                  
+                  // Extrair preço
+                  const priceMatch = fullContent.match(/R\$\s*([\d.,]+)/);
+                  const priceStr = priceMatch ? priceMatch[1].replace(',', '.') : '';
+                  const price = priceStr ? parseFloat(priceStr) : 0;
+                  const totalValue = price * qty;
+                  
+                  if (price === 0) {
+                    continue;
+                  }
+                  
+                  // Tentar identificar a categoria pelo nome do produto
+                  const contentLower = fullContent.toLowerCase();
+                  let matchedCategory = '';
+                  
+                  if (contentLower.includes('hamburguer') || contentLower.includes('hambúrguer') || 
+                      contentLower.includes('burger') || contentLower.includes('frango') ||
+                      contentLower.includes('carne') || contentLower.includes('na brasa')) {
+                    matchedCategory = 'burger';
+                  } else if (contentLower.includes('batata') || contentLower.includes('frita') ||
+                             contentLower.includes('acompanhamento') || contentLower.includes('side')) {
+                    matchedCategory = 'side';
+                  } else if (contentLower.includes('bebida') || contentLower.includes('refrigerante') ||
+                             contentLower.includes('coca') || contentLower.includes('pepsi') ||
+                             contentLower.includes('drink') || contentLower.includes('suco') ||
+                             contentLower.includes('zero')) {
+                    matchedCategory = 'drink';
+                  }
+                  
+                  if (matchedCategory && siteCategories[matchedCategory]) {
+                    categoryValueMap[matchedCategory] = (categoryValueMap[matchedCategory] || 0) + totalValue;
+                  }
+                }
+              }
+              
+              // Processar categorias usando valores reais se disponíveis, senão usar estimativa
+              entries.forEach(([catKey, catQuantity]) => {
+                const catName = categoryMapping[catKey] || catKey;
+                const quantity = Number(catQuantity) || 0;
+                
+                if (quantity > 0) {
+                  let categoryValue = 0;
+                  
+                  // Se temos valor mapeado, usar ele
+                  if (categoryValueMap[catKey]) {
+                    categoryValue = categoryValueMap[catKey];
+                  } else {
+                    // Fallback: calcular proporcionalmente (menos preciso)
+                    const totalItems = Object.values(siteCategories).reduce((sum: number, qty: any) => sum + (Number(qty) || 0), 0);
+                    categoryValue = totalItems > 0 ? (order.subtotal / totalItems) * quantity : 0;
+                  }
+
+                  siteCategoryTotals[catName] = (siteCategoryTotals[catName] || 0) + categoryValue;
+                }
+              });
+            }
+          }
+
+          // Adicionar categorias do site aos totais
+          Object.entries(siteCategoryTotals).forEach(([name, value]) => {
+            if (value > 0) {
+              categoryData.push({
+                name,
+                value: Number(value) || 0,
+                color: colorPalette[categoryData.length % colorPalette.length]
+              });
+            }
+          });
+        }
+
+        const orderIds = ordersArray.map((o: any) => o.id);
+        
+        if (orderIds.length > 0) {
+          const { data: items, error: itemsError } = await supabase
             .from('order_items')
-            .select('order_id, product_id, quantity, total_price')
+            .select('order_id, product_id, quantity, total_price, notes')
             .in('order_id', orderIds);
 
-          const productIds = Array.from(new Set((items || []).map((i: any) => i.product_id).filter(Boolean)));
-          const { data: products } = await supabase
-            .from('products')
-            .select('id, name, category_id')
-            .in('id', productIds);
+          if (itemsError) {
+            console.error('Error loading order items:', itemsError);
+          }
 
-          const categoryIds = Array.from(new Set((products || []).map((p: any) => p.category_id).filter(Boolean)));
-          const { data: categories } = await supabase
-            .from('categories')
-            .select('id, name')
-            .in('id', categoryIds);
-
-          const productMap = new Map((products || []).map((p: any) => [p.id, p]));
-          const categoryMap = new Map((categories || []).map((c: any) => [c.id, c.name]));
-
-          const categoryTotals: Record<string, number> = {};
-          const productTotals: Record<string, { name: string; quantity: number; revenue: number }> = {};
-
-          (items || []).forEach((item: any) => {
-            const prod = productMap.get(item.product_id);
-            const prodName = prod?.name || 'Produto';
-            const catName = prod?.category_id ? (categoryMap.get(prod.category_id) || 'Outros') : 'Outros';
-
-            categoryTotals[catName] = (categoryTotals[catName] || 0) + (item.total_price || 0);
-
-            if (!productTotals[prodName]) {
-              productTotals[prodName] = { name: prodName, quantity: 0, revenue: 0 };
+          if (items && items.length > 0) {
+            // Separar itens com e sem product_id
+            // Para Na Brasa: identificar pedidos do site que já foram processados via site_category_quantities
+            // Esses pedidos NÃO devem ser processados nas categorias normais para evitar duplicação
+            const siteOrderIds = new Set<string>();
+            if (isNaBrasa && ordersArray.length > 0) {
+              ordersArray.forEach((order: any) => {
+                const isFromSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+                const wasAcceptedAndPrinted = order.accepted_and_printed_at !== null && order.accepted_and_printed_at !== undefined;
+                let siteCategories = order.site_category_quantities;
+                if (typeof siteCategories === 'string') {
+                  try {
+                    siteCategories = JSON.parse(siteCategories);
+                  } catch (e) {
+                    siteCategories = null;
+                  }
+                }
+                
+                if (isFromSite && wasAcceptedAndPrinted && siteCategories && typeof siteCategories === 'object' && Object.keys(siteCategories).length > 0) {
+                  siteOrderIds.add(order.id);
+                }
+              });
             }
-            productTotals[prodName].quantity += item.quantity || 0;
-            productTotals[prodName].revenue += item.total_price || 0;
-          });
+            
+            // IMPORTANTE: Para o Top 5 Produtos, precisamos processar TODOS os itens (incluindo do site)
+            // Mas para as categorias, excluímos pedidos do site que já foram processados via site_category_quantities
+            const itemsWithProductId = items.filter((i: any) => i.product_id);
+            const itemsWithoutProductId = items.filter((i: any) => !i.product_id);
+            
+            // Separar itens para categorias (excluindo pedidos do site) e para Top 5 (incluindo todos)
+            const itemsWithProductIdForCategories = itemsWithProductId.filter((i: any) => !siteOrderIds.has(i.order_id));
+            
+            const categoryTotals: Record<string, number> = {};
+            const productTotals: Record<string, { name: string; quantity: number; revenue: number }> = {};
+            
+            // Processar itens com product_id (buscar produtos no banco)
+            // Para categorias: usar apenas itens que NÃO são de pedidos do site
+            if (itemsWithProductIdForCategories.length > 0) {
+              const productIds = Array.from(new Set(itemsWithProductIdForCategories.map((i: any) => i.product_id).filter(Boolean)));
+              
+              if (productIds.length > 0) {
+                const { data: products, error: productsError } = await supabase
+                  .from('products')
+                  .select('id, name, category_id')
+                  .in('id', productIds);
 
-          categoryData = Object.entries(categoryTotals).map(([name, value], idx) => ({
-            name,
-            value,
-            color: colorPalette[idx % colorPalette.length]
-          }));
+                if (productsError) {
+                  console.error('Error loading products:', productsError);
+                }
 
-          topProducts = Object.values(productTotals)
-            .sort((a, b) => b.quantity - a.quantity)
-            .slice(0, 5);
-        }
+                if (products && products.length > 0) {
+                  const categoryIds = Array.from(new Set(products.map((p: any) => p.category_id).filter(Boolean)));
+                  
+                  let categories: any[] = [];
+                  if (categoryIds.length > 0) {
+                    const { data: categoriesData, error: categoriesError } = await supabase
+                      .from('categories')
+                      .select('id, name')
+                      .in('id', categoryIds);
+                    
+                    if (categoriesError) {
+                      console.error('Error loading categories:', categoriesError);
+                    }
+                    
+                    categories = categoriesData || [];
+                  }
 
-        // Sales data por mês (últimos 6 meses)
-        const salesData = [];
-        const today = new Date();
-        for (let i = 5; i >= 0; i--) {
-          const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-          const monthName = date.toLocaleDateString('pt-BR', { month: 'short' });
-          const monthOrders = orders.filter(order => {
-            const orderDate = new Date(order.created_at);
-            return orderDate.getMonth() === date.getMonth() && orderDate.getFullYear() === date.getFullYear();
-          });
-          salesData.push({
-            name: monthName.charAt(0).toUpperCase() + monthName.slice(1),
-            vendas: monthOrders.reduce((sum, order) => sum + order.total_amount, 0),
-            pedidos: monthOrders.length,
-            meta: establishment?.monthly_goal || 0
-          });
-        }
+                  const productMap = new Map(products.map((p: any) => [p.id, p]));
+                  const categoryMap = new Map(categories.map((c: any) => [c.id, c.name]));
 
-        // Daily data - horários de pico
-        const hourlyTotals: { [key: string]: { valor: number, pedidos: number } } = {};
-        orders.forEach(order => {
-          const hour = new Date(order.created_at).getHours();
-          const hourKey = `${hour.toString().padStart(2, '0')}:00`;
-          if (!hourlyTotals[hourKey]) {
-            hourlyTotals[hourKey] = { valor: 0, pedidos: 0 };
+                  itemsWithProductIdForCategories.forEach((item: any) => {
+                    const prod = productMap.get(item.product_id);
+                    const prodName = prod?.name || 'Produto';
+                    const catName = prod?.category_id ? (categoryMap.get(prod.category_id) || 'Outros') : 'Outros';
+
+                    categoryTotals[catName] = (categoryTotals[catName] || 0) + (Number(item.total_price) || 0);
+                  });
+                }
+              }
+            }
+            
+            // Processar TODOS os itens com product_id para o Top 5 Produtos (incluindo do site)
+            if (itemsWithProductId.length > 0) {
+              const productIds = Array.from(new Set(itemsWithProductId.map((i: any) => i.product_id).filter(Boolean)));
+              
+              if (productIds.length > 0) {
+                const { data: products, error: productsError } = await supabase
+                  .from('products')
+                  .select('id, name')
+                  .in('id', productIds);
+
+                if (productsError) {
+                  console.error('Error loading products:', productsError);
+                }
+
+                if (products && products.length > 0) {
+                  const productMap = new Map(products.map((p: any) => [p.id, p]));
+
+                  itemsWithProductId.forEach((item: any) => {
+                    const prod = productMap.get(item.product_id);
+                    const prodName = prod?.name || 'Produto';
+
+                    if (!productTotals[prodName]) {
+                      productTotals[prodName] = { name: prodName, quantity: 0, revenue: 0 };
+                    }
+                    productTotals[prodName].quantity += Number(item.quantity) || 0;
+                    productTotals[prodName].revenue += Number(item.total_price) || 0;
+                  });
+                }
+              }
+            }
+            
+            // Processar itens sem product_id (do site) - buscar nomes a partir dos dados originais do pedido
+            // IMPORTANTE: Processar TODOS os itens sem product_id para o Top 5, mesmo que sejam de pedidos do site
+            if (itemsWithoutProductId.length > 0 && isNaBrasa) {
+              // Buscar os pedidos relacionados para pegar os dados originais
+              const orderIdsForItems = Array.from(new Set(itemsWithoutProductId.map((i: any) => i.order_id)));
+              
+              // Buscar os pedidos com notes para tentar extrair nomes dos produtos
+              const { data: ordersWithItems } = await supabase
+                .from('orders')
+                .select('id, notes')
+                .in('id', orderIdsForItems);
+              
+              // Criar um mapa de order_id -> notes para buscar nomes
+              const orderNotesMap = new Map();
+              if (ordersWithItems) {
+                ordersWithItems.forEach((o: any) => {
+                  orderNotesMap.set(o.id, o.notes);
+                });
+              }
+              
+              // Para cada item sem product_id, tentar extrair o nome do notes ou usar genérico
+              itemsWithoutProductId.forEach((item: any) => {
+                let prodName = `Produto do Site (R$ ${Number(item.total_price).toFixed(2)})`;
+                
+                // Tentar extrair nome do notes do pedido (formato: [1x Nome do Produto - ... R$ XX.XX])
+                const orderNotes = orderNotesMap.get(item.order_id) || '';
+                if (orderNotes && orderNotes.includes('[')) {
+                  // Usar a mesma regex robusta usada na seção de categorias
+                  const bracketMatches = [...orderNotes.matchAll(/\[(\d+)x\s+([^\]]+?)\]/gs)];
+                  
+                  if (bracketMatches.length > 0) {
+                    // Tentar encontrar o match baseado no preço
+                    for (const match of bracketMatches) {
+                      const qty = Number(match[1]) || 1;
+                      const fullContent = match[2] || '';
+                      
+                      // Extrair o preço primeiro (R$ 30.00)
+                      const priceMatch = fullContent.match(/R\$\s*([\d.,]+)/);
+                      const priceStr = priceMatch ? priceMatch[1].replace(',', '.') : '';
+                      const price = priceStr ? parseFloat(priceStr) : 0;
+                      const totalPrice = price * qty;
+                      
+                      // Verificar se o preço corresponde ao item atual
+                      const itemTotalPrice = Number(item.total_price) || 0;
+                      if (price > 0 && (Math.abs(totalPrice - itemTotalPrice) < 0.01 || Math.abs(price - (itemTotalPrice / item.quantity)) < 0.01)) {
+                        // Extrair o nome (tudo antes do primeiro " - " ou antes de "R$")
+                        let name = fullContent;
+                        // Remover o preço da string
+                        name = name.replace(/\s*R\$\s*[\d.,]+.*$/, '');
+                        // Pegar tudo antes do primeiro " - " que precede informações extras
+                        const nameMatch = name.match(/^([^-]+?)(?:\s*-\s*(?:Duplo|Simples|Normal|Pequena|Média|Grande|Outro|etc)[\s-]*|$)/i);
+                        if (nameMatch) {
+                          name = nameMatch[1];
+                        } else {
+                          // Se não encontrou, pegar tudo antes de " - "
+                          const dashIndex = name.indexOf(' - ');
+                          if (dashIndex > 0) {
+                            name = name.substring(0, dashIndex);
+                          }
+                        }
+                        
+                        // Limpar o nome (remover quebras de linha, espaços extras, etc)
+                        name = name
+                          .replace(/\n+/g, ' ')  // Substituir quebras de linha por espaço
+                          .replace(/\s+/g, ' ')  // Múltiplos espaços por um só
+                          .trim();
+                        
+                        // Remover linhas que são apenas "Molhos:", "Obs:", etc
+                        if (name && !name.match(/^(Molhos?:|Obs?:|Observação?:)$/i)) {
+                          prodName = name;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // Se não encontrou no notes, usar o nome do notes do próprio item se disponível
+                if (prodName.startsWith('Produto do Site') && item.notes) {
+                  // Tentar extrair nome do notes do item
+                  const itemMatch = item.notes.match(/^([^-]+?)(?:\s*-|$)/);
+                  if (itemMatch && itemMatch[1]) {
+                    prodName = itemMatch[1].trim();
+                  }
+                }
+                
+                // Adicionar ao Top 5
+                if (!productTotals[prodName]) {
+                  productTotals[prodName] = { name: prodName, quantity: 0, revenue: 0 };
+                }
+                productTotals[prodName].quantity += Number(item.quantity) || 0;
+                productTotals[prodName].revenue += Number(item.total_price) || 0;
+              });
+            }
+            
+            // Para pedidos do site que têm site_category_quantities mas podem não ter todos os order_items salvos
+            // IMPORTANTE: Processar TODOS os pedidos do site (mesmo os já processados via site_category_quantities)
+            // para garantir que TODOS os itens apareçam no Top 5 Produtos
+            if (isNaBrasa && ordersArray.length > 0) {
+              const siteOrdersToProcess = ordersArray.filter((o: any) => {
+                const isFromSite = o.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+                const wasAcceptedAndPrinted = o.accepted_and_printed_at !== null && o.accepted_and_printed_at !== undefined;
+                // Processar TODOS os pedidos do site aceitos/impressos, independente de terem order_items ou não
+                return isFromSite && wasAcceptedAndPrinted && o.notes && o.notes.includes('[');
+              });
+              
+              // Para cada pedido do site, extrair TODOS os itens do notes para garantir que apareçam no Top 5
+              for (const order of siteOrdersToProcess) {
+                // Extrair TODOS os itens do notes (mesmo que já existam order_items)
+                // Isso garante que todos os produtos apareçam no Top 5
+                if (order.notes && order.notes.includes('[')) {
+                  // Melhorar regex para capturar diferentes formatos (incluindo quebras de linha)
+                  // Formato: [1x Nome do Produto - ... R$ 30.00 ...]
+                  // Usar uma regex que captura todo o conteúdo do colchete e depois extrair nome e preço
+                  const bracketMatches = [...order.notes.matchAll(/\[(\d+)x\s+([^\]]+?)\]/gs)];
+                  
+                  for (const match of bracketMatches) {
+                    const qty = Number(match[1]) || 1;
+                    const fullContent = match[2] || '';
+                    
+                    // Extrair o preço primeiro (R$ 30.00)
+                    const priceMatch = fullContent.match(/R\$\s*([\d.,]+)/);
+                    const priceStr = priceMatch ? priceMatch[1].replace(',', '.') : '';
+                    const price = priceStr ? parseFloat(priceStr) : 0;
+                    
+                    // Extrair o nome (tudo antes do primeiro " - " ou antes de "R$")
+                    let name = fullContent;
+                    // Remover o preço da string
+                    name = name.replace(/\s*R\$\s*[\d.,]+.*$/, '');
+                    // Pegar tudo antes do primeiro " - " que precede informações extras
+                    const nameMatch = name.match(/^([^-]+?)(?:\s*-\s*(?:Duplo|Simples|Normal|Pequena|Média|Grande|Outro|etc)[\s-]*|$)/i);
+                    if (nameMatch) {
+                      name = nameMatch[1];
+                    } else {
+                      // Se não encontrou, pegar tudo antes de " - "
+                      const dashIndex = name.indexOf(' - ');
+                      if (dashIndex > 0) {
+                        name = name.substring(0, dashIndex);
+                      }
+                    }
+                    
+                    // Limpar o nome (remover quebras de linha, espaços extras, linhas vazias, etc)
+                    name = name
+                      .replace(/\n+/g, ' ')  // Substituir quebras de linha por espaço
+                      .replace(/\s+/g, ' ')  // Múltiplos espaços por um só
+                      .trim();
+                    
+                    // Remover linhas que são apenas "Molhos:", "Obs:", etc
+                    if (name.match(/^(Molhos?:|Obs?:|Observação?:)$/i)) {
+                      continue; // Pular este item
+                    }
+                    
+                    if (name && price > 0) {
+                      // Verificar se já existe nos productTotals com nome similar (para evitar duplicação)
+                      const existingProdKey = Object.keys(productTotals).find((pName) => {
+                        const pNameLower = pName.toLowerCase().trim();
+                        const nameLower = name.toLowerCase().trim();
+                        // Comparação exata ou muito similar
+                        return pNameLower === nameLower || 
+                               pNameLower.includes(nameLower) || 
+                               nameLower.includes(pNameLower);
+                      });
+                      
+                      if (existingProdKey) {
+                        // Se já existe, usar o nome existente para consolidar
+                        productTotals[existingProdKey].quantity += qty;
+                        productTotals[existingProdKey].revenue += price * qty;
+                      } else {
+                        // Adicionar novo item
+                        if (!productTotals[name]) {
+                          productTotals[name] = { name, quantity: 0, revenue: 0 };
+                        }
+                        productTotals[name].quantity += qty;
+                        productTotals[name].revenue += price * qty;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            // Mesclar categorias do sistema com categorias do site (Na Brasa)
+            Object.entries(categoryTotals).forEach(([name, value]) => {
+              const existingCat = categoryData.find(c => c.name === name);
+              if (existingCat) {
+                existingCat.value += Number(value) || 0;
+              } else {
+                categoryData.push({
+                  name,
+                  value: Number(value) || 0,
+                  color: colorPalette[categoryData.length % colorPalette.length]
+                });
+              }
+            });
+
+            // Mesclar produtos do sistema com produtos do site (Na Brasa)
+            Object.entries(productTotals).forEach(([prodName, prodData]) => {
+              const existingProd = topProducts.find(p => p.name === prodName);
+              if (existingProd) {
+                existingProd.quantity += prodData.quantity;
+                existingProd.revenue += prodData.revenue;
+              } else {
+                topProducts.push({
+                  name: prodData.name,
+                  quantity: prodData.quantity,
+                  revenue: prodData.revenue
+                });
+              }
+            });
+
+            // NÃO adicionar categorias do site ao Top 5 Produtos
+            // As categorias do site (burger, side, drink) são apenas para "Vendas por Categoria"
+            // O Top 5 deve mostrar apenas produtos individuais reais
+
+            // Ordenar e limitar
+            categoryData = categoryData
+              .sort((a, b) => b.value - a.value);
+
+            topProducts = topProducts
+              .sort((a, b) => b.quantity - a.quantity)
+              .slice(0, 5)
+              .map(p => ({ ...p, quantity: Number(p.quantity) || 0, revenue: Number(p.revenue) || 0 }));
           }
-          hourlyTotals[hourKey].valor += order.total_amount;
-          hourlyTotals[hourKey].pedidos += 1;
+        }
+      }
+
+      // Sales data por mês (últimos 6 meses)
+      const salesData = [];
+      const today = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const monthName = date.toLocaleDateString('pt-BR', { month: 'short' });
+        const monthOrders = ordersArray.filter((order: any) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate.getMonth() === date.getMonth() && orderDate.getFullYear() === date.getFullYear();
         });
-
-        const dailyData = [
-          { hora: '08:00', ...hourlyTotals['08:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '10:00', ...hourlyTotals['10:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '12:00', ...hourlyTotals['12:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '14:00', ...hourlyTotals['14:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '16:00', ...hourlyTotals['16:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '18:00', ...hourlyTotals['18:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '20:00', ...hourlyTotals['20:00'] || { valor: 0, pedidos: 0 } },
-          { hora: '22:00', ...hourlyTotals['22:00'] || { valor: 0, pedidos: 0 } },
-        ];
-
-        // Weekly comparison
-        const weeklyComparison = [];
-        const currentWeekStart = new Date(today);
-        currentWeekStart.setDate(today.getDate() - today.getDay());
-        
-        for (let i = 0; i < 7; i++) {
-          const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-          const currentWeekDay = new Date(currentWeekStart);
-          currentWeekDay.setDate(currentWeekStart.getDate() + i);
-          
-          const previousWeekDay = new Date(currentWeekDay);
-          previousWeekDay.setDate(currentWeekDay.getDate() - 7);
-          
-          const currentDayOrders = orders.filter(order => {
-            const orderDate = new Date(order.created_at);
-            return orderDate.toDateString() === currentWeekDay.toDateString();
-          });
-          
-          const previousDayOrders = orders.filter(order => {
-            const orderDate = new Date(order.created_at);
-            return orderDate.toDateString() === previousWeekDay.toDateString();
-          });
-          
-          weeklyComparison.push({
-            day: dayNames[i],
-            atual: currentDayOrders.reduce((sum, order) => sum + order.total_amount, 0),
-            anterior: previousDayOrders.reduce((sum, order) => sum + order.total_amount, 0)
-          });
-        }
-
-        // Calculate monthly totals for goals
-        const monthlyRevenue = orders
-          .filter((o: any) => new Date(o.created_at) >= monthStart)
-          .reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0);
-        const monthlyOrdersCount = monthlyOrders?.length || 0;
-        
-        setMonthlyTotals({ revenue: monthlyRevenue, orders: monthlyOrdersCount });
-
-        // Calculate delivery boys data
-        const deliveryOrders = orders.filter((o: any) => o.delivery_boy_id && o.order_type === 'delivery');
-        const deliveryBoyIds = Array.from(new Set(deliveryOrders.map((o: any) => o.delivery_boy_id)));
-        
-        let deliveryBoysData: any[] = [];
-        if (deliveryBoyIds.length > 0) {
-          const { data: deliveryBoys } = await supabase
-            .from('delivery_boys')
-            .select('id, name, daily_rate, delivery_fee')
-            .in('id', deliveryBoyIds);
-
-          if (deliveryBoys) {
-            deliveryBoysData = deliveryBoys.map(boy => {
-              const deliveries = deliveryOrders.filter((o: any) => o.delivery_boy_id === boy.id);
-              const deliveriesCount = deliveries.length;
-              const dailyRate = Number(boy.daily_rate) || 0;
-              const deliveryFee = Number(boy.delivery_fee) || 0;
-              const deliveriesTotal = deliveriesCount * deliveryFee;
-              // Diária aplicada apenas uma vez por período se houver entregas no período
-              // Se não há entregas, não cobra diária
-              const total = (deliveriesCount > 0 ? dailyRate : 0) + deliveriesTotal;
-
-              return {
-                id: boy.id,
-                name: boy.name,
-                dailyRate: deliveriesCount > 0 ? dailyRate : 0,
-                deliveryFee,
-                deliveriesCount,
-                deliveriesTotal,
-                total
-              };
-            }).sort((a, b) => b.total - a.total);
-          }
-        }
-
-        setDashboardData({
-          totalRevenue: timeRange === 'mes' ? monthlyRevenue : totalRevenue,
-          totalOrders: timeRange === 'mes' ? monthlyOrdersCount : totalOrders,
-          averageTicket,
-          totalCustomers: customersCount || 0,
-          recentOrders: orders.slice(0, 10),
-          topProducts,
-          topCustomers,
-          categoryData,
-          salesData,
-          dailyData,
-          weeklyComparison,
-          deliveryBoysData
+        salesData.push({
+          name: monthName.charAt(0).toUpperCase() + monthName.slice(1),
+          vendas: monthOrders.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0),
+          pedidos: monthOrders.length,
+          meta: establishment?.monthly_goal || 0
         });
       }
+
+      // Daily data - horários de pico
+      const hourlyTotals: { [key: string]: { valor: number, pedidos: number } } = {};
+      ordersArray.forEach((order: any) => {
+        const hour = new Date(order.created_at).getHours();
+        const hourKey = `${hour.toString().padStart(2, '0')}:00`;
+        if (!hourlyTotals[hourKey]) {
+          hourlyTotals[hourKey] = { valor: 0, pedidos: 0 };
+        }
+        hourlyTotals[hourKey].valor += order.total_amount || 0;
+        hourlyTotals[hourKey].pedidos += 1;
+      });
+
+      const dailyData = [
+        { hora: '08:00', ...hourlyTotals['08:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '10:00', ...hourlyTotals['10:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '12:00', ...hourlyTotals['12:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '14:00', ...hourlyTotals['14:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '16:00', ...hourlyTotals['16:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '18:00', ...hourlyTotals['18:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '20:00', ...hourlyTotals['20:00'] || { valor: 0, pedidos: 0 } },
+        { hora: '22:00', ...hourlyTotals['22:00'] || { valor: 0, pedidos: 0 } },
+      ];
+
+      // Weekly comparison
+      const weeklyComparison = [];
+      const currentWeekStart = new Date(today);
+      currentWeekStart.setDate(today.getDate() - today.getDay());
+      
+      for (let i = 0; i < 7; i++) {
+        const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        const currentWeekDay = new Date(currentWeekStart);
+        currentWeekDay.setDate(currentWeekStart.getDate() + i);
+        
+        const previousWeekDay = new Date(currentWeekDay);
+        previousWeekDay.setDate(currentWeekDay.getDate() - 7);
+        
+        const currentDayOrders = ordersArray.filter((order: any) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate.toDateString() === currentWeekDay.toDateString();
+        });
+        
+        const previousDayOrders = ordersArray.filter((order: any) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate.toDateString() === previousWeekDay.toDateString();
+        });
+        
+        weeklyComparison.push({
+          day: dayNames[i],
+          atual: currentDayOrders.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0),
+          anterior: previousDayOrders.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0)
+        });
+      }
+
+      // Calculate monthly totals for goals
+      const monthlyRevenue = ordersArray
+        .filter((o: any) => new Date(o.created_at) >= monthStart)
+        .reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0);
+      const monthlyOrdersCount = monthlyOrders?.length || 0;
+      
+      setMonthlyTotals({ revenue: monthlyRevenue, orders: monthlyOrdersCount });
+
+      // Calculate delivery boys data
+      const deliveryOrders = ordersArray.filter((o: any) => o.delivery_boy_id && o.order_type === 'delivery');
+      const deliveryBoyIds = Array.from(new Set(deliveryOrders.map((o: any) => o.delivery_boy_id)));
+      
+      let deliveryBoysData: any[] = [];
+      if (deliveryBoyIds.length > 0) {
+        const { data: deliveryBoys } = await supabase
+          .from('delivery_boys')
+          .select('id, name, daily_rate, delivery_fee')
+          .in('id', deliveryBoyIds);
+
+        if (deliveryBoys) {
+          deliveryBoysData = deliveryBoys.map(boy => {
+            const deliveries = deliveryOrders.filter((o: any) => o.delivery_boy_id === boy.id);
+            const deliveriesCount = deliveries.length;
+            const dailyRate = Number(boy.daily_rate) || 0;
+            const deliveryFee = Number(boy.delivery_fee) || 0;
+            const deliveriesTotal = deliveriesCount * deliveryFee;
+            // Diária aplicada apenas uma vez por período se houver entregas no período
+            // Se não há entregas, não cobra diária
+            const total = (deliveriesCount > 0 ? dailyRate : 0) + deliveriesTotal;
+
+            return {
+              id: boy.id,
+              name: boy.name,
+              dailyRate: deliveriesCount > 0 ? dailyRate : 0,
+              deliveryFee,
+              deliveriesCount,
+              deliveriesTotal,
+              total
+            };
+          }).sort((a, b) => b.total - a.total);
+        }
+      }
+
+      setDashboardData({
+        totalRevenue: timeRange === 'mes' ? monthlyRevenue : totalRevenue,
+        totalOrders: timeRange === 'mes' ? monthlyOrdersCount : totalOrders,
+        averageTicket,
+        totalCustomers: customersCount || 0,
+        recentOrders: ordersArray.slice(0, 10),
+        topProducts,
+        topCustomers,
+        categoryData,
+        salesData,
+        dailyData,
+        weeklyComparison,
+        deliveryBoysData
+      });
     } catch (error) {
       console.error("Error loading dashboard data:", error);
       toast.error("Erro ao carregar dados do dashboard");
@@ -702,7 +1237,13 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="flex items-center space-x-2">
-            <Tabs value={timeRange} onValueChange={setTimeRange} className="w-auto tabs-compact">
+            <Tabs value={timeRange} onValueChange={(value) => {
+              // Quando muda para outra aba, reseta customRange
+              if (value !== 'custom') {
+                setCustomRange(null);
+              }
+              setTimeRange(value);
+            }} className="w-auto tabs-compact">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="hoje">Hoje</TabsTrigger>
                 <TabsTrigger value="semana">Semana</TabsTrigger>

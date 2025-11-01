@@ -113,6 +113,7 @@ export function SupplierDialog({
         toast.success("Fornecedor criado com sucesso");
       }
 
+      await revalidateHelpers.suppliers();
       onSuccess();
     } catch (error) {
       console.error("Error saving supplier:", error);

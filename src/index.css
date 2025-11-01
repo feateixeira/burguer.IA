@@ -152,25 +152,83 @@ All colors MUST be HSL.
     --lp-muted-fg: hsl(var(--muted-foreground));
     --lp-primary: hsl(var(--primary));
     --lp-primary-fg: hsl(var(--primary-foreground));
-    background: var(--lp-bg);
+    background: transparent !important;
     color: var(--lp-fg);
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius);
-    box-shadow: 0 10px 30px hsla(24, 20%, 20%, 0.12);
-    padding: 6px;
-    width: 100%;
-    max-width: 100%;
+    border: none !important;
+    border-radius: 0;
+    box-shadow: none !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Remove TODOS os botões padrão do Litepicker */
+  .litepicker .container__footer,
+  .litepicker .container__footer *,
+  .litepicker .container__footer button,
+  .litepicker .container__footer .button-cancel,
+  .litepicker .container__footer .button-apply,
+  .litepicker .button-cancel,
+  .litepicker .button-apply,
+  .litepicker button[class*="button"],
+  .litepicker .container__footer .litepicker-footer,
+  .litepicker .litepicker-footer {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
   }
 
-  .litepicker .container__months { gap: 8px; }
-  .litepicker .container__main { width: 100%; }
+  .litepicker .container__months { 
+    gap: 32px !important;
+    width: fit-content !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+    padding: 0 !important;
+  }
+  
+  .litepicker .container__main { 
+    width: fit-content !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 0 !important;
+  }
+  
+  .litepicker .month-item {
+    flex: 0 0 auto !important;
+    width: 280px !important;
+    min-width: 280px !important;
+    max-width: 280px !important;
+  }
+  
+  #picker-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: fit-content !important;
+    padding: 0 !important;
+  }
+  
+  #picker-container .litepicker {
+    margin: 0 auto !important;
+    width: fit-content !important;
+  }
 
   .litepicker .month-item-header {
     background: transparent;
     color: var(--lp-fg);
     border-bottom: 1px solid hsl(var(--border));
-    padding: 8px 8px;
+    padding: 12px 8px;
     font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: capitalize;
+    white-space: nowrap;
+    overflow: visible !important;
+    text-overflow: clip;
   }
 
   .litepicker .button-previous-month,
@@ -185,10 +243,19 @@ All colors MUST be HSL.
 
   .litepicker .day-item {
     border-radius: 6px;
+    cursor: pointer !important;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .litepicker .day-item:hover {
     background: hsl(var(--muted));
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+  }
+  
+  .litepicker .day-item:active {
+    transform: scale(0.95);
   }
 
   .litepicker .is-start-date,

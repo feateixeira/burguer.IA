@@ -18,6 +18,7 @@ import { Plus, Pencil, Trash2, Package, X, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/hooks/useConfirm";
+import { revalidateHelpers } from "@/utils/revalidateCache";
 
 interface Combo {
   id: string;
@@ -176,6 +177,16 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
 
       setDialogOpen(false);
       resetForm();
+      
+      // Get establishment slug for revalidation
+      const { data: establishment } = await supabase
+        .from('establishments')
+        .select('slug')
+        .eq('id', establishmentId)
+        .single();
+      
+      await revalidateHelpers.combos(establishment?.slug);
+      
       loadData();
     } catch (error) {
       console.error("Error saving combo:", error);
@@ -209,6 +220,16 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
       const { error } = await supabase.from("combos").delete().eq("id", id);
       if (error) throw error;
       toast.success("Combo excluído!");
+      
+      // Get establishment slug for revalidation
+      const { data: establishment } = await supabase
+        .from('establishments')
+        .select('slug')
+        .eq('id', establishmentId)
+        .single();
+      
+      await revalidateHelpers.combos(establishment?.slug);
+      
       loadData();
     } catch (error) {
       console.error("Error deleting combo:", error);

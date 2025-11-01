@@ -6,6 +6,7 @@
   import { Label } from "@/components/ui/label";
   import { Textarea } from "@/components/ui/textarea";
   import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
   import { supabase } from "@/integrations/supabase/client";
   import { useNavigate } from "react-router-dom";
   import { toast } from "sonner";
@@ -21,7 +22,10 @@
     MapPin,
     Printer,
     XCircle,
-    CheckCircle
+    CheckCircle,
+    CheckCircle2,
+    ArrowRight,
+    Truck
   } from "lucide-react";
   import Sidebar from "@/components/Sidebar";
   import { printReceipt } from "@/utils/receiptPrinter";
@@ -66,6 +70,8 @@
     channel?: string;
     origin?: string;
     source_domain?: string;
+    rejection_reason?: string;
+    accepted_and_printed_at?: string;
     order_items?: {
       id: string;
       quantity: number;
@@ -88,6 +94,12 @@
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [establishment, setEstablishment] = useState<any>(null);
     const [activeTab, setActiveTab] = useState<string>("pending");
+    const [isNaBrasa, setIsNaBrasa] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState("");
+    const [orderToReject, setOrderToReject] = useState<string | null>(null);
+    const [showAllDates, setShowAllDates] = useState(false);
+    const [showPDV, setShowPDV] = useState(true);
+    const [showSite, setShowSite] = useState(true);
     const navigate = useNavigate();
     const sidebarWidth = useSidebarWidth();
     const [isDesktop, setIsDesktop] = useState(false);
@@ -117,7 +129,6 @@
              filter: `establishment_id=eq.${establishment.id}` 
            }, (payload) => {
              // Quando um novo pedido é inserido, recarregar imediatamente
-             console.log('🆕 Novo pedido detectado via Realtime:', payload.new);
              loadOrders({ background: true });
            })
            .on('postgres_changes', { 
@@ -141,7 +152,6 @@
 
          // Escuta eventos customizados para atualização quando notificação chegar
          const handleNewOrderNotification = () => {
-           console.log('📢 Notificação de novo pedido recebida, recarregando lista...');
            loadOrders({ background: true });
          };
          
@@ -156,24 +166,226 @@
 
     useEffect(() => {
       filterOrdersByTab();
-    }, [searchTerm, orders, activeTab]);
+    }, [searchTerm, orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite]);
 
     const filterOrdersByTab = () => {
       let filtered = orders;
 
+      // Helper function to check if order is from hamburguerianabrasa.com.br
+      const isFromNaBrasaSite = (order: Order) => {
+        return order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+      };
+
+      // Helper function to check if order is from online menu (cardápio online)
+      // Pedidos do cardápio online têm:
+      // - channel="online" OU origin="site" OU source_domain preenchido
+      // - E NÃO são do site hamburguerianabrasa.com.br
+      const isFromOnlineMenu = (order: Order) => {
+        // Se é do site Na Brasa, não é cardápio online
+        if (isFromNaBrasaSite(order)) {
+          return false;
+        }
+        // Se tem channel="online" ou origin="site", é cardápio online
+        if (order.channel === "online" || order.origin === "site") {
+          return true;
+        }
+        // Se tem source_domain preenchido e não é Na Brasa, é cardápio online
+        if (order.source_domain && String(order.source_domain).trim() !== '') {
+          return true;
+        }
+        return false;
+      };
+
+      // Helper function to check if order is from PDV
+      const isPDVOrder = (order: Order) => {
+        // Um pedido é do PDV se:
+        // 1. NÃO tem source_domain (null, undefined, ou string vazia)
+        // 2. E NÃO é do site hamburguerianabrasa.com.br
+        // 3. E NÃO tem channel="online" nem origin="site"
+        
+        // Verificação 1: Se tem source_domain preenchido, não é PDV
+        if (order.source_domain && String(order.source_domain).trim() !== '') {
+          return false;
+        }
+        
+        // Verificação 2: Se é do site hamburguerianabrasa, não é PDV
+        const isNaBrasa = isFromNaBrasaSite(order);
+        if (isNaBrasa) {
+          return false;
+        }
+        
+        // Verificação 3: Se tem channel="online" ou origin="site", não é PDV (é pedido online)
+        if (order.channel === "online" || order.origin === "site") {
+          return false;
+        }
+        
+        // Se chegou aqui, é um pedido do PDV
+        // Aceita channel="pdv", origin="balcao", null, undefined, ou qualquer outro valor que não seja "online"/"site"
+        // O importante é que não tem source_domain e não é identificado como online
+        return true;
+      };
+      
+
       // Filter by tab
       if (activeTab === "pending") {
-        // Online orders (from website) with status pending/preparing
-        filtered = filtered.filter(order => 
-          (order.channel === "online" || order.origin === "site" || order.source_domain) &&
-          (order.status === "pending" || order.status === "preparing")
-        );
+        // Aba "Pendentes": pedidos do site/cardápio online que estão PENDENTES (pagamento OU entrega)
+        // Inclui pedidos que foram aceitos e impressos mas ainda não têm ambos os status confirmados
+        // Para Na Brasa: apenas pedidos do site hamburguerianabrasa.com.br
+        // Para outros: apenas pedidos do cardápio online
+        if (isNaBrasa) {
+          filtered = filtered.filter(order => {
+            // Verificar se é do site Na Brasa
+            if (!isFromNaBrasaSite(order)) {
+              return false;
+            }
+            // EXCLUIR pedidos recusados (vão para aba "Recusados")
+            if (order.status === "cancelled" && order.rejection_reason) {
+              return false;
+            }
+            // EXCLUIR imediatamente se ambos já foram confirmados (vai para "Todos os Pedidos")
+            // Status final pode ser "completed" ou "ready" (Pronto)
+            const statusNormalized = String(order.status).trim().toLowerCase();
+            const statusConfirmed = statusNormalized === "completed" || statusNormalized === "ready";
+            const paymentConfirmed = String(order.payment_status).trim().toLowerCase() === "paid";
+            if (statusConfirmed && paymentConfirmed) {
+              return false;
+            }
+            // Incluir todos os outros (pendentes em pagamento OU entrega)
+            return true;
+          });
+        } else {
+          filtered = filtered.filter(order => {
+            // Verificar se é do cardápio online
+            if (!isFromOnlineMenu(order)) {
+              return false;
+            }
+            // EXCLUIR pedidos recusados (vão para aba "Recusados")
+            if (order.status === "cancelled" && order.rejection_reason) {
+              return false;
+            }
+            // EXCLUIR imediatamente se ambos já foram confirmados (vai para "Todos os Pedidos")
+            // Status final pode ser "completed" ou "ready" (Pronto)
+            const statusNormalized = String(order.status).trim().toLowerCase();
+            const statusConfirmed = statusNormalized === "completed" || statusNormalized === "ready";
+            const paymentConfirmed = String(order.payment_status).trim().toLowerCase() === "paid";
+            if (statusConfirmed && paymentConfirmed) {
+              return false;
+            }
+            // Incluir todos os outros (pendentes em pagamento OU entrega)
+            return true;
+          });
+        }
       } else if (activeTab === "completed") {
-        // PDV orders or completed online orders
+        // Aba "PDV/Concluídos": 
+        // Para Na Brasa: APENAS pedidos do PDV pendentes (NÃO incluir pedidos do site)
+        // Para outros: APENAS pedidos do PDV que estão PENDENTES
+        if (isNaBrasa) {
+          // Para Na Brasa: APENAS pedidos do PDV pendentes
+          // Pedidos do site Na Brasa vão para "Pendentes (Cardápio Online)" quando pendentes
+          // E para "Todos os Pedidos" quando concluídos
+          filtered = filtered.filter(order => {
+            // Não incluir pedidos recusados aqui (eles vão para aba rejected)
+            if (order.status === "cancelled" && order.rejection_reason) {
+              return false;
+            }
+            
+            // EXCLUIR pedidos do site Na Brasa (eles têm sua própria aba "Pendentes")
+            if (isFromNaBrasaSite(order)) {
+              return false;
+            }
+            
+            // Verificar se é pedido do PDV pendente (pagamento OU entrega)
+            const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
+            const isNotOnline = order.channel !== "online" && order.origin !== "site";
+            const isPDV = hasNoSourceDomain && isNotOnline;
+            const isPDVPending = isPDV && (order.status === "pending" || order.payment_status === "pending");
+            
+            return isPDVPending;
+          });
+        } else {
+          // Para outros usuários: APENAS pedidos do PDV que estão PENDENTES (pagamento OU entrega)
+          // Pedido do PDV pendente = status="pending" OU payment_status="pending"
+          filtered = filtered.filter(order => {
+            // Verificação direta e explícita para pedidos do PDV
+            const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
+            const isNotNaBrasa = !order.source_domain?.toLowerCase().includes('hamburguerianabrasa');
+            const isNotOnline = order.channel !== "online" && order.origin !== "site";
+            const isPDV = hasNoSourceDomain && isNotNaBrasa && isNotOnline;
+            
+            // Apenas pedidos do PDV que estão pendentes (status="pending" OU payment_status="pending")
+            // Pedidos confirmados (status="completed" E payment_status="paid") vão para "Todos os Pedidos"
+            const isPending = order.status === "pending" || order.payment_status === "pending";
+            return isPDV && isPending;
+          });
+        }
+      } else if (activeTab === "rejected") {
+        // Rejected orders (only for Na Brasa)
         filtered = filtered.filter(order => 
-          (order.channel === "pdv" || order.origin === "balcao" || !order.source_domain) ||
-          (order.status === "completed" || order.status === "cancelled")
+          order.status === "cancelled" && order.rejection_reason
         );
+      } else if (activeTab === "all") {
+        // Aba "Todos os Pedidos": apenas pedidos TOTALMENTE CONFIRMADOS
+        // Incluir apenas pedidos que foram confirmados TANTO no pagamento QUANTO na entrega
+        // Excluir:
+        // 1. Pedidos recusados
+        // 2. Pedidos do PDV que estão pendentes (pagamento OU entrega) - vão para "PDV/Concluídos"
+        // 3. Pedidos do site/cardápio online pendentes (vão para "Pendentes")
+        filtered = filtered.filter(order => {
+          // Excluir pedidos recusados
+          if (order.status === "cancelled" && order.rejection_reason) {
+            return false;
+          }
+          
+          // Verificar se pedido está totalmente confirmado
+          // Status final pode ser "completed" ou "ready" (Pronto) E payment_status="paid"
+          const statusNormalized = String(order.status).trim().toLowerCase();
+          const isStatusFinal = statusNormalized === "completed" || statusNormalized === "ready";
+          const isPaymentPaid = String(order.payment_status).trim().toLowerCase() === "paid";
+          const isFullyConfirmed = isStatusFinal && isPaymentPaid;
+          
+          // Excluir pedidos do PDV que estão pendentes (pagamento OU entrega)
+          if (isPDVOrder(order) && !isFullyConfirmed) {
+            return false;
+          }
+          
+          // Excluir pedidos do site/cardápio online que estão pendentes
+          if ((isFromNaBrasaSite(order) || isFromOnlineMenu(order)) && !isFullyConfirmed) {
+            return false;
+          }
+          
+          // Incluir apenas pedidos TOTALMENTE confirmados 
+          return isFullyConfirmed;
+        });
+
+        // Filtrar por data (padrão: apenas hoje)
+        if (!showAllDates) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          
+          filtered = filtered.filter(order => {
+            const orderDate = new Date(order.created_at);
+            return orderDate >= today && orderDate < tomorrow;
+          });
+        }
+
+        // Filtrar por origem usando checkboxes (PDV e/ou Site)
+        // Se nenhum estiver selecionado, não mostrar nada
+        if (!showPDV && !showSite) {
+          filtered = [];
+        } else {
+          // Se ambos estiverem selecionados, mostrar todos (não filtrar)
+          // Se apenas um estiver selecionado, filtrar por ele
+          if (showPDV && !showSite) {
+            // Apenas PDV
+            filtered = filtered.filter(order => isPDVOrder(order));
+          } else if (!showPDV && showSite) {
+            // Apenas Site/Cardápio Online
+            filtered = filtered.filter(order => isFromNaBrasaSite(order) || isFromOnlineMenu(order));
+          }
+          // Se ambos (showPDV && showSite), não filtrar (mostrar todos)
+        }
       }
 
       // Filter by search term
@@ -214,6 +426,18 @@
           
           if (est) {
             setEstablishment(est);
+            
+            // Verifica se é Na Brasa (não é admin do sistema)
+            const userIsSystemAdmin = session.user.email === 'fellipe_1693@outlook.com';
+            if (!userIsSystemAdmin) {
+              const establishmentName = est.name?.toLowerCase() || '';
+              const isNaBrasaUser = establishmentName.includes('na brasa') || 
+                                    establishmentName.includes('nabrasa') ||
+                                    establishmentName === 'hamburgueria na brasa';
+              setIsNaBrasa(isNaBrasaUser);
+            } else {
+              setIsNaBrasa(false);
+            }
           }
         }
       } catch (error) {
@@ -227,6 +451,10 @@
         const background = !!opts?.background;
         if (!background && firstLoadRef.current) setLoading(true);
         
+        // Calculate cutoff date: 3 months ago (for performance - only load recent orders)
+        const cutoffDate = new Date();
+        cutoffDate.setMonth(cutoffDate.getMonth() - 3);
+        
         const { data, error } = await supabase
           .from("orders")
           .select(`
@@ -237,6 +465,7 @@
             )
           `)
           .eq("establishment_id", establishment.id)
+          .gte("created_at", cutoffDate.toISOString())
           .order("created_at", { ascending: false });
 
         if (error) throw error;
@@ -780,16 +1009,28 @@
       toast.success("Pedido enviado para impressão");
     };
 
-    const handleRejectOrder = async (orderId: string) => {
+    const handleRejectOrder = async () => {
+      if (!orderToReject) return;
+      
+      if (!rejectionReason.trim()) {
+        toast.error("Por favor, informe a justificativa para recusar o pedido");
+        return;
+      }
+
       try {
         const { error } = await supabase
           .from("orders")
-          .update({ status: "cancelled" })
-          .eq("id", orderId);
+          .update({ 
+            status: "cancelled",
+            rejection_reason: rejectionReason.trim()
+          })
+          .eq("id", orderToReject);
 
         if (error) throw error;
 
         toast.success("Pedido recusado com sucesso");
+        setOrderToReject(null);
+        setRejectionReason("");
         loadOrders();
       } catch (error) {
         console.error("Error rejecting order:", error);
@@ -802,10 +1043,14 @@
         // Primeiro, imprimir o pedido (como PDV)
         await handlePrintOrder(order);
         
-        // Then update status to preparing
+        // Marcar como aceito e impresso, mas manter status como "pending"
+        // O pedido permanece na aba "Pendentes" até que pagamento e entrega sejam confirmados
+        // Isso é importante para Na Brasa contar como venda no dashboard
         const { error } = await supabase
           .from("orders")
-          .update({ status: "preparing" })
+          .update({ 
+            accepted_and_printed_at: new Date().toISOString()
+          } as any)
           .eq("id", order.id);
 
         if (error) throw error;
@@ -832,6 +1077,65 @@
       } catch (error) {
         console.error("Error accepting order:", error);
         toast.error("Erro ao aceitar pedido");
+      }
+    };
+
+    const handleMarkPaymentAsPaid = async (orderId: string) => {
+      try {
+        // Ao confirmar pagamento, atualizar apenas payment_status para "paid"
+        // O pedido só vai para "Todos os Pedidos" quando AMBOS estiverem confirmados
+        const { error } = await supabase
+          .from("orders")
+          .update({ 
+            payment_status: "paid"
+          })
+          .eq("id", orderId);
+
+        if (error) throw error;
+
+        toast.success("Pagamento confirmado com sucesso");
+        loadOrders();
+      } catch (error) {
+        console.error("Error marking payment as paid:", error);
+        toast.error("Erro ao confirmar pagamento");
+      }
+    };
+
+    const handleMarkDeliveryAsCompleted = async (orderId: string) => {
+      try {
+        // Ao confirmar entrega, atualizar status para "completed"
+        // O pedido só vai para "Todos os Pedidos" quando AMBOS estiverem confirmados
+        const { error } = await supabase
+          .from("orders")
+          .update({ 
+            status: "completed"
+          })
+          .eq("id", orderId);
+
+        if (error) throw error;
+
+        toast.success("Entrega confirmada com sucesso");
+        loadOrders();
+      } catch (error) {Fp
+        console.error("Error marking delivery as completed:", error);
+        toast.error("Erro ao confirmar entrega");
+      }
+    };
+
+    const handleMarkAsReady = async (orderId: string) => {
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: "ready" })
+          .eq("id", orderId);
+
+        if (error) throw error;
+
+        toast.success("Pedido marcado como pronto para retirada");
+        loadOrders();
+      } catch (error) {
+        console.error("Error marking order as ready:", error);
+        toast.error("Erro ao marcar pedido como pronto");
       }
     };
 
@@ -899,33 +1203,106 @@
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className={`grid w-full ${isNaBrasa ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 <TabsTrigger value="pending" className="flex items-center gap-2">
                   <Clock className="h-4 w-4" />
-                  Pendentes (Site)
+                  Pendentes (Cardápio Online)
                 </TabsTrigger>
                 <TabsTrigger value="completed" className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
                   PDV / Concluídos
                 </TabsTrigger>
+                {isNaBrasa && (
+                  <TabsTrigger value="rejected" className="flex items-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    Recusados
+                  </TabsTrigger>
+                )}
+                <TabsTrigger value="all" className="flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Todos os Pedidos
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value={activeTab} className="space-y-6">
+                {activeTab === "all" && (
+                  <Card className="p-4">
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="showAllDates"
+                            checked={showAllDates}
+                            onCheckedChange={(checked) => setShowAllDates(checked === true)}
+                          />
+                          <Label htmlFor="showAllDates" className="text-sm font-normal cursor-pointer">
+                            Mostrar todos os pedidos
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="showPDV"
+                            checked={showPDV}
+                            onCheckedChange={(checked) => setShowPDV(checked === true)}
+                          />
+                          <Label htmlFor="showPDV" className="text-sm font-normal cursor-pointer">
+                            PDV
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="showSite"
+                            checked={showSite}
+                            onCheckedChange={(checked) => setShowSite(checked === true)}
+                          />
+                          <Label htmlFor="showSite" className="text-sm font-normal cursor-pointer">
+                            Site
+                          </Label>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )}
                 {filteredOrders.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
                     <h3 className="text-lg font-semibold mb-2">Nenhum pedido encontrado</h3>
                     <p className="text-muted-foreground">
                       {activeTab === "pending" 
-                        ? "Não há pedidos pendentes do site no momento"
+                        ? isNaBrasa
+                          ? "Não há pedidos pendentes do site no momento"
+                          : "Não há pedidos pendentes do cardápio online no momento"
+                        : activeTab === "rejected"
+                        ? "Não há pedidos recusados"
+                        : activeTab === "all"
+                        ? "Não há pedidos no momento"
                         : "Não há pedidos do PDV ou concluídos"
                       }
                     </p>
                   </Card>
                 ) : (
                   filteredOrders.map((order) => {
-                    const isOnlineOrder = order.channel === "online" || order.origin === "site" || order.source_domain;
-                    const isPendingOnline = isOnlineOrder && (order.status === "pending" || order.status === "preparing");
+                    // Helper function to check if order is from hamburguerianabrasa.com.br
+                    const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+                    
+                    // Helper function to check if order is from online menu (cardápio online)
+                    const isFromOnlineMenu = (order.channel === "online" || order.origin === "site" || order.source_domain) &&
+                                           !isFromNaBrasaSite;
+                    
+                    // Helper function to check if order is from PDV
+                    const isPDVOrderCheck = (() => {
+                      const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
+                      const isNotNaBrasa = !order.source_domain?.toLowerCase().includes('hamburguerianabrasa');
+                      const isNotOnline = order.channel !== "online" && order.origin !== "site";
+                      return hasNoSourceDomain && isNotNaBrasa && isNotOnline;
+                    })();
+                    
+                    const isOnlineOrder = isFromNaBrasaSite || isFromOnlineMenu;
+                    // Para Na Brasa: isPendingOnline apenas para pedidos do site hamburguerianabrasa.com.br
+                    // Para outros: isPendingOnline apenas para pedidos do cardápio online
+                    const isPendingOnline = isNaBrasa 
+                      ? (isFromNaBrasaSite && (order.status === "pending" || order.status === "preparing"))
+                      : (isFromOnlineMenu && (order.status === "pending" || order.status === "preparing"));
 
                     return (
                       <Card key={order.id} className="p-6">
@@ -934,9 +1311,14 @@
                             <div>
                               <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
                                 Pedido #{order.order_number}
-                                {isOnlineOrder && (
-                                  <Badge variant="outline" className="text-xs">
+                                {isFromNaBrasaSite && (
+                                  <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/20">
                                     SITE
+                                  </Badge>
+                                )}
+                                {isFromOnlineMenu && (
+                                  <Badge variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950/20">
+                                    ONLINE
                                   </Badge>
                                 )}
                               </h3>
@@ -967,9 +1349,21 @@
                                 <Badge className={getStatusColor(order.status)}>
                                   {getStatusText(order.status)}
                                 </Badge>
-                                <Badge variant="outline">
+                                <Badge 
+                                  variant="outline"
+                                  className={order.payment_status === "paid" 
+                                    ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20" 
+                                    : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20"
+                                  }
+                                >
                                   {order.payment_status === "paid" ? "Pago" : "Pendente"}
                                 </Badge>
+                                {order.rejection_reason && (
+                                  <div className="mt-2 p-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded text-xs">
+                                    <strong className="text-red-900 dark:text-red-100 block mb-1">Motivo da Recusa:</strong>
+                                    <p className="text-red-800 dark:text-red-200">{order.rejection_reason}</p>
+                                  </div>
+                                )}
                                 <p className="text-sm text-muted-foreground flex items-center">
                                   <Clock className="h-4 w-4 mr-1" />
                                   {new Date(order.created_at).toLocaleString("pt-BR")}
@@ -991,8 +1385,74 @@
                           </div>
 
                           <div className="flex items-center space-x-2 ml-4">
-                            {/* Show Print and Reject buttons only for pending online orders */}
-                            {isPendingOnline && order.status === "pending" && (
+                            {/* Botões para pedidos do PDV */}
+                            {isPDVOrderCheck && (
+                              <>
+                                {/* Botão de Confirmação de Pagamento - aparece na aba PDV quando pagamento está pendente */}
+                                {order.payment_status === "pending" && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handleMarkPaymentAsPaid(order.id)}
+                                    className="border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                    title="Confirmar pagamento"
+                                  >
+                                    <DollarSign className="h-4 w-4 mr-2" />
+                                    Confirmar Pagamento
+                                  </Button>
+                                )}
+
+                                {/* Botão de Pronto para Retirada - aparece na aba PDV quando entrega está pendente */}
+                                {(order.status === "pending" || order.status === "preparing") && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handleMarkDeliveryAsCompleted(order.id)}
+                                    className="border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                    title="Marcar como pronto para retirada"
+                                  >
+                                    <Truck className="h-4 w-4 mr-2" />
+                                    Pronto Retirada/Entrega
+                                  </Button>
+                                )}
+                              </>
+                            )}
+
+                            {/* Botões para pedidos online que já foram aceitos/impressos */}
+                            {!isPDVOrderCheck && order.accepted_and_printed_at && (
+                              <>
+                                {/* Botão de Confirmação de Pagamento - para pedidos online que já foram aceitos/impressos */}
+                                {order.payment_status === "pending" && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handleMarkPaymentAsPaid(order.id)}
+                                    className="border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                    title="Confirmar pagamento"
+                                  >
+                                    <DollarSign className="h-4 w-4 mr-2" />
+                                    Confirmar Pagamento
+                                  </Button>
+                                )}
+
+                                {/* Botão de Pronto para Retirada - para pedidos online que já foram aceitos/impressos */}
+                                {order.status === "pending" && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handleMarkDeliveryAsCompleted(order.id)}
+                                    className="border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                    title="Marcar como pronto para retirada"
+                                  >
+                                    <Truck className="h-4 w-4 mr-2" />
+                                    Pronto Retirada/Entrega
+                                  </Button>
+                                )}
+                              </>
+                            )}
+
+                            {/* Show Print and Reject buttons only for pending online orders that haven't been accepted yet */}
+                            {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
                               <>
                                 <Button 
                                   variant="default" 
@@ -1005,7 +1465,14 @@
                                 </Button>
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm">
+                                    <Button 
+                                      variant="destructive" 
+                                      size="sm"
+                                      onClick={() => {
+                                        setOrderToReject(order.id);
+                                        setRejectionReason("");
+                                      }}
+                                    >
                                       <XCircle className="h-4 w-4" />
                                     </Button>
                                   </AlertDialogTrigger>
@@ -1016,9 +1483,30 @@
                                         Tem certeza que deseja recusar o pedido #{order.order_number}? Esta ação não pode ser desfeita.
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
+                                    <div className="py-4">
+                                      <Label htmlFor="rejection-reason" className="text-sm font-medium">
+                                        Justificativa * (obrigatório)
+                                      </Label>
+                                      <Textarea
+                                        id="rejection-reason"
+                                        value={rejectionReason}
+                                        onChange={(e) => setRejectionReason(e.target.value)}
+                                        placeholder="Informe o motivo da recusa do pedido..."
+                                        className="mt-2"
+                                        rows={4}
+                                      />
+                                    </div>
                                     <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => handleRejectOrder(order.id)}>
+                                      <AlertDialogCancel onClick={() => {
+                                        setOrderToReject(null);
+                                        setRejectionReason("");
+                                      }}>
+                                        Cancelar
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction 
+                                        onClick={handleRejectOrder}
+                                        disabled={!rejectionReason.trim()}
+                                      >
                                         Recusar Pedido
                                       </AlertDialogAction>
                                     </AlertDialogFooter>
@@ -1027,26 +1515,31 @@
                               </>
                             )}
 
-                            {/* Show Print button for preparing online orders */}
-                            {isPendingOnline && order.status === "preparing" && (
+                            {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" */}
+                            {order.status === "preparing" && (
+                              <Button 
+                                variant="default" 
+                                size="sm"
+                                onClick={() => handleMarkAsReady(order.id)}
+                                className="bg-blue-600 hover:bg-blue-700"
+                                title="Marcar como pronto para retirada"
+                              >
+                                <ArrowRight className="h-4 w-4 mr-2" />
+                                Pronto Retirada/Entrega
+                              </Button>
+                            )}
+
+                            {/* Botão de Reimprimir - aparece em todos os pedidos da aba "Todos os Pedidos" */}
+                            {activeTab === "all" && (
                               <Button 
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handlePrintOrder(order)}
+                                title="Reimprimir pedido"
                               >
                                 <Printer className="h-4 w-4" />
                               </Button>
                             )}
-
-                            {/* Reimprimir button for ALL orders - site, totem, PDV */}
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handlePrintOrder(order)}
-                              title="Reimprimir pedido"
-                            >
-                              <Printer className="h-4 w-4 mr-2" />
-                            </Button>
 
                             {/* Standard view button for all orders */}
                             <Dialog>
@@ -1071,7 +1564,16 @@
                                       <strong>Status:</strong> {getStatusText(order.status)}
                                     </div>
                                     <div>
-                                      <strong>Pagamento:</strong> {order.payment_status === "paid" ? "Pago" : "Pendente"}
+                                      <strong>Pagamento:</strong>{" "}
+                                      <Badge 
+                                        variant="outline"
+                                        className={order.payment_status === "paid" 
+                                          ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20 ml-2" 
+                                          : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20 ml-2"
+                                        }
+                                      >
+                                        {order.payment_status === "paid" ? "Pago" : "Pendente"}
+                                      </Badge>
                                     </div>
                                     {order.source_domain && (
                                       <div className="col-span-2">
@@ -1096,6 +1598,13 @@
                                     <div>
                                       <strong>Observações:</strong>
                                       <p className="text-sm text-muted-foreground mt-1">{order.notes}</p>
+                                    </div>
+                                  )}
+
+                                  {order.rejection_reason && (
+                                    <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                      <strong className="text-red-900 dark:text-red-100">Motivo da Recusa:</strong>
+                                      <p className="text-sm text-red-800 dark:text-red-200 mt-1">{order.rejection_reason}</p>
                                     </div>
                                   )}
                                 </div>

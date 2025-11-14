@@ -1,0 +1,488 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 24 30% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 24 30% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 30% 15%;
+
+    /* Primary #F97415 -> ~24 91% 53% (mantemos faixa próxima p/ coerência com ThemeProvider) */
+    --primary: 24 90% 53%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 24 90% 63%;
+
+    /* Neutros suaves para superfícies secundárias */
+    --secondary: 24 20% 96%;
+    --secondary-foreground: 24 25% 18%;
+
+    --muted: 24 15% 94%;
+    --muted-foreground: 24 12% 42%;
+
+    /* Accent segue primária por padrão */
+    --accent: 24 90% 53%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Estados semânticos */
+    --destructive: 2 82% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 55% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 24 30% 15%;
+    --info: 205 90% 52%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 24 15% 88%;
+    --input: 24 15% 88%;
+    --ring: 24 90% 53%;
+
+    --hero-bg: 24 90% 53%;
+    --hero-text: 0 0% 100%;
+    --feature-bg: 24 20% 98%;
+    
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-hero: linear-gradient(135deg, hsl(14 85% 55%), hsl(14 85% 65%));
+    --shadow-glow: 0 8px 30px hsla(24, 90%, 53%, 0.28);
+    --shadow-card: 0 4px 20px hsla(24, 30%, 15%, 0.1);
+
+    --radius: 0.5rem;
+
+    /* Sidebar: neutros profissionais; item ativo usará --primary via regra abaixo */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 24 25% 18%;
+    --sidebar-primary: 24 25% 18%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 24 15% 94%;
+    --sidebar-accent-foreground: 24 25% 18%;
+    --sidebar-border: 24 15% 88%;
+    --sidebar-ring: 24 90% 53%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 24 90% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 24 90% 53%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 2 70% 40%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 50% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 210 40% 98%;
+    --info: 205 85% 58%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --sidebar-background: 224 14% 14%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 210 40% 96%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 220 10% 20%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 220 10% 22%;
+    --sidebar-ring: 24 90% 53%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Sidebar: apenas o item ativo com a cor primária */
+@layer components {
+  /* Correção global: botões de aba não ultrapassam o fundo (Tabs shadcn) */
+  [role="tablist"], .TabsList, .tabs-list {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px !important;
+    height: 40px !important;        /* altura total do fundo cinza */
+    min-height: 40px !important;
+  }
+  [role="tablist"] [role="tab"],
+  .TabsList [role="tab"],
+  .tabs-list [role="tab"],
+  .TabsTrigger,
+  .tabs-trigger {
+    height: 32px !important;        /* altura do botão menor que o container (40px com padding 4) */
+    min-height: 32px !important;
+    padding: 6px 12px !important;   /* deixa 4px de respiro superior/inferior no TabsList */
+    line-height: 1 !important;
+  }
+  /* Estilo Litepicker alinhado ao tema */
+  .litepicker {
+    --lp-bg: hsl(var(--card));
+    --lp-fg: hsl(var(--card-foreground));
+    --lp-muted: hsl(var(--muted));
+    --lp-muted-fg: hsl(var(--muted-foreground));
+    --lp-primary: hsl(var(--primary));
+    --lp-primary-fg: hsl(var(--primary-foreground));
+    background: transparent !important;
+    color: var(--lp-fg);
+    border: none !important;
+    border-radius: 0;
+    box-shadow: none !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Remove TODOS os botões padrão do Litepicker */
+  .litepicker .container__footer,
+  .litepicker .container__footer *,
+  .litepicker .container__footer button,
+  .litepicker .container__footer .button-cancel,
+  .litepicker .container__footer .button-apply,
+  .litepicker .button-cancel,
+  .litepicker .button-apply,
+  .litepicker button[class*="button"],
+  .litepicker .container__footer .litepicker-footer,
+  .litepicker .litepicker-footer {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .litepicker .container__months { 
+    gap: 32px !important;
+    width: fit-content !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+    padding: 0 !important;
+  }
+  
+  .litepicker .container__main { 
+    width: fit-content !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 0 !important;
+  }
+  
+  .litepicker .month-item {
+    flex: 0 0 auto !important;
+    width: 280px !important;
+    min-width: 280px !important;
+    max-width: 280px !important;
+  }
+  
+  #picker-container {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: fit-content !important;
+    padding: 0 !important;
+  }
+  
+  #picker-container .litepicker {
+    margin: 0 auto !important;
+    width: fit-content !important;
+  }
+
+  .litepicker .month-item-header {
+    background: transparent;
+    color: var(--lp-fg);
+    border-bottom: 1px solid hsl(var(--border));
+    padding: 12px 8px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: capitalize;
+    white-space: nowrap;
+    overflow: visible !important;
+    text-overflow: clip;
+  }
+
+  .litepicker .button-previous-month,
+  .litepicker .button-next-month {
+    color: var(--lp-muted-fg);
+  }
+
+  .litepicker .month-item-weekdays-row > div {
+    color: var(--lp-muted-fg);
+    font-size: 0.7rem;
+  }
+
+  .litepicker .day-item {
+    border-radius: 6px;
+    cursor: pointer !important;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .litepicker .day-item:hover {
+    background: hsl(var(--muted));
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+  }
+  
+  .litepicker .day-item:active {
+    transform: scale(0.95);
+  }
+
+  .litepicker .is-start-date,
+  .litepicker .is-end-date,
+  .litepicker .is-locked-date-start,
+  .litepicker .is-locked-date-end {
+    background: var(--lp-primary) !important;
+    color: var(--lp-primary-fg) !important;
+  }
+
+  .litepicker .is-in-range {
+    background: hsl(var(--secondary));
+    color: hsl(var(--secondary-foreground));
+  }
+
+  .litepicker .container__days > div { height: 34px; }
+
+  @media (max-width: 640px) {
+    .litepicker { padding: 4px; }
+    .litepicker .container__days > div { height: 32px; }
+  }
+
+  .dark .litepicker {
+    box-shadow: 0 10px 30px hsla(0, 0%, 0%, 0.35);
+  }
+  [data-sidebar="menu-button"][data-active="true"] {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  .dark [data-sidebar="menu-button"][data-active="true"] {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  /* Transições e hovers sutis para elementos interativos */
+  button,
+  [type="button"],
+  [role="button"],
+  .btn,
+  a,
+  [data-sidebar="menu-button"],
+  .card,
+  [data-card],
+  .clickable,
+  .interactive {
+    transition: all 0.2s ease-in-out;
+    will-change: transform, box-shadow, background-color, color, border-color;
+  }
+
+  button:not(:disabled):hover,
+  [type="button"]:not(:disabled):hover,
+  [role="button"]:not([aria-disabled="true"]):hover,
+  .btn:hover,
+  a:hover,
+  [data-sidebar="menu-button"]:hover,
+  .card:hover,
+  [data-card]:hover,
+  .clickable:hover,
+  .interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px hsla(24, 20%, 20%, 0.08), 0 2px 8px hsla(24, 20%, 20%, 0.06);
+  }
+
+  /* NÃO aplicar efeitos de hover/active nos switches (Radix usa role="switch") */
+  [role="switch"]:hover,
+  [role="switch"]:active {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  button:active,
+  [type="button"]:active,
+  [role="button"]:active,
+  .btn:active,
+  a:active,
+  [data-sidebar="menu-button"]:active,
+  .card:active,
+  [data-card]:active,
+  .clickable:active,
+  .interactive:active {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 18px hsla(24, 20%, 20%, 0.08), 0 1px 6px hsla(24, 20%, 20%, 0.06);
+  }
+
+  /* Respeita usuários com redução de movimento */
+  @media (prefers-reduced-motion: reduce) {
+    button,
+    [type="button"],
+    [role="button"],
+    .btn,
+    a,
+    [data-sidebar="menu-button"],
+    .card,
+    [data-card],
+    .clickable,
+    .interactive {
+      transition: none;
+      transform: none !important;
+    }
+  }
+}
+
+/* ========== ETAPA 1: Densidade e compactação =============== */
+@layer base {
+  /* Ajuste de espaçamentos globais (evitar selectors amplos que afetam switches/inputs) */
+  .card, [data-card] {
+    padding: 16px 16px !important;
+  }
+  .card-header, .card-content {
+    padding: 12px 16px !important;
+  }
+  main, .main-content, .p-6, .p-8, .px-6, .px-8 {
+    padding: 16px !important;
+  }
+  .md\:p-8 { padding: 24px !important; }
+  .max-w-5xl, .max-w-4xl { max-width: 1100px !important; }
+
+  /* Forms, grids e headers mais enxutos */
+  .space-y-4, .gap-4, .grid.gap-4, .grid.gap-6, .mb-8, .mt-8 {
+    --tw-space-y-reverse: 0;
+    margin-top: 0.75rem !important; /*12px*/
+    margin-bottom: 0.75rem !important;
+    gap: 12px !important;
+  }
+
+  /* Inputs compactos (não aplicar em textarea) */
+  input, select, .input, .h-11, .h-10, .h-12 {
+    height: 36px !important;
+    min-height: 36px !important;
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+  }
+  /* Removido: não forçar estilo global de botões para evitar distorção visual */
+
+  /* Títulos com peso maior, mas tamanho menor */
+  h1, .text-3xl { font-size: 1.6rem !important; }
+  h2, .text-2xl { font-size: 1.22rem !important; }
+  h3, .text-xl, .text-lg { font-size: 1.05rem !important; font-weight: 600; }
+  .font-bold { font-weight: 700 !important; }
+
+  /* Reduzir padding do header e outros containers (sem quebrar componentes pequenos) */
+  header, .header { padding-top: 12px !important; padding-bottom: 12px !important; }
+
+  /* Grids de cards e listas mais justas */
+  .grid.gap-6, .grid.gap-4, .gap-6 { gap: 12px !important; }
+  .pb-2, .pt-2, .py-2 { padding-bottom: 8px !important; padding-top: 8px !important; }
+
+  /* Tabelas mais densas (mantendo legibilidade!) */
+  table, th, td { padding: 8px 12px !important; font-size: 0.98rem !important; }
+}
+/* ========== FIM ETAPA 1 =============== */
+
+/* ========== ETAPA 2: Variantes densas por componente =============== */
+@layer components {
+  /* Tabelas densas */
+  .table-dense table,
+  .table-dense {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .table-dense thead th {
+    padding: 6px 10px !important;
+    font-size: 0.92rem !important;
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+  }
+  .table-dense tbody td {
+    padding: 6px 10px !important;
+    font-size: 0.95rem !important;
+  }
+  .table-dense tbody tr:hover {
+    background: hsl(var(--muted) / 0.5);
+  }
+  .table-dense tfoot td {
+    padding: 6px 10px !important;
+  }
+
+  /* Listas densas (itens empilhados) */
+  .list-dense > * {
+    padding: 8px 10px !important;
+    margin: 0 !important;
+  }
+  .list-dense > * + * { border-top: 1px solid hsl(var(--border)); }
+
+  /* Forms densos: reduz a distância entre campos e labels */
+  .form-dense .space-y-4 { gap: 10px !important; }
+  .form-dense .space-y-2 { gap: 6px !important; }
+  .form-dense label { font-size: 0.82rem !important; }
+
+  /* Cards densos: cabeçalho/miolo com menos padding */
+  .card-dense .card-header, .card-dense [data-card-header] { padding: 8px 12px !important; }
+  .card-dense .card-content, .card-dense [data-card-content] { padding: 10px 12px !important; }
+  .card-dense h3, .card-dense .card-title { font-size: 1rem !important; }
+
+  /* Tabs compactas (shadcn Tabs) */
+  .tabs-compact [role="tablist"],
+  .tabs-compact .TabsList,
+  .tabs-compact .tabs-list {
+    gap: 6px !important;
+    padding: 4px !important;
+  }
+  .tabs-compact [role="tab"],
+  .tabs-compact .TabsTrigger,
+  .tabs-compact .tabs-trigger {
+    padding: 6px 10px !important;
+    font-size: 0.92rem !important;
+  }
+
+  /* Toolbars/headers compactos */
+  .toolbar-compact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .toolbar-compact > * { height: 34px; }
+
+  /* Correção de tamanho do Switch (Radix usa role="switch") para não herdar padding/min-height de buttons globais */
+  [role="switch"] {
+    padding: 0 !important;
+    height: auto !important;      /* deixa o componente controlar a altura */
+    min-height: 0 !important;
+    line-height: 1 !important;
+  }
+}
+/* ========== FIM ETAPA 2 =============== */
+
+/* (removido) estilos custom de rocker switch para evitar conflitos com o Switch shadcn */

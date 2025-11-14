@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "jsx": "none",
+    "jsxFactory": "",
+    "jsxFragmentFactory": "",
+    "allowJs": false,
+    "checkJs": false
+  },
+  "nodeModulesDir": "auto",
+  "imports": {},
+  "exclude": [
+    "**/src/**",
+    "**/node_modules/**",
+    "**/*.tsx",
+    "**/*.jsx"
+  ]
+}

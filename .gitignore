@@ -1,0 +1,114 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables (mantendo apenas .local e production)
+.env.local
+.env.*.local
+.env.production
+
+# Secrets and sensitive data
+*.key
+*.pem
+*.p12
+secrets/
+*.secret
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+*.txt.bak
+
+# OS files
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+
+# Build files
+.next
+out
+build
+.cache
+.parcel-cache
+
+# Supabase config (mantém apenas o .example)
+supabase/config.toml
+!supabase/config.toml.example
+
+# Supabase local files
+supabase/.branches
+supabase/.temp
+
+# Environment variables - TODOS os tipos (EXCETO .example)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+.env.staging
+!.env.example
+
+# Package manager locks (escolha um)
+# package-lock.json  # descomente se usar yarn/pnpm
+# yarn.lock
+# pnpm-lock.yaml
+
+# Build outputs
+.vite
+.vite-*
+dist/
+build/
+out/
+
+# Debug files
+.vscode/launch.json
+*.log
+logs/
+
+# Coverage reports
+coverage/
+*.lcov
+
+# TypeScript
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Migration temporária com dados sensíveis (remover após executar)
+# NOTA: Esta migration contém UUIDs específicos de usuários
+# Execute-a no Supabase e depois remova do repositório se não quiser commitá-la
+# supabase/migrations/20250112000000_delete_specific_users.sql

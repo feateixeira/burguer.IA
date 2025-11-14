@@ -464,6 +464,28 @@ export default function Totem() {
         // Continue anyway, order is created
       }
 
+      // Abater estoque de ingredientes automaticamente
+      try {
+        const { data: stockResult, error: stockError } = await supabase.rpc(
+          'apply_stock_deduction_for_order',
+          {
+            p_establishment_id: establishmentId,
+            p_order_id: newOrder.id
+          }
+        );
+
+        if (stockError) {
+          // Log do erro mas não interrompe o pedido
+          console.error('Erro ao abater estoque:', stockError);
+        } else if (stockResult && !stockResult.success) {
+          // Avisar sobre problemas no estoque mas não bloquear o pedido
+          console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+        }
+      } catch (stockErr) {
+        // Não bloquear o pedido se houver erro no estoque
+        console.error('Erro ao processar estoque:', stockErr);
+      }
+
       // Generate password
       const passwordNumber = await generatePassword();
 

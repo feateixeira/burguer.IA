@@ -118,27 +118,66 @@ const Sidebar = () => {
 
   const handleLogout = async () => {
     try {
+      // Tentar obter a sessão atual
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Invalidar sessão no banco antes de fazer logout
-      if (session?.refresh_token) {
+      // Invalidar sessão no banco antes de fazer logout (se houver sessão)
+      if (session?.user?.id && session?.refresh_token) {
         try {
           await supabase.rpc('invalidate_user_session', {
             p_user_id: session.user.id,
             p_refresh_token: session.refresh_token
           });
         } catch (sessionError) {
-          // Continuar mesmo se falhar
+          // Continuar mesmo se falhar - não é crítico
         }
       }
 
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Fazer logout (mesmo se não houver sessão, limpa o estado local)
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error && error.message !== 'Auth session missing!') {
+          throw error;
+        }
+      } catch (signOutError: any) {
+        // Se o erro for "Auth session missing", não é um problema real
+        // A sessão já foi invalidada ou não existe, o que é o objetivo do logout
+        if (signOutError?.message?.includes('Auth session missing')) {
+          // Ignorar este erro específico - o logout já foi efetivo
+        } else {
+          throw signOutError;
+        }
+      }
+
+      // Limpar dados locais do Supabase para garantir logout completo
+      try {
+        // Limpar storage do Supabase
+        localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL?.split('//')[1]?.split('.')[0] + '-auth-token');
+        sessionStorage.clear();
+      } catch (storageError) {
+        // Ignorar erros de storage
+      }
+
       toast.success("Logout realizado com sucesso");
-      window.location.href = "/";
-    } catch (error) {
-      console.error("Logout error:", error);
-      toast.error("Erro ao fazer logout");
+      
+      // Aguardar um pouco mais para garantir que tudo foi limpo
+      // e usar window.location.replace para não manter histórico
+      setTimeout(() => {
+        window.location.replace("/");
+      }, 500);
+    } catch (error: any) {
+      // Se houver erro, ainda assim limpar storage e redirecionar
+      try {
+        localStorage.removeItem('sb-' + import.meta.env.VITE_SUPABASE_URL?.split('//')[1]?.split('.')[0] + '-auth-token');
+        sessionStorage.clear();
+      } catch (storageError) {
+        // Ignorar
+      }
+      
+      toast.error("Logout realizado, redirecionando...");
+      setTimeout(() => {
+        window.location.replace("/");
+      }, 1000);
     }
   };
 

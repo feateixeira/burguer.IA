@@ -1081,6 +1081,28 @@ const PDV = () => {
 
       if (itemsError) throw itemsError;
 
+      // Abater estoque de ingredientes automaticamente
+      try {
+        const { data: stockResult, error: stockError } = await supabase.rpc(
+          'apply_stock_deduction_for_order',
+          {
+            p_establishment_id: profile.establishment_id,
+            p_order_id: order.id
+          }
+        );
+
+        if (stockError) {
+          // Log do erro mas não interrompe a venda
+          console.error('Erro ao abater estoque:', stockError);
+        } else if (stockResult && !stockResult.success) {
+          // Avisar sobre problemas no estoque mas não bloquear a venda
+          console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+        }
+      } catch (stockErr) {
+        // Não bloquear a venda se houver erro no estoque
+        console.error('Erro ao processar estoque:', stockErr);
+      }
+
       // Prepare receipt data
       const receiptData: ReceiptData = {
         orderNumber: orderNumber,

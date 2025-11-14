@@ -1755,6 +1755,30 @@ import { Checkbox } from "@/components/ui/checkbox";
         // Se o número do pedido foi atualizado, usar o pedido atualizado para impressão
         const orderToPrint = updatedOrder || order;
         
+        // Abater estoque de ingredientes automaticamente
+        if (establishment) {
+          try {
+            const { data: stockResult, error: stockError } = await supabase.rpc(
+              'apply_stock_deduction_for_order',
+              {
+                p_establishment_id: establishment.id,
+                p_order_id: order.id
+              }
+            );
+
+            if (stockError) {
+              // Log do erro mas não interrompe a aceitação do pedido
+              console.error('Erro ao abater estoque:', stockError);
+            } else if (stockResult && !stockResult.success) {
+              // Avisar sobre problemas no estoque mas não bloquear a aceitação
+              console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+            }
+          } catch (stockErr) {
+            // Não bloquear a aceitação se houver erro no estoque
+            console.error('Erro ao processar estoque:', stockErr);
+          }
+        }
+        
         // Imprimir o pedido com o número atualizado
         await handlePrintOrder(orderToPrint);
 

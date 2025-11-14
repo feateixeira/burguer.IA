@@ -26,6 +26,8 @@ interface Ingredient {
   total_cost: number;
   unit_measure: string;
   unit_cost: number;
+  stock_quantity?: number;
+  min_stock_quantity?: number;
   active: boolean;
 }
 

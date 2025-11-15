@@ -75,14 +75,19 @@ export function useTrialCheck() {
           const now = new Date();
           
           // Normalizar datas para comparar apenas dias (sem horas)
-          const trialEndDate = new Date(trialEnd.getFullYear(), trialEnd.getMonth(), trialEnd.getDate());
-          const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          // Comparar apenas as datas (sem horas) para calcular dias restantes
+          const trialEndDateOnly = new Date(trialEnd.getFullYear(), trialEnd.getMonth(), trialEnd.getDate());
+          const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           
-          // Calcular diferença em dias
-          const diffTime = trialEndDate.getTime() - nowDate.getTime();
+          // Calcular diferença em milissegundos
+          const diffTime = trialEndDateOnly.getTime() - nowDateOnly.getTime();
+          // Converter para dias (arredondar para cima para garantir que no último dia mostre 0)
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          const daysLeft = diffDays > 0 ? diffDays : 0;
-          const isExpired = nowDate > trialEndDate;
+          // Se ainda estamos no mesmo dia ou antes, mostrar dias restantes
+          // Se passou do dia, considerar expirado
+          const daysLeft = diffDays >= 0 ? diffDays : 0;
+          // Considerar expirado apenas se passou do dia (não no mesmo dia)
+          const isExpired = nowDateOnly > trialEndDateOnly;
 
           // Se trial expirou e usuário ainda está ativo, bloquear
           if (isExpired && profile.status === 'active') {
@@ -99,6 +104,7 @@ export function useTrialCheck() {
             return;
           }
 
+          // SEMPRE mostrar status do trial se for trial (mesmo que daysLeft seja 0 no último dia)
           setTrialStatus({
             subscriptionType: 'trial',
             trialDaysLeft: daysLeft,
@@ -106,8 +112,17 @@ export function useTrialCheck() {
             isExpired,
             isBlocked: false,
           });
+        } else if (subscriptionType === 'trial' && !profile.trial_end_date) {
+          // É trial mas não tem trial_end_date - mostrar como trial sem data
+          setTrialStatus({
+            subscriptionType: 'trial',
+            trialDaysLeft: null,
+            trialEndDate: null,
+            isExpired: false,
+            isBlocked: false,
+          });
         } else {
-          // Não é trial ou não tem trial_end_date
+          // Não é trial
           setTrialStatus({
             subscriptionType: subscriptionType || null,
             trialDaysLeft: null,

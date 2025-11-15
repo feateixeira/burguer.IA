@@ -7,13 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Eye, EyeOff, Store, TrendingUp, Users, Shield, Sparkles, ArrowRight, Brain, Zap, Cpu, Network, Mail, MessageCircle, Phone } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Eye, EyeOff, Store, TrendingUp, Users, Shield, Sparkles, ArrowRight, Brain, Zap, Cpu, Network } from "lucide-react";
+import AuthHeader from "@/components/AuthHeader";
 
 const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showContactModal, setShowContactModal] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const navigate = useNavigate();
   const signinFormRef = useRef<HTMLFormElement>(null);
@@ -317,11 +316,16 @@ const Auth = () => {
   return (
     <div 
       ref={containerRef}
-      className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50/50 dark:from-slate-950 dark:via-primary/10 dark:to-slate-900 flex relative overflow-hidden"
+      className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50/50 dark:from-slate-950 dark:via-primary/10 dark:to-slate-900 flex flex-col relative overflow-hidden"
       style={{
         background: `radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(249, 116, 21, 0.15) 0%, transparent 50%)`
       }}
     >
+      {/* Header */}
+      <AuthHeader />
+      
+      {/* Conteúdo Principal */}
+      <div className="flex-1 flex relative">
       {/* Partículas animadas de fundo */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(20)].map((_, i) => (
@@ -714,92 +718,10 @@ const Auth = () => {
                 </form>
               </TabsContent>
             </Tabs>
-            
-            {/* Botão de Contato */}
-            <div className="mt-6 pt-6 border-t border-border">
-              <Dialog open={showContactModal} onOpenChange={setShowContactModal}>
-                <DialogTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    className="w-full bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 border-primary/30 text-primary hover:text-primary font-semibold"
-                  >
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Entrar em Contato
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
-                  <DialogHeader>
-                    <DialogTitle className="text-2xl font-bold text-slate-900 dark:text-white">
-                      Entre em Contato
-                    </DialogTitle>
-                    <DialogDescription className="text-base text-slate-600 dark:text-slate-300">
-                      Fale conosco para contratar um plano ou tirar suas dúvidas
-                    </DialogDescription>
-                  </DialogHeader>
-                  
-                  <div className="space-y-4 mt-6">
-                    {/* Email */}
-                    <a
-                      href="mailto:fellipe_1693@outlook.com?subject=Contato - burguer.IA&body=Olá! Gostaria de saber mais sobre os planos do burguer.IA."
-                      className="flex items-center gap-4 p-4 rounded-xl border-2 border-primary/20 hover:border-primary/40 bg-white dark:bg-slate-800 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-300 group"
-                      onClick={() => setShowContactModal(false)}
-                    >
-                      <div className="p-3 bg-primary/10 dark:bg-primary/20 rounded-lg group-hover:bg-primary/20 dark:group-hover:bg-primary/30 transition-colors">
-                        <Mail className="h-6 w-6 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900 dark:text-white mb-1">Enviar Email</h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">fellipe_1693@outlook.com</p>
-                      </div>
-                      <ArrowRight className="h-5 w-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </a>
-
-                    {/* WhatsApp */}
-                    <a
-                      href="https://wa.me/5561999098562?text=Olá!%20Gostaria%20de%20saber%20mais%20sobre%20os%20planos%20do%20burguer.IA."
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-4 p-4 rounded-xl border-2 border-green-500/20 hover:border-green-500/40 bg-white dark:bg-slate-800 hover:bg-green-50 dark:hover:bg-green-950/20 transition-all duration-300 group"
-                      onClick={() => setShowContactModal(false)}
-                    >
-                      <div className="p-3 bg-green-500/10 dark:bg-green-500/20 rounded-lg group-hover:bg-green-500/20 dark:group-hover:bg-green-500/30 transition-colors">
-                        <MessageCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900 dark:text-white mb-1">WhatsApp</h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">(61) 99909-8562</p>
-                      </div>
-                      <ArrowRight className="h-5 w-5 text-green-600 dark:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </a>
-
-                    {/* Telefone */}
-                    <a
-                      href="tel:+5561999098562"
-                      className="flex items-center gap-4 p-4 rounded-xl border-2 border-primary/20 hover:border-primary/40 bg-white dark:bg-slate-800 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-300 group"
-                      onClick={() => setShowContactModal(false)}
-                    >
-                      <div className="p-3 bg-primary/10 dark:bg-primary/20 rounded-lg group-hover:bg-primary/20 dark:group-hover:bg-primary/30 transition-colors">
-                        <Phone className="h-6 w-6 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900 dark:text-white mb-1">Ligar Agora</h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400">(61) 99909-8562</p>
-                      </div>
-                      <ArrowRight className="h-5 w-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </a>
-                  </div>
-
-                  <div className="mt-6 p-4 bg-primary/5 dark:bg-primary/10 rounded-lg border border-primary/20">
-                    <p className="text-sm text-slate-700 dark:text-slate-300 text-center">
-                      <strong className="text-primary">💡 Dica:</strong> Escolha o método que preferir. Responderemos o mais rápido possível!
-                    </p>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
           </CardContent>
         </Card>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -76,68 +76,97 @@
         let lastRange = { start: null, end: null };
 
         function openModal(){
-          if (!picker) {
-            // cria input auxiliar para o Litepicker renderizar inline no container
+          if (!modal) {
+            return;
+          }
+          
+          // Abre o modal primeiro
+          modal.classList.remove('hidden');
+          modal.style.display = 'flex';
+          
+          // Inicializa o picker apenas uma vez
+          if (!picker && container) {
+            // Limpa o container
+            container.innerHTML = '';
+            
+            // Cria input auxiliar
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'hidden';
             container.appendChild(input);
-            if (typeof Litepicker === 'undefined') {
-              console.warn('Litepicker ainda não carregado. Tentando novamente em breve...');
-              setTimeout(openModal, 50);
-              return;
-            }
-            // Locale em português do Brasil
-            const locale = {
-              months: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
-              monthsShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
-              weekdays: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'],
-              weekdaysShort: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
-              firstDay: 0 // Domingo como primeiro dia
+            
+            // Função para inicializar o picker de forma assíncrona
+            const initPicker = () => {
+              if (typeof Litepicker === 'undefined') {
+                setTimeout(initPicker, 100);
+                return;
+              }
+              
+              try {
+                const locale = {
+                  months: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+                  monthsShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                  weekdays: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'],
+                  weekdaysShort: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+                  firstDay: 0
+                };
+                
+                picker = new Litepicker({
+                  element: input,
+                  singleMode: false,
+                  inlineMode: true,
+                  numberOfMonths: 2,
+                  numberOfColumns: 2,
+                  autoApply: false,
+                  showTooltip: false,
+                  showButtons: false,
+                  mobileFriendly: true,
+                  format: 'YYYY-MM-DD',
+                  locale: locale,
+                  lockDaysFilter: (day) => false,
+                  minDate: null,
+                  maxDate: null,
+                  setup: (inst) => {
+                    inst.on('selected', (date1, date2) => {
+                      lastRange.start = date1;
+                      lastRange.end = date2 || date1;
+                    });
+                  }
+                });
+                
+                if (lastRange.start && lastRange.end && picker.setDateRange) {
+                  try { picker.setDateRange(lastRange.start, lastRange.end); } catch {}
+                }
+              } catch (error) {
+                // Erro silencioso
+              }
             };
             
-            picker = new Litepicker({
-              element: input,
-              singleMode: false,
-              inlineMode: true,
-              numberOfMonths: 2,
-              numberOfColumns: 2,
-              autoApply: false,
-              showTooltip: false,
-              showButtons: false, // Remove botões do Litepicker
-              mobileFriendly: true,
-              format: 'YYYY-MM-DD',
-              locale: locale,
-              lockDaysFilter: (day) => false,
-              minDate: null,
-              maxDate: null,
-              setup: (inst) => {
-                inst.on('selected', (date1, date2) => {
-                  lastRange.start = date1;
-                  lastRange.end = date2 || date1;
-                });
-              }
-            });
-            // Se já houver range anterior, aplica
-            if (lastRange.start && lastRange.end && picker.setDateRange) {
-              try { picker.setDateRange(lastRange.start, lastRange.end); } catch {}
-            }
+            // Inicializa de forma assíncrona para não travar
+            setTimeout(initPicker, 0);
           }
-          modal.classList.remove('hidden');
         }
-
+        
         function closeModal(){
-          modal.classList.add('hidden');
-        }
-
-        // Delegação: só no Dashboard
-        document.addEventListener('click', function(e){
-          if (window.location.pathname !== '/dashboard') return;
-          const target = e.target;
-          if (target && typeof target.closest === 'function' && target.closest('#btn-filtro')) {
-            openModal();
+          if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
           }
-        });
+        }
+        
+        // Expor função global para React poder chamar
+        // Garantir que sempre esteja disponível, mesmo após re-renders
+        window.openFilterModal = openModal;
+        
+        // Re-expor a função periodicamente para garantir que não seja sobrescrita
+        const ensureFunctionExists = () => {
+          if (typeof window.openFilterModal !== 'function') {
+            window.openFilterModal = openModal;
+          }
+        };
+        
+        // Verificar periodicamente (a cada 1 segundo)
+        setInterval(ensureFunctionExists, 1000);
         if (btnFechar) btnFechar.addEventListener('click', closeModal);
         if (btnCancelar) btnCancelar.addEventListener('click', closeModal);
         // fecha ao clicar no overlay
@@ -155,7 +184,6 @@
         if (btnAplicar) {
           btnAplicar.addEventListener('click', function(){
             if (!picker) {
-              console.warn('Picker não inicializado');
               return closeModal();
             }
             let startDate = (picker.getStartDate && picker.getStartDate()) || lastRange.start;
@@ -167,9 +195,9 @@
             }
             
             if (startDate) {
-              // Caso a função global exista, chama com ISODateString
-              const fn = window.atualizarDashboard || window.updateDashboard || null;
-              try {
+              // Função para tentar aplicar o filtro
+              const tryApplyFilter = () => {
+                const fn = window.atualizarDashboard || window.updateDashboard || null;
                 if (typeof fn === 'function') {
                   const toISO = (d) => {
                     try {
@@ -182,16 +210,21 @@
                   };
                   const startISO = toISO(startDate);
                   const endISO = endDate ? toISO(endDate) : startISO;
-                  console.log('Aplicando filtro:', startISO, 'até', endISO);
                   fn(startISO, endISO);
-                } else {
-                  console.warn('Função atualizarDashboard não encontrada');
+                  return true;
                 }
-              } catch (e) { 
-                console.error('Erro ao aplicar filtro:', e);
+                return false;
+              };
+
+              // Tentar aplicar imediatamente
+              if (!tryApplyFilter()) {
+                // Se não funcionou, tentar novamente após um pequeno delay
+                setTimeout(() => {
+                  if (!tryApplyFilter()) {
+                    alert('Erro ao aplicar filtro. Por favor, recarregue a página e tente novamente.');
+                  }
+                }, 500);
               }
-            } else {
-              console.warn('Nenhuma data selecionada');
             }
             closeModal();
           });

@@ -2,15 +2,16 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
-  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag, UtensilsCrossed, Wallet, ChevronDown, FileText, AlertTriangle
+  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag, UtensilsCrossed, Wallet, ChevronDown, FileText, AlertTriangle, Brain, MessageCircle
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { AdminStatusIndicator } from "./AdminStatusIndicator";
 import { useTeamUser } from "@/components/TeamUserProvider";
 import { useTrialCheck } from "@/hooks/useTrialCheck";
+import { usePlanAccess } from "@/hooks/usePlanAccess";
 
 const items = [
   { name: "PDV", href: "/pdv", icon: Receipt, show: ["master", "admin", "atendente"] },
@@ -52,6 +53,7 @@ const Sidebar = () => {
   const location = useLocation();
   const { teamUser, resetTeamUser } = useTeamUser();
   const { trialStatus, loading: trialLoading } = useTrialCheck();
+  const planAccess = usePlanAccess();
 
   useEffect(() => {
     const loadEstablishmentName = async () => {
@@ -63,9 +65,11 @@ const Sidebar = () => {
 
         const { data: profile } = await supabase
           .from("profiles")
-          .select("establishment_id")
+          .select("establishment_id, plan_type")
           .eq("user_id", session.user.id)
           .single();
+
+        // Verificação de plano agora é feita pelo hook usePlanAccess
 
         if (profile?.establishment_id) {
           const { data: establishment } = await supabase
@@ -341,6 +345,56 @@ const Sidebar = () => {
                   )
                 ) : null}
                 
+                {/* Assistente IA - Platinum e Premium (ou trial) */}
+                {planAccess && planAccess.hasAIAccess && teamUser && (teamUser.role === "master" || teamUser.role === "admin") && (
+                  <Link
+                    to="/gold/assistant"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                      location.pathname.startsWith("/gold/assistant")
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                      isCollapsed && "justify-center gap-0"
+                    )}
+                    title={isCollapsed ? "Assistente IA" : undefined}
+                  >
+                    <Brain 
+                      className={cn(
+                        "h-5 w-5 flex-shrink-0",
+                        !isCollapsed && "mr-0"
+                      )}
+                      strokeWidth={2}
+                    />
+                    {!isCollapsed && <span>Assistente IA</span>}
+                  </Link>
+                )}
+
+                {/* WhatsApp - Apenas Premium (ou trial) */}
+                {planAccess && planAccess.hasWhatsAppAccess && teamUser && (teamUser.role === "master" || teamUser.role === "admin") && (
+                  <Link
+                    to="/gold/whatsapp"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                      location.pathname.startsWith("/gold/whatsapp")
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                      isCollapsed && "justify-center gap-0"
+                    )}
+                    title={isCollapsed ? "WhatsApp" : undefined}
+                  >
+                    <MessageCircle 
+                      className={cn(
+                        "h-5 w-5 flex-shrink-0",
+                        !isCollapsed && "mr-0"
+                      )}
+                      strokeWidth={2}
+                    />
+                    {!isCollapsed && <span>WhatsApp</span>}
+                  </Link>
+                )}
+
                 {/* Cardápio Online e Apps */}
                 {visibleItems.filter(item => item.name === "Cardápio Online" || item.name === "Apps").map((item) => {
                 const IconComponent = item.icon;
@@ -518,12 +572,13 @@ const Sidebar = () => {
           </div>
 
           {/* Trial Days Indicator - Discreto */}
-          {trialStatus.subscriptionType === 'trial' && trialStatus.trialDaysLeft !== null && trialStatus.trialDaysLeft >= 0 && (
+          {/* Sempre mostrar se for trial, mesmo que daysLeft seja null ou 0 */}
+          {trialStatus.subscriptionType === 'trial' && (
             <div className="px-2 pb-2">
               {!isCollapsed ? (
                 <div className={cn(
                   "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs border transition-colors",
-                  trialStatus.trialDaysLeft <= 3 
+                  (trialStatus.trialDaysLeft !== null && trialStatus.trialDaysLeft <= 3) || trialStatus.trialDaysLeft === null
                     ? "bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400" 
                     : trialStatus.trialDaysLeft <= 7 
                     ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-600 dark:text-yellow-400"
@@ -531,15 +586,17 @@ const Sidebar = () => {
                 )}>
                   <AlertTriangle className={cn(
                     "h-3.5 w-3.5 flex-shrink-0",
-                    trialStatus.trialDaysLeft <= 3 
+                    (trialStatus.trialDaysLeft !== null && trialStatus.trialDaysLeft <= 3) || trialStatus.trialDaysLeft === null
                       ? "text-red-600 dark:text-red-400" 
                       : trialStatus.trialDaysLeft <= 7 
                       ? "text-yellow-600 dark:text-yellow-400"
                       : "text-primary"
                   )} />
                   <span className="flex-1 truncate font-medium">
-                    {trialStatus.trialDaysLeft === 0 
-                      ? 'Teste expirou'
+                    {trialStatus.trialDaysLeft === null
+                      ? 'Teste ativo'
+                      : trialStatus.trialDaysLeft === 0 
+                      ? 'Último dia'
                       : trialStatus.trialDaysLeft === 1
                       ? `${trialStatus.trialDaysLeft} dia`
                       : `${trialStatus.trialDaysLeft} dias`
@@ -550,15 +607,17 @@ const Sidebar = () => {
                 <div 
                   className={cn(
                     "flex items-center justify-center p-1.5 rounded-md border transition-colors",
-                    trialStatus.trialDaysLeft <= 3 
+                    (trialStatus.trialDaysLeft !== null && trialStatus.trialDaysLeft <= 3) || trialStatus.trialDaysLeft === null
                       ? "bg-red-500/10 border-red-500/20" 
                       : trialStatus.trialDaysLeft <= 7 
                       ? "bg-yellow-500/10 border-yellow-500/20"
                       : "bg-primary/10 border-primary/20"
                   )} 
                   title={
-                    trialStatus.trialDaysLeft === 0 
-                      ? 'Teste expirou!'
+                    trialStatus.trialDaysLeft === null
+                      ? 'Teste ativo - Verifique os dias restantes'
+                      : trialStatus.trialDaysLeft === 0 
+                      ? 'Último dia de teste!'
                       : trialStatus.trialDaysLeft === 1
                       ? `${trialStatus.trialDaysLeft} dia restante`
                       : `${trialStatus.trialDaysLeft} dias restantes`
@@ -566,7 +625,7 @@ const Sidebar = () => {
                 >
                   <AlertTriangle className={cn(
                     "h-3.5 w-3.5",
-                    trialStatus.trialDaysLeft <= 3 
+                    (trialStatus.trialDaysLeft !== null && trialStatus.trialDaysLeft <= 3) || trialStatus.trialDaysLeft === null
                       ? "text-red-600 dark:text-red-400" 
                       : trialStatus.trialDaysLeft <= 7 
                       ? "text-yellow-600 dark:text-yellow-400"
@@ -577,10 +636,72 @@ const Sidebar = () => {
             </div>
           )}
 
-          {/* Admin Status Indicator */}
-          {!isCollapsed && (
+          {/* Plano Atual - No lugar do Modo Operacional */}
+          {planAccess && !planAccess.loading && (
             <div className="px-2 pb-2">
-              <AdminStatusIndicator />
+              {!isCollapsed ? (
+                <div className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-md bg-muted/50 border border-border">
+                  <div className="flex items-center gap-1.5">
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
+                        "text-[10px] px-1.5 py-0.5 font-semibold",
+                        planAccess.isTrial && "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+                        !planAccess.isTrial && planAccess.planType === 'gold' && "border-[#9CA3AF] bg-[#9CA3AF]/10 text-[#9CA3AF]",
+                        !planAccess.isTrial && planAccess.planType === 'platinum' && "border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]",
+                        !planAccess.isTrial && planAccess.planType === 'premium' && "border-[#38A5B2] bg-[#38A5B2]/10 text-[#38A5B2]"
+                      )}
+                    >
+                      {planAccess.isTrial 
+                        ? 'TESTE' 
+                        : planAccess.planType === 'gold' 
+                        ? 'STANDARD' 
+                        : planAccess.planType === 'platinum' 
+                        ? 'GOLD' 
+                        : planAccess.planType === 'premium' 
+                        ? 'PREMIUM' 
+                        : 'BASIC'}
+                    </Badge>
+                    {planAccess.planType !== 'premium' && !planAccess.isTrial && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-1.5 text-[10px]"
+                        onClick={() => {
+                          const whatsappNumber = '5511999999999'; // Substituir pelo número real
+                          const message = encodeURIComponent('Olá! Gostaria de contratar o Plano Premium.');
+                          window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                        }}
+                      >
+                        PRO
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center">
+                  <Badge 
+                    variant="outline" 
+                    className={cn(
+                      "text-[10px] px-1.5 py-0.5 font-semibold",
+                      planAccess.isTrial && "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+                      !planAccess.isTrial && planAccess.planType === 'gold' && "border-[#9CA3AF] bg-[#9CA3AF]/10 text-[#9CA3AF]",
+                      !planAccess.isTrial && planAccess.planType === 'platinum' && "border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]",
+                      !planAccess.isTrial && planAccess.planType === 'premium' && "border-[#38A5B2] bg-[#38A5B2]/10 text-[#38A5B2]"
+                    )}
+                  >
+                    {planAccess.isTrial 
+                      ? 'TESTE' 
+                      : planAccess.planType === 'gold' 
+                      ? 'STANDARD' 
+                      : planAccess.planType === 'platinum' 
+                      ? 'GOLD' 
+                      : planAccess.planType === 'premium' 
+                      ? 'PRO' 
+                      : 'BASIC'}
+                  </Badge>
+                </div>
+              )}
             </div>
           )}
         </div>

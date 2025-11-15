@@ -26,6 +26,9 @@ import MenuPublic from "./pages/MenuPublic";
 import Finance from "./pages/Finance";
 import Cadastros from "./pages/Cadastros";
 import NotFound from "./pages/NotFound";
+import Assistant from "./pages/gold/Assistant";
+import AssistantSettings from "./pages/gold/AssistantSettings";
+import WhatsApp from "./pages/gold/WhatsApp";
 import { TeamUserProvider } from "@/components/TeamUserProvider";
 import { ConfirmProvider } from "@/hooks/useConfirm";
 import { SessionGuard } from "@/components/SessionGuard";
@@ -64,6 +67,9 @@ const App = () => (
                 <Route path="/cardapio/:slug" element={<MenuPublic />} />
                 <Route path="/finance/*" element={<Finance />} />
                 <Route path="/cadastros/*" element={<Cadastros />} />
+                <Route path="/gold/assistant" element={<Assistant />} />
+                <Route path="/gold/assistant/settings" element={<AssistantSettings />} />
+                <Route path="/gold/whatsapp" element={<WhatsApp />} />
                 <Route path="/landing" element={<Index />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />

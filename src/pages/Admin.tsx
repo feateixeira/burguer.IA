@@ -60,7 +60,7 @@ interface User {
   created_at: string;
   status: 'active' | 'blocked' | 'cancelled';
   subscription_type?: 'monthly' | 'trial';
-  plan_type?: 'prata' | 'gold';
+  plan_type?: 'gold' | 'platinum' | 'premium';
   plan_amount?: number;
   trial_end_date?: string;
   next_payment_date?: string;
@@ -78,8 +78,8 @@ export default function Admin() {
   const [convertDialogOpen, setConvertDialogOpen] = useState(false);
   const [changePlanDialogOpen, setChangePlanDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [convertPlanType, setConvertPlanType] = useState<'prata' | 'gold'>('prata');
-  const [changePlanType, setChangePlanType] = useState<'prata' | 'gold'>('prata');
+  const [convertPlanType, setConvertPlanType] = useState<'gold' | 'platinum' | 'premium'>('gold');
+  const [changePlanType, setChangePlanType] = useState<'gold' | 'platinum' | 'premium'>('gold');
   
   // Create user form
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -87,7 +87,7 @@ export default function Admin() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserEstablishment, setNewUserEstablishment] = useState('');
   const [newUserSubscriptionType, setNewUserSubscriptionType] = useState<'monthly' | 'trial'>('trial');
-  const [newUserPlanType, setNewUserPlanType] = useState<'prata' | 'gold'>('prata');
+  const [newUserPlanType, setNewUserPlanType] = useState<'gold' | 'platinum' | 'premium'>('gold');
   const [newUserTrialDays, setNewUserTrialDays] = useState('7');
   
   // Notification form
@@ -267,7 +267,7 @@ export default function Admin() {
           created_at: profile.created_at,
           status: (profile.status || 'active') as 'active' | 'blocked' | 'cancelled',
           subscription_type: (profile.subscription_type as 'monthly' | 'trial') || 'trial',
-          plan_type: (profile.plan_type as 'prata' | 'gold') || undefined,
+          plan_type: (profile.plan_type as 'gold' | 'platinum' | 'premium') || undefined,
           plan_amount: profile.plan_amount || undefined,
           trial_end_date: profile.trial_end_date || undefined,
           next_payment_date: profile.next_payment_date || undefined,
@@ -391,7 +391,7 @@ export default function Admin() {
       setNewUserName('');
       setNewUserEstablishment('');
       setNewUserSubscriptionType('trial');
-      setNewUserPlanType('prata');
+      setNewUserPlanType('gold');
       setNewUserTrialDays('7');
       loadUsers();
     } catch (error: any) {
@@ -544,7 +544,7 @@ export default function Admin() {
       const nextPaymentDate = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 5);
       
       // Definir valor do plano
-      const planAmount = convertPlanType === 'prata' ? 180.00 : 230.00;
+      const planAmount = convertPlanType === 'gold' ? 160.00 : convertPlanType === 'platinum' ? 180.00 : 220.00;
 
       const { error } = await supabase
         .from('profiles')
@@ -560,9 +560,10 @@ export default function Admin() {
 
       if (error) throw error;
 
-      toast.success(`Usuário convertido para assinatura mensal (Plano ${convertPlanType === 'gold' ? 'Gold' : 'Prata'})!`);
+      const planName = convertPlanType === 'gold' ? 'Standard' : convertPlanType === 'platinum' ? 'Gold' : 'Premium';
+      toast.success(`Usuário convertido para assinatura mensal (Plano ${planName})!`);
       setConvertDialogOpen(false);
-      setConvertPlanType('prata');
+      setConvertPlanType('gold');
       setSelectedUser(null);
       loadUsers();
     } catch (error: any) {
@@ -578,7 +579,7 @@ export default function Admin() {
 
     try {
       // Definir valor do plano
-      const planAmount = changePlanType === 'prata' ? 180.00 : 230.00;
+      const planAmount = changePlanType === 'gold' ? 160.00 : changePlanType === 'platinum' ? 180.00 : 220.00;
 
       const { error } = await supabase
         .from('profiles')
@@ -590,9 +591,10 @@ export default function Admin() {
 
       if (error) throw error;
 
-      toast.success(`Plano alterado para ${changePlanType === 'gold' ? 'Gold' : 'Prata'} (R$ ${planAmount.toFixed(2).replace('.', ',')}/mês)!`);
+      const planName = changePlanType === 'gold' ? 'Standard' : changePlanType === 'platinum' ? 'Gold' : 'Premium';
+      toast.success(`Plano alterado para ${planName} (R$ ${planAmount.toFixed(2).replace('.', ',')}/mês)!`);
       setChangePlanDialogOpen(false);
-      setChangePlanType('prata');
+      setChangePlanType('gold');
       setSelectedUser(null);
       loadUsers();
     } catch (error: any) {
@@ -866,14 +868,15 @@ export default function Admin() {
                       <Label htmlFor="plan-type">Plano *</Label>
                       <Select
                         value={newUserPlanType}
-                        onValueChange={(value: 'prata' | 'gold') => setNewUserPlanType(value)}
+                        onValueChange={(value: 'gold' | 'platinum' | 'premium') => setNewUserPlanType(value)}
                       >
                         <SelectTrigger id="plan-type">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="prata">Prata - R$ 180,00/mês</SelectItem>
-                          <SelectItem value="gold">Gold - R$ 230,00/mês</SelectItem>
+                          <SelectItem value="gold">Standard - R$ 160,00/mês</SelectItem>
+                          <SelectItem value="platinum">Gold - R$ 180,00/mês</SelectItem>
+                          <SelectItem value="premium">Premium - R$ 220,00/mês</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -925,7 +928,7 @@ export default function Admin() {
                     <div className="flex flex-col gap-1">
                       <Badge variant={user.subscription_type === 'monthly' ? 'default' : 'outline'}>
                         {user.subscription_type === 'monthly' 
-                          ? (user.plan_type === 'gold' ? 'Gold' : user.plan_type === 'prata' ? 'Prata' : 'Mensal')
+                          ? (user.plan_type === 'gold' ? 'Standard' : user.plan_type === 'platinum' ? 'Gold' : user.plan_type === 'premium' ? 'Premium' : 'Mensal')
                           : 'Teste'}
                       </Badge>
                       {user.subscription_type === 'monthly' && user.plan_amount && (
@@ -943,9 +946,41 @@ export default function Admin() {
                           )}
                         </div>
                       )}
-                      {user.subscription_type === 'trial' && user.trial_end_date && (
-                        <div className="text-xs text-muted-foreground">
-                          Termina em: {new Date(user.trial_end_date).toLocaleDateString('pt-BR')}
+                      {user.subscription_type === 'trial' && (
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          {user.trial_end_date ? (
+                            <>
+                              <div>
+                                Termina em: {new Date(user.trial_end_date).toLocaleDateString('pt-BR')}
+                              </div>
+                              {(() => {
+                                const trialEnd = new Date(user.trial_end_date);
+                                const now = new Date();
+                                const trialEndDateOnly = new Date(trialEnd.getFullYear(), trialEnd.getMonth(), trialEnd.getDate());
+                                const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                                const diffTime = trialEndDateOnly.getTime() - nowDateOnly.getTime();
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                const daysLeft = diffDays >= 0 ? diffDays : 0;
+                                const isExpired = nowDateOnly > trialEndDateOnly;
+                                
+                                if (isExpired) {
+                                  return <div className="text-red-600 font-semibold">⚠️ Expirado</div>;
+                                } else if (daysLeft === 0) {
+                                  return <div className="text-orange-600 font-semibold">⚠️ Último dia!</div>;
+                                } else if (daysLeft <= 3) {
+                                  return <div className="text-red-600 font-semibold">⚠️ {daysLeft} {daysLeft === 1 ? 'dia restante' : 'dias restantes'}</div>;
+                                } else if (daysLeft <= 7) {
+                                  return <div className="text-yellow-600 font-semibold">⚠️ {daysLeft} dias restantes</div>;
+                                } else {
+                                  return <div className="text-green-600">{daysLeft} dias restantes</div>;
+                                }
+                              })()}
+                            </>
+                          ) : (
+                            <div className="text-orange-600 font-semibold">
+                              ⚠️ Sem data de término definida
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1030,7 +1065,7 @@ export default function Admin() {
                                 variant="outline"
                                 onClick={() => {
                                   setSelectedUser(user);
-                                  setChangePlanType(user.plan_type || 'prata');
+                                  setChangePlanType(user.plan_type || 'gold');
                                   setChangePlanDialogOpen(true);
                                 }}
                               >
@@ -1188,7 +1223,7 @@ export default function Admin() {
       <Dialog open={convertDialogOpen} onOpenChange={(open) => {
         setConvertDialogOpen(open);
         if (!open) {
-          setConvertPlanType('prata');
+          setConvertPlanType('gold');
           setSelectedUser(null);
         }
       }}>
@@ -1204,14 +1239,15 @@ export default function Admin() {
               <Label htmlFor="convert-plan-type">Selecione o Plano *</Label>
               <Select
                 value={convertPlanType}
-                onValueChange={(value: 'prata' | 'gold') => setConvertPlanType(value)}
+                onValueChange={(value: 'gold' | 'platinum' | 'premium') => setConvertPlanType(value)}
               >
                 <SelectTrigger id="convert-plan-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="prata">Prata - R$ 180,00/mês</SelectItem>
-                  <SelectItem value="gold">Gold - R$ 230,00/mês</SelectItem>
+                  <SelectItem value="gold">Gold - R$ 160,00/mês</SelectItem>
+                  <SelectItem value="platinum">Platinum - R$ 180,00/mês</SelectItem>
+                  <SelectItem value="premium">Premium - R$ 220,00/mês</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -1232,7 +1268,7 @@ export default function Admin() {
       <Dialog open={changePlanDialogOpen} onOpenChange={(open) => {
         setChangePlanDialogOpen(open);
         if (!open) {
-          setChangePlanType('prata');
+          setChangePlanType('gold');
           setSelectedUser(null);
         }
       }}>
@@ -1240,7 +1276,7 @@ export default function Admin() {
           <DialogHeader>
             <DialogTitle>Alterar Plano</DialogTitle>
             <DialogDescription>
-              Alterar plano de {selectedUser?.email}. Plano atual: {selectedUser?.plan_type === 'gold' ? 'Gold' : selectedUser?.plan_type === 'prata' ? 'Prata' : 'Não definido'}
+              Alterar plano de {selectedUser?.email}. Plano atual: {selectedUser?.plan_type === 'gold' ? 'Standard' : selectedUser?.plan_type === 'platinum' ? 'Gold' : selectedUser?.plan_type === 'premium' ? 'Premium' : 'Não definido'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleChangePlan} className="space-y-4">
@@ -1248,14 +1284,15 @@ export default function Admin() {
               <Label htmlFor="change-plan-type">Selecione o Novo Plano *</Label>
               <Select
                 value={changePlanType}
-                onValueChange={(value: 'prata' | 'gold') => setChangePlanType(value)}
+                onValueChange={(value: 'gold' | 'platinum' | 'premium') => setChangePlanType(value)}
               >
                 <SelectTrigger id="change-plan-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="prata">Prata - R$ 180,00/mês</SelectItem>
-                  <SelectItem value="gold">Gold - R$ 230,00/mês</SelectItem>
+                  <SelectItem value="gold">Gold - R$ 160,00/mês</SelectItem>
+                  <SelectItem value="platinum">Platinum - R$ 180,00/mês</SelectItem>
+                  <SelectItem value="premium">Premium - R$ 220,00/mês</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

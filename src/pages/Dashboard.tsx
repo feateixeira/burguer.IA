@@ -48,17 +48,20 @@ import {
   Receipt,
   CheckCircle,
   XCircle,
+  X,
   Star,
   MapPin,
   Phone,
   Mail,
   Percent,
   Gift,
-  Truck
+  Truck,
+  AlertTriangle
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useTrialCheck } from "@/hooks/useTrialCheck";
+import BusinessInsights from "@/components/BusinessInsights";
 
 // Dados mock zerados inicialmente
 const salesData = [
@@ -106,11 +109,25 @@ const weeklyComparison = [
   { day: 'Dom', atual: 0, anterior: 0 },
 ];
 
+// Função helper para formatar valores monetários no padrão brasileiro
+const formatCurrency = (value: number): string => {
+  return value.toLocaleString('pt-BR', { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  });
+};
+
+// Função helper para formatar números inteiros com separador de milhares
+const formatNumber = (value: number): string => {
+  return value.toLocaleString('pt-BR');
+};
+
 const Dashboard = () => {
   const [user, setUser] = useState<any>(null);
   const [establishment, setEstablishment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('hoje');
+  const [isGoldPlan, setIsGoldPlan] = useState(false);
+  const [timeRange, setTimeRange] = useState('mes');
   const [monthlyTotals, setMonthlyTotals] = useState({ revenue: 0, orders: 0 });
   const [activeProductsCount, setActiveProductsCount] = useState(0);
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
@@ -181,15 +198,23 @@ const Dashboard = () => {
 
   // Expor função global para o modal do index.html
   useEffect(() => {
-    (window as any).atualizarDashboard = (startISO: string, endISO: string) => {
+    const atualizarDashboard = (startISO: string, endISO?: string) => {
       // Permite filtrar por 1 dia (quando startISO === endISO) ou vários dias
       // Se não forneceu endISO, usa startISO como endISO (filtro de 1 dia)
       const finalEndISO = endISO || startISO;
       setCustomRange({ start: startISO, end: finalEndISO });
       setTimeRange('custom');
     };
+    
+    // Expor função global
+    (window as any).atualizarDashboard = atualizarDashboard;
+    (window as any).updateDashboard = atualizarDashboard;
+    
     return () => {
-      try { delete (window as any).atualizarDashboard; } catch {}
+      try { 
+        delete (window as any).atualizarDashboard;
+        delete (window as any).updateDashboard;
+      } catch {}
     };
   }, []);
 
@@ -294,8 +319,9 @@ const Dashboard = () => {
             endDate.setHours(23, 59, 59, 999);
             break;
           case 'mes':
+            // Mês vigente (atual), não o último mês
             startDate = new Date();
-            startDate.setMonth(startDate.getMonth() - 1);
+            startDate.setDate(1); // Primeiro dia do mês atual
             startDate.setHours(0, 0, 0, 0);
             endDate = new Date();
             endDate.setHours(23, 59, 59, 999);
@@ -313,7 +339,7 @@ const Dashboard = () => {
       // Para Dashboard, só precisamos de: total_amount, created_at, status, site_category_quantities
       let ordersQuery = supabase
         .from("orders")
-        .select("id, total_amount, created_at, status, payment_method, payment_status, site_category_quantities, order_items(product_id, quantity, unit_price, total_price)")
+        .select("id, total_amount, created_at, status, payment_method, payment_status, site_category_quantities, source_domain, channel, origin, accepted_and_printed_at, notes, subtotal, order_items(product_id, quantity, unit_price, total_price)")
         .eq("establishment_id", profile.establishment_id)
         .gte("created_at", startDate.toISOString())
         .lte("created_at", endDate.toISOString());
@@ -332,20 +358,6 @@ const Dashboard = () => {
       if (ordersError) {
         console.error('Erro ao carregar pedidos:', ordersError);
       }
-
-      // Get monthly orders count for goals
-      let monthlyOrdersQuery = supabase
-        .from("orders")
-        .select("id")
-        .eq("establishment_id", profile.establishment_id)
-        .gte("created_at", monthStart.toISOString());
-      
-      // Para Na Brasa: aplicar mesmo filtro
-      if (isNaBrasa) {
-        monthlyOrdersQuery = monthlyOrdersQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
-      }
-      
-      const { data: monthlyOrders } = await monthlyOrdersQuery;
 
       // Get new customers count for the current month
       const { count: customersCount } = await supabase
@@ -447,13 +459,31 @@ const Dashboard = () => {
         .slice(0, 5);
 
       // Sempre inicializa os dados, mesmo sem pedidos
-      const ordersArray = orders || [];
+      let ordersArray = orders || [];
+      
+      // IMPORTANTE: Para Na Brasa, aplicar filtro manualmente após a query (caso o filtro .or() não funcione corretamente)
+      if (isNaBrasa) {
+        ordersArray = ordersArray.filter((order: any) => {
+          const isFromSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+          const wasAcceptedAndPrinted = order.accepted_and_printed_at !== null && order.accepted_and_printed_at !== undefined;
+          const isNotFromSite = !order.source_domain || order.channel !== 'online' || order.origin !== 'site';
+          
+          // Incluir se: (é do site E foi aceito/impresso) OU não é do site
+          if (isFromSite) {
+            return wasAcceptedAndPrinted;
+          } else {
+            return isNotFromSite;
+          }
+        });
+      }
       
       const totalRevenue = ordersArray.reduce((sum: number, order: any) => sum + (Number(order.total_amount) || 0), 0);
       const totalOrders = ordersArray.length;
       const averageTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
       // Category analysis + Top products without FK embeddings
+      // IMPORTANTE: Quando timeRange === 'mes', as categorias devem mostrar apenas o mês vigente (atual)
+      // O ordersArray já está filtrado pelo período selecionado, então está correto
       const colorPalette = ['#8884d8','#82ca9d','#ffc658','#ff7300','#34d399','#f43f5e'];
 
       let categoryData: { name: string; value: number; color: string }[] = [];
@@ -915,6 +945,25 @@ const Dashboard = () => {
             categoryData = categoryData
               .sort((a, b) => b.value - a.value);
 
+            // IMPORTANTE: Garantir que a soma das categorias bata com o total de vendas
+            // Calcular a soma atual das categorias
+            const categoriesSum = categoryData.reduce((sum, cat) => sum + (Number(cat.value) || 0), 0);
+            const totalRevenueForCategories = ordersArray.reduce((sum: number, order: any) => sum + (Number(order.total_amount) || 0), 0);
+            const difference = totalRevenueForCategories - categoriesSum;
+            
+            // Se houver diferença e houver categorias, distribuir proporcionalmente
+            if (Math.abs(difference) > 0.01 && categoryData.length > 0 && categoriesSum > 0) {
+              // Distribuir a diferença proporcionalmente entre as categorias existentes
+              categoryData.forEach((cat) => {
+                const proportion = (Number(cat.value) || 0) / categoriesSum;
+                cat.value = (Number(cat.value) || 0) + (difference * proportion);
+              });
+              
+              // Reordenar após ajuste
+              categoryData = categoryData
+                .sort((a, b) => b.value - a.value);
+            }
+
             topProducts = topProducts
               .sort((a, b) => b.quantity - a.quantity)
               .slice(0, 5)
@@ -923,25 +972,188 @@ const Dashboard = () => {
         }
       }
 
-      // Sales data por mês (últimos 6 meses)
+      // Sales data por mês (últimos 3 meses)
+      // IMPORTANTE: Buscar TODOS os pedidos dos últimos 3 meses separadamente, independente do filtro timeRange
       const salesData = [];
       const today = new Date();
-      for (let i = 5; i >= 0; i--) {
+      const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+      threeMonthsAgo.setHours(0, 0, 0, 0);
+      
+      // Buscar todos os pedidos dos últimos 3 meses
+      // IMPORTANTE: Incluir campos necessários para o filtro do Na Brasa
+      // NÃO aplicar filtro .or() na query - buscar todos e filtrar manualmente depois
+      const { data: last3MonthsOrders } = await supabase
+        .from("orders")
+        .select("id, total_amount, created_at, accepted_and_printed_at, source_domain, channel, origin")
+        .eq("establishment_id", profile.establishment_id)
+        .gte("created_at", threeMonthsAgo.toISOString());
+      
+      let last3MonthsOrdersArray = last3MonthsOrders || [];
+      
+      // IMPORTANTE: Aplicar filtro do Na Brasa manualmente APÓS a query para garantir que funcione corretamente
+      if (isNaBrasa) {
+        last3MonthsOrdersArray = last3MonthsOrdersArray.filter((order: any) => {
+          const isFromSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+          const wasAcceptedAndPrinted = order.accepted_and_printed_at !== null && order.accepted_and_printed_at !== undefined;
+          const isNotFromSite = !order.source_domain || order.channel !== 'online' || order.origin !== 'site';
+          
+          // Incluir se: (é do site E foi aceito/impresso) OU não é do site
+          if (isFromSite) {
+            return wasAcceptedAndPrinted;
+          } else {
+            return isNotFromSite;
+          }
+        });
+      }
+      
+      for (let i = 2; i >= 0; i--) {
         const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const monthName = date.toLocaleDateString('pt-BR', { month: 'short' });
-        const monthOrders = ordersArray.filter((order: any) => {
+        
+        // Filtrar pedidos do mês específico usando comparação de data mais precisa
+        // Usar início e fim do mês para garantir que todos os pedidos do mês sejam incluídos
+        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthEndDate = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+        
+        const monthOrders = last3MonthsOrdersArray.filter((order: any) => {
           const orderDate = new Date(order.created_at);
-          return orderDate.getMonth() === date.getMonth() && orderDate.getFullYear() === date.getFullYear();
+          // Verificar se a data do pedido está dentro do intervalo do mês
+          return orderDate >= monthStart && orderDate <= monthEndDate;
         });
+        
+        // Calcular vendas somando total_amount de cada pedido
+        // IMPORTANTE: Garantir que estamos somando apenas valores numéricos válidos
+        const vendasTotal = monthOrders.reduce((sum: number, order: any) => {
+          const amount = Number(order.total_amount);
+          if (isNaN(amount) || amount < 0) {
+            return sum;
+          }
+          return sum + amount;
+        }, 0);
+        
+        
         salesData.push({
           name: monthName.charAt(0).toUpperCase() + monthName.slice(1),
-          vendas: monthOrders.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0),
+          vendas: vendasTotal,
           pedidos: monthOrders.length,
           meta: establishment?.monthly_goal || 0
         });
       }
 
       // Daily data - horários de pico
+      // Calcular horários de pico baseado no horário de funcionamento do estabelecimento
+      let peakHoursStart = 10; // Padrão: 10:00
+      let peakHoursEnd = 22; // Padrão: 22:00
+      
+      // Buscar horários de funcionamento do estabelecimento
+      const { data: businessHours, error: businessHoursError } = await supabase
+        .from('establishment_hours')
+        .select('intervals, enabled')
+        .eq('estab_id', profile.establishment_id)
+        .eq('enabled', true);
+      
+      
+      if (businessHours && businessHours.length > 0) {
+        // Coletar todos os intervalos e contar frequências
+        const intervalCounts = new Map<string, number>();
+        const intervalDetails = new Map<string, { open: number, close: number }>();
+        
+        businessHours.forEach((day: any) => {
+          // Verificar se intervals é string JSON e fazer parse se necessário
+          let intervals = day.intervals;
+          if (typeof intervals === 'string') {
+            try {
+              intervals = JSON.parse(intervals);
+            } catch (e) {
+              console.error('Erro ao fazer parse de intervals:', e);
+              intervals = [];
+            }
+          }
+          
+          // Considerar apenas dias habilitados com intervalos configurados
+          if (day.enabled && intervals && Array.isArray(intervals) && intervals.length > 0) {
+            intervals.forEach((interval: any) => {
+              if (interval.open && interval.close) {
+                const intervalKey = `${interval.open}-${interval.close}`;
+                intervalCounts.set(intervalKey, (intervalCounts.get(intervalKey) || 0) + 1);
+                
+                // Converter "HH:mm" para número de horas
+                const [openHour, openMin] = interval.open.split(':').map(Number);
+                const [closeHour, closeMin] = interval.close.split(':').map(Number);
+                
+                const openHourDecimal = openHour + (openMin / 60);
+                const closeHourDecimal = closeHour + (closeMin / 60);
+                
+                // Se o fechamento é no dia seguinte (ex: 23:00 fecha às 02:00), ajustar
+                const actualCloseHour = closeHourDecimal < openHourDecimal 
+                  ? closeHourDecimal + 24 
+                  : closeHourDecimal;
+                
+                // Armazenar detalhes do intervalo
+                if (!intervalDetails.has(intervalKey)) {
+                  intervalDetails.set(intervalKey, { open: openHourDecimal, close: actualCloseHour });
+                }
+                
+              }
+            });
+          }
+        });
+        
+        // Encontrar o intervalo mais frequente (que aparece em mais dias)
+        let mostFrequentInterval: { open: number, close: number } | null = null;
+        let maxCount = 0;
+        
+        intervalCounts.forEach((count, key) => {
+          if (count > maxCount) {
+            maxCount = count;
+            mostFrequentInterval = intervalDetails.get(key) || null;
+          }
+        });
+        
+        
+        // Se encontrou horários válidos, calcular range de pico baseado no intervalo mais frequente
+        // Range: (abertura - 1h) até (fechamento + 1h)
+        if (mostFrequentInterval) {
+          peakHoursStart = Math.max(0, Math.floor(mostFrequentInterval.open) - 1);
+          
+          // Calcular horário de fechamento (pode passar da meia-noite)
+          const closeHour = mostFrequentInterval.close % 24;
+          peakHoursEnd = Math.ceil(closeHour) + 1;
+          
+          // Se o fechamento passa da meia-noite, permitir até 00:00 (24:00)
+          if (mostFrequentInterval.close >= 24 || closeHour + 1 >= 24) {
+            peakHoursEnd = 24; // 00:00 do dia seguinte
+          } else {
+            peakHoursEnd = Math.min(23, peakHoursEnd);
+          }
+          
+        }
+      }
+      
+      // Gerar array de horários de pico (a cada 2 horas)
+      const peakHoursArray: string[] = [];
+      
+      // Se o range inclui meia-noite (peakHoursEnd = 24), incluir 00:00
+      const shouldIncludeMidnight = peakHoursEnd >= 24;
+      const endHour = shouldIncludeMidnight ? 24 : peakHoursEnd;
+      
+      
+      for (let h = peakHoursStart; h <= endHour; h += 2) {
+        // Se h = 24, mostrar como 00:00
+        if (h === 24) {
+          peakHoursArray.push('00:00');
+          break;
+        }
+        peakHoursArray.push(`${h.toString().padStart(2, '0')}:00`);
+      }
+      
+      // Se não gerou nenhum horário, usar padrão
+      if (peakHoursArray.length === 0) {
+        peakHoursArray.push('10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00');
+      }
+      
+      
       const hourlyTotals: { [key: string]: { valor: number, pedidos: number } } = {};
       ordersArray.forEach((order: any) => {
         const hour = new Date(order.created_at).getHours();
@@ -953,16 +1165,11 @@ const Dashboard = () => {
         hourlyTotals[hourKey].pedidos += 1;
       });
 
-      const dailyData = [
-        { hora: '08:00', ...hourlyTotals['08:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '10:00', ...hourlyTotals['10:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '12:00', ...hourlyTotals['12:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '14:00', ...hourlyTotals['14:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '16:00', ...hourlyTotals['16:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '18:00', ...hourlyTotals['18:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '20:00', ...hourlyTotals['20:00'] || { valor: 0, pedidos: 0 } },
-        { hora: '22:00', ...hourlyTotals['22:00'] || { valor: 0, pedidos: 0 } },
-      ];
+      // Gerar dailyData baseado nos horários de pico calculados
+      const dailyData = peakHoursArray.map(hora => ({
+        hora,
+        ...hourlyTotals[hora] || { valor: 0, pedidos: 0 }
+      }));
 
       // Weekly comparison
       const weeklyComparison = [];
@@ -994,11 +1201,22 @@ const Dashboard = () => {
         });
       }
 
-      // Calculate monthly totals for goals
-      const monthlyRevenue = ordersArray
-        .filter((o: any) => new Date(o.created_at) >= monthStart)
-        .reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0);
-      const monthlyOrdersCount = monthlyOrders?.length || 0;
+      // Calculate monthly totals for goals - SEMPRE calcular do mês atual, independente do filtro
+      // Buscar pedidos do mês atual separadamente
+      let monthlyOrdersQuery = supabase
+        .from("orders")
+        .select("id, total_amount")
+        .eq("establishment_id", profile.establishment_id)
+        .gte("created_at", monthStart.toISOString());
+      
+      // Para Na Brasa: aplicar mesmo filtro
+      if (isNaBrasa) {
+        monthlyOrdersQuery = monthlyOrdersQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+      }
+      
+      const { data: monthlyOrdersData } = await monthlyOrdersQuery;
+      const monthlyRevenue = (monthlyOrdersData || []).reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
+      const monthlyOrdersCount = monthlyOrdersData?.length || 0;
       
       setMonthlyTotals({ revenue: monthlyRevenue, orders: monthlyOrdersCount });
 
@@ -1074,9 +1292,12 @@ const Dashboard = () => {
       // Get user profile and establishment id
       const { data: profile } = await supabase
         .from('profiles')
-        .select('establishment_id')
+        .select('establishment_id, plan_type')
         .eq('user_id', session.user.id)
         .maybeSingle();
+
+      // Check if user has Gold plan
+      setIsGoldPlan(profile?.plan_type === 'gold');
 
       // Verificação de trial agora é feita pelo hook useTrialCheck globalmente
       // Isso garante que o bloqueio aconteça em todas as páginas protegidas
@@ -1171,6 +1392,48 @@ const Dashboard = () => {
           </DialogContent>
         </Dialog>
 
+        {/* Trial Alert - Visível no topo */}
+        {trialStatus.subscriptionType === 'trial' && (
+          <Card className="border-2 border-yellow-500/50 bg-yellow-500/10 mb-4">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                  <div>
+                    <p className="font-semibold text-yellow-900 dark:text-yellow-100">
+                      {trialStatus.trialDaysLeft === null
+                        ? 'Período de Teste Ativo'
+                        : trialStatus.trialDaysLeft === 0
+                        ? '⚠️ Último dia de teste!'
+                        : trialStatus.trialDaysLeft === 1
+                        ? `⚠️ Resta apenas ${trialStatus.trialDaysLeft} dia de teste!`
+                        : `⚠️ Restam ${trialStatus.trialDaysLeft} dias de teste`}
+                    </p>
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
+                      {trialStatus.trialDaysLeft === null
+                        ? 'Entre em contato para contratar um plano e continuar usando o sistema.'
+                        : trialStatus.trialDaysLeft === 0
+                        ? 'Seu teste expira hoje! Entre em contato para contratar um plano.'
+                        : 'Entre em contato para contratar um plano e continuar usando o sistema após o teste.'}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const whatsappNumber = '5511999999999'; // Substituir pelo número real
+                    const message = encodeURIComponent('Olá! Gostaria de contratar um plano.');
+                    window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                  }}
+                >
+                  Contatar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
           <div>
@@ -1178,6 +1441,37 @@ const Dashboard = () => {
             <p className="text-muted-foreground">
               {establishment?.name || "Bem-vindo ao burguer.IA"} - Visão completa do negócio
             </p>
+            {/* Indicador de período filtrado */}
+            {timeRange === 'custom' && customRange && (
+              <div className="mt-2 flex items-center gap-2">
+                <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                  <Calendar className="h-3 w-3 mr-1" />
+                  {(() => {
+                    const startDate = new Date(`${customRange.start}T00:00:00`);
+                    const endDate = new Date(`${customRange.end}T23:59:59`);
+                    const isSameDay = customRange.start === customRange.end;
+                    
+                    if (isSameDay) {
+                      return `Filtrado: ${startDate.toLocaleDateString('pt-BR')}`;
+                    } else {
+                      return `Filtrado: ${startDate.toLocaleDateString('pt-BR')} até ${endDate.toLocaleDateString('pt-BR')}`;
+                    }
+                  })()}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    setCustomRange(null);
+                    setTimeRange('mes');
+                  }}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Limpar filtro
+                </Button>
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <Tabs value={timeRange} onValueChange={(value) => {
@@ -1193,7 +1487,26 @@ const Dashboard = () => {
                 <TabsTrigger value="mes">Mês</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button id="btn-filtro" variant="outline" size="sm">
+            <Button 
+              id="btn-filtro" 
+              variant="outline" 
+              size="sm"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Tentar abrir modal usando a função global primeiro
+                if (typeof (window as any).openFilterModal === 'function') {
+                  (window as any).openFilterModal();
+                } else {
+                  // Fallback: abrir modal diretamente se a função não estiver disponível
+                  const modal = document.getElementById('modal-filtro');
+                  if (modal) {
+                    modal.classList.remove('hidden');
+                    modal.style.display = 'flex';
+                  }
+                }
+              }}
+            >
               <Calendar className="h-4 w-4 mr-2" />
               Filtrar
             </Button>
@@ -1209,14 +1522,14 @@ const Dashboard = () => {
           <Card className="border-l-4 border-l-primary card-dense shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Faturamento {timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
+                Faturamento {timeRange === 'custom' && customRange ? 'no Período' : timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
               </CardTitle>
               <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <DollarSign className="h-5 w-5 text-primary" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold mb-2">R$ {dashboardData.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div className="text-3xl font-bold mb-2">R$ {formatCurrency(dashboardData.totalRevenue)}</div>
               {establishment?.daily_goal && establishment.daily_goal > 0 && (
                 <>
                   <Progress 
@@ -1224,7 +1537,7 @@ const Dashboard = () => {
                     className="mt-3 h-2.5" 
                   />
                   <p className="text-xs text-muted-foreground mt-2">
-                    Meta: R$ {(timeRange === 'hoje' ? establishment?.daily_goal || 0 : timeRange === 'semana' ? establishment?.weekly_goal || 0 : establishment?.monthly_goal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    Meta: R$ {formatCurrency(timeRange === 'hoje' ? establishment?.daily_goal || 0 : timeRange === 'semana' ? establishment?.weekly_goal || 0 : establishment?.monthly_goal || 0)}
                   </p>
                 </>
               )}
@@ -1234,18 +1547,18 @@ const Dashboard = () => {
           <Card className="border-l-4 border-l-blue-500 card-dense shadow-sm hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Pedidos {timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
+                Pedidos {timeRange === 'custom' && customRange ? 'no Período' : timeRange === 'hoje' ? 'Hoje' : timeRange === 'semana' ? 'na Semana' : 'no Mês'}
               </CardTitle>
               <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
                 <ShoppingCart className="h-5 w-5 text-blue-500" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold mb-2">{dashboardData.totalOrders}</div>
+              <div className="text-3xl font-bold mb-2">{formatNumber(dashboardData.totalOrders)}</div>
               <div className="flex space-x-2 mt-3">
                 <Badge variant="secondary" className="text-xs bg-green-50 text-green-700 border-green-200">
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  {dashboardData.totalOrders} Concluídos
+                  {formatNumber(dashboardData.totalOrders)} Concluídos
                 </Badge>
               </div>
             </CardContent>
@@ -1261,10 +1574,10 @@ const Dashboard = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold mb-2">R$ {dashboardData.averageTicket.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div className="text-3xl font-bold mb-2">R$ {formatCurrency(dashboardData.averageTicket)}</div>
               <div className="mt-3">
                 <p className="text-xs text-muted-foreground">
-                  Baseado em {dashboardData.totalOrders} {dashboardData.totalOrders === 1 ? 'pedido' : 'pedidos'}
+                  Baseado em {formatNumber(dashboardData.totalOrders)} {dashboardData.totalOrders === 1 ? 'pedido' : 'pedidos'}
                 </p>
               </div>
             </CardContent>
@@ -1280,16 +1593,21 @@ const Dashboard = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold mb-2">{dashboardData.totalCustomers}</div>
+              <div className="text-3xl font-bold mb-2">{formatNumber(dashboardData.totalCustomers)}</div>
               <div className="flex space-x-2 mt-3">
                 <Badge variant="outline" className="text-xs">
                   <Gift className="h-3 w-3 mr-1" />
-                  {dashboardData.totalCustomers} {dashboardData.totalCustomers === 1 ? 'Cliente' : 'Clientes'}
+                  {formatNumber(dashboardData.totalCustomers)} {dashboardData.totalCustomers === 1 ? 'Cliente' : 'Clientes'}
                 </Badge>
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Business Insights for Gold Plan */}
+        {isGoldPlan && (
+          <BusinessInsights tenantId={establishment?.id || null} />
+        )}
 
         {/* Charts Section */}
         <div className="grid gap-6 lg:grid-cols-7">
@@ -1299,7 +1617,7 @@ const Dashboard = () => {
               <CardTitle className="flex items-center justify-between">
                 Análise de Vendas
                 <div className="flex space-x-2">
-                  <Badge variant="outline">Últimos 6 meses</Badge>
+                  <Badge variant="outline">Últimos 3 meses</Badge>
                   <Button variant="ghost" size="sm">
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
@@ -1354,40 +1672,51 @@ const Dashboard = () => {
                       padding: '12px',
                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                     }}
-                    formatter={(value: any, name: string) => [
-                      name === 'vendas' ? `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : value,
-                      name === 'vendas' ? 'Vendas' : name === 'pedidos' ? 'Pedidos' : 'Meta'
-                    ]}
+                    formatter={(value: any, name: string) => {
+                      // Formatar valores monetários
+                      if (name === 'vendas' || name === 'meta') {
+                        return [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+                          name === 'vendas' ? 'FATURAMENTO' : 'META MENSAL'];
+                      }
+                      // Formatar pedidos
+                      if (name === 'pedidos') {
+                        return [value, 'META PEDIDOS'];
+                      }
+                      return [value, name];
+                    }}
                   />
                   <Legend 
                     wrapperStyle={{ paddingTop: '20px' }}
                     iconType="circle"
                   />
-                  <Area 
+                  {/* Barra Verde: Faturamento/Vendas */}
+                  <Bar 
                     yAxisId="vendas"
-                    type="monotone" 
                     dataKey="vendas" 
+                    fill="url(#colorPedidos)"
+                    radius={[4, 4, 0, 0]}
+                    name="Vendas"
+                  />
+                  {/* Linha Laranja: Pedidos */}
+                  <Area 
+                    yAxisId="pedidos"
+                    type="monotone" 
+                    dataKey="pedidos" 
                     stroke="hsl(var(--primary))" 
                     strokeWidth={2}
                     fill="url(#colorVendas)"
-                    name="Vendas"
+                    name="Pedidos"
                   />
+                  {/* Linha Pontilhada Roxa: Meta de Faturamento */}
                   <Line 
                     yAxisId="vendas"
                     type="monotone" 
                     dataKey="meta" 
-                    stroke="#f97316" 
+                    stroke="#8b5cf6" 
                     strokeWidth={2}
                     strokeDasharray="5 5"
-                    dot={{ fill: '#f97316', r: 4 }}
+                    dot={{ fill: '#8b5cf6', r: 4 }}
                     name="Meta"
-                  />
-                  <Bar 
-                    yAxisId="pedidos"
-                    dataKey="pedidos" 
-                    fill="url(#colorPedidos)"
-                    radius={[4, 4, 0, 0]}
-                    name="Pedidos"
                   />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1461,7 +1790,7 @@ const Dashboard = () => {
                       />
                       {category.name}
                     </div>
-                    <span className="font-medium">R$ {category.value.toFixed(2)}</span>
+                    <span className="font-medium">R$ {formatCurrency(category.value)}</span>
                   </div>
                 ))}
               </div>
@@ -1482,7 +1811,7 @@ const Dashboard = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span>Faturamento</span>
-                  <span>R$ {monthlyTotals.revenue.toFixed(2)} / R$ {(establishment?.monthly_goal || 0).toFixed(2)}</span>
+                  <span>R$ {formatCurrency(monthlyTotals.revenue)} / R$ {formatCurrency(establishment?.monthly_goal || 0)}</span>
                 </div>
                 <Progress 
                   value={establishment?.monthly_goal && establishment.monthly_goal > 0 
@@ -1500,7 +1829,7 @@ const Dashboard = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span>Pedidos</span>
-                  <span>{monthlyTotals.orders} / {establishment?.monthly_orders_goal || 0}</span>
+                  <span>{formatNumber(monthlyTotals.orders)} / {formatNumber(establishment?.monthly_orders_goal || 0)}</span>
                 </div>
                 <Progress 
                   value={establishment?.monthly_orders_goal && establishment.monthly_orders_goal > 0 
@@ -1518,7 +1847,7 @@ const Dashboard = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span>Novos Clientes</span>
-                  <span>{dashboardData.totalCustomers} / {establishment?.monthly_customers_goal || 0}</span>
+                  <span>{formatNumber(dashboardData.totalCustomers)} / {formatNumber(establishment?.monthly_customers_goal || 0)}</span>
                 </div>
                 <Progress 
                   value={establishment?.monthly_customers_goal && establishment.monthly_customers_goal > 0 
@@ -1627,7 +1956,7 @@ const Dashboard = () => {
                   <span className="text-sm">Produtos Ativos</span>
                 </div>
                 <Badge variant="secondary">
-                  {activeProductsCount}
+                  {formatNumber(activeProductsCount)}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
@@ -1752,12 +2081,12 @@ const Dashboard = () => {
                         <div>
                           <p className="font-medium">{customer.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            {customer.orders} pedidos • {customer.phone}
+                            {formatNumber(customer.orders)} pedidos • {customer.phone}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">R$ {customer.total.toFixed(2)}</p>
+                        <p className="font-medium">R$ {formatCurrency(customer.total)}</p>
                         <Badge variant="outline">
                           #{index + 1}º lugar
                         </Badge>
@@ -1808,12 +2137,12 @@ const Dashboard = () => {
                         <div>
                           <p className="font-medium">{product.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            {product.quantity} vendidos
+                            {formatNumber(product.quantity)} vendidos
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">R$ {product.revenue.toFixed(2)}</p>
+                        <p className="font-medium">R$ {formatCurrency(product.revenue)}</p>
                         <Badge variant="outline">
                           #{index + 1}º lugar
                         </Badge>
@@ -1872,7 +2201,7 @@ const Dashboard = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-medium">R$ {order.total_amount.toFixed(2)}</p>
+                          <p className="font-medium">R$ {formatCurrency(Number(order.total_amount) || 0)}</p>
                           <Badge variant={order.status === 'completed' ? 'default' : 'secondary'}>
                             {order.status === 'completed' ? 'Concluído' : 'Pendente'}
                           </Badge>
@@ -1900,28 +2229,28 @@ const Dashboard = () => {
                     <DollarSign className="h-5 w-5 text-green-500" />
                     <span className="text-sm">Faturamento Total</span>
                   </div>
-                  <span className="font-medium">R$ {dashboardData.totalRevenue.toFixed(2)}</span>
+                  <span className="font-medium">R$ {formatCurrency(dashboardData.totalRevenue)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex items-center space-x-3">
                     <ShoppingCart className="h-5 w-5 text-blue-500" />
                     <span className="text-sm">Total de Pedidos</span>
                   </div>
-                  <span className="font-medium">{dashboardData.totalOrders}</span>
+                  <span className="font-medium">{formatNumber(dashboardData.totalOrders)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex items-center space-x-3">
                     <Target className="h-5 w-5 text-orange-500" />
                     <span className="text-sm">Ticket Médio</span>
                   </div>
-                  <span className="font-medium">R$ {dashboardData.averageTicket.toFixed(2)}</span>
+                  <span className="font-medium">R$ {formatCurrency(dashboardData.averageTicket)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex items-center space-x-3">
                     <Users className="h-5 w-5 text-purple-500" />
                     <span className="text-sm">Total de Clientes</span>
                   </div>
-                  <span className="font-medium">{dashboardData.totalCustomers}</span>
+                  <span className="font-medium">{formatNumber(dashboardData.totalCustomers)}</span>
                 </div>
               </div>
             </CardContent>

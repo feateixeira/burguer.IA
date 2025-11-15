@@ -6,6 +6,7 @@ import { normalizePhoneBRToE164, phoneMask } from "@/utils/phoneNormalizer";
 import { useBusinessHours } from "@/hooks/useBusinessHours";
 import { formatDateTime, formatTime, getDayName } from "@/utils/businessHours";
 import { Card, CardContent } from "@/components/ui/card";
+import { normalizeImageUrl } from "@/utils/imageUrl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -794,7 +795,7 @@ const MenuPublic = () => {
               {product.image_url && (
                 <div className="aspect-video w-full overflow-hidden bg-muted">
                   <img
-                    src={product.image_url}
+                    src={normalizeImageUrl(product.image_url) || product.image_url}
                     alt={product.name}
                     className="w-full h-full object-cover"
                   />

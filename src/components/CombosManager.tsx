@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/hooks/useConfirm";
 import { revalidateHelpers } from "@/utils/revalidateCache";
+import { normalizeImageUrl } from "@/utils/imageUrl";
 
 interface Combo {
   id: string;
@@ -161,6 +162,8 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
       // Buscar ou criar categoria "Combos"
       const combosCategoryId = await getOrCreateCombosCategory();
 
+      const normalizedImageUrl = normalizeImageUrl(formData.image_url || null);
+
       if (editingCombo) {
         const { error: comboError } = await supabase
           .from("combos")
@@ -168,7 +171,7 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
             name: formData.name,
             description: formData.description,
             price: formData.price,
-            image_url: formData.image_url || null,
+            image_url: normalizedImageUrl,
             active: formData.active,
           })
           .eq("id", editingCombo.id);
@@ -205,7 +208,7 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
                 name: formData.name,
                 description: formData.description || null,
                 price: formData.price,
-                image_url: formData.image_url || null,
+                image_url: normalizedImageUrl,
                 category_id: combosCategoryId,
                 active: formData.active,
               })
@@ -219,7 +222,7 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
                 name: formData.name,
                 description: formData.description || null,
                 price: formData.price,
-                image_url: formData.image_url || null,
+                image_url: normalizedImageUrl,
                 category_id: combosCategoryId,
                 is_combo: true,
                 active: formData.active,
@@ -236,7 +239,7 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
             name: formData.name,
             description: formData.description,
             price: formData.price,
-            image_url: formData.image_url || null,
+            image_url: normalizedImageUrl,
             active: formData.active,
           })
           .select()
@@ -262,7 +265,7 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
               name: formData.name,
               description: formData.description || null,
               price: formData.price,
-              image_url: formData.image_url || null,
+              image_url: normalizedImageUrl,
               category_id: combosCategoryId,
               is_combo: true,
               active: formData.active,

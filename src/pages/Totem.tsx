@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Minus, ShoppingCart, Home, Check, UtensilsCrossed } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { normalizeImageUrl } from "@/utils/imageUrl";
 
 interface Product {
   id: string;
@@ -786,7 +787,7 @@ export default function Totem() {
                 <div className="aspect-square rounded-md overflow-hidden bg-muted mb-2 min-h-[120px] w-full flex items-center justify-center">
                   {item.image_url && item.image_url.trim() ? (
                     <img
-                      src={item.image_url}
+                      src={normalizeImageUrl(item.image_url) || item.image_url}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       loading="lazy"

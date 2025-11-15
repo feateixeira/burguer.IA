@@ -13,6 +13,7 @@ import AddonsManager from "@/components/AddonsManager";
 import { revalidateHelpers } from "@/utils/revalidateCache";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { normalizeImageUrl } from "@/utils/imageUrl";
 import {
   Alert,
   AlertDescription,
@@ -184,12 +185,15 @@ const Products = () => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
 
+    const rawImageUrl = (formData.get("image_url") as string) || null;
+    const normalizedImageUrl = normalizeImageUrl(rawImageUrl);
+
     const productData = {
       name: formData.get("name") as string,
       description: formData.get("description") as string || null,
       price: parseFloat(formData.get("price") as string),
       category_id: formData.get("category_id") as string || null,
-      image_url: (formData.get("image_url") as string) || null,
+      image_url: normalizedImageUrl,
       establishment_id: establishmentId,
       active: true
     };
@@ -428,7 +432,7 @@ const Products = () => {
                           {editingProduct?.image_url && (
                             <div className="mt-2">
                               <img 
-                                src={editingProduct.image_url} 
+                                src={normalizeImageUrl(editingProduct.image_url) || editingProduct.image_url} 
                                 alt="Preview" 
                                 className="w-24 h-24 object-cover rounded-md border"
                                 onError={(e) => {

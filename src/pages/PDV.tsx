@@ -1575,7 +1575,7 @@ const PDV = () => {
                           </div>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 mt-2">
+                          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2 mt-2">
                             {combos
                               .filter((c: any) => !searchTerm || c.name.toLowerCase().includes(searchTerm.toLowerCase()))
                               .map((combo: any) => (
@@ -1629,7 +1629,7 @@ const PDV = () => {
                               <h3 className="text-base font-semibold mb-2 text-primary border-b border-border pb-1">
                                 {categoryName}
                               </h3>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                              <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {categoryProducts.map((product) => (
                                   <Card key={product.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleProductClick(product)}>
                                     <CardContent className="p-2">

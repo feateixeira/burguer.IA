@@ -487,39 +487,39 @@ const Settings = () => {
             <TabsList className={`grid w-full h-auto p-1 ${isNaBrasa ? 'grid-cols-8' : 'grid-cols-7'}`}>
               <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
                 <Building className="h-4 w-4" />
-                <span className="hidden sm:inline">Estabelecimento</span>
+                <span className="hidden lg:inline">Estabelecimento</span>
               </TabsTrigger>
               {/* Aba API apenas para Na Brasa */}
               {isNaBrasa && (
                 <TabsTrigger value="api" className="flex items-center gap-2 py-3">
                   <Key className="h-4 w-4" />
-                  <span className="hidden sm:inline">API</span>
+                  <span className="hidden lg:inline">API</span>
                 </TabsTrigger>
               )}
               <TabsTrigger value="hours" className="flex items-center gap-2 py-3">
                 <Clock className="h-4 w-4" />
-                <span className="hidden sm:inline">Horários</span>
+                <span className="hidden lg:inline">Horários</span>
               </TabsTrigger>
               <TabsTrigger value="printers" className="flex items-center gap-2 py-3">
                 <Printer className="h-4 w-4" />
-                <span className="hidden sm:inline">Impressoras</span>
+                <span className="hidden lg:inline">Impressoras</span>
               </TabsTrigger>
               <TabsTrigger value="pix" className="flex items-center gap-2 py-3">
                 <CreditCard className="h-4 w-4" />
-                <span className="hidden sm:inline">PIX</span>
+                <span className="hidden lg:inline">PIX</span>
               </TabsTrigger>
               <TabsTrigger value="delivery" className="flex items-center gap-2 py-3">
                 <Truck className="h-4 w-4" />
-                <span className="hidden sm:inline">Delivery</span>
+                <span className="hidden lg:inline">Delivery</span>
               </TabsTrigger>
               <TabsTrigger value="security" className="flex items-center gap-2 py-3">
                 <Shield className="h-4 w-4" />
-                <span className="hidden sm:inline">Segurança</span>
+                <span className="hidden lg:inline">Segurança</span>
               </TabsTrigger>
               {(userRole === 'master' || userRole === 'admin') && (
                 <TabsTrigger value="team" className="flex items-center gap-2 py-3">
                   <Users className="h-4 w-4" />
-                  <span className="hidden sm:inline">Gerenciar Equipe</span>
+                  <span className="hidden lg:inline">Gerenciar Equipe</span>
                 </TabsTrigger>
               )}
             </TabsList>
@@ -530,8 +530,8 @@ const Settings = () => {
               {forceMasterDialog && (
                 <div className="p-4 border rounded-lg bg-yellow-50 text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-100">
                   <p className="text-sm font-medium mb-2">Defina o Usuário Master</p>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="md:col-span-2">
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    <div className="lg:col-span-2">
                       <Label>Nome do Master</Label>
                       <Input 
                         value={memberName} 
@@ -597,7 +597,7 @@ const Settings = () => {
                       {showMemberForm && (userRole === 'master' || userRole === 'admin') && (
                         <div className="mb-4 border p-4 rounded-lg bg-muted/50 animate-in fade-in">
                           {memberFormStep === 1 && (
-                            <div className="flex flex-col gap-2 md:flex-row items-end">
+                            <div className="flex flex-col gap-2 lg:flex-row items-end">
                               <div className="flex-1">
                                 <Label>Nome</Label>
                                 <Input 
@@ -614,7 +614,7 @@ const Settings = () => {
                               </div>
                               <Button
                                 size="sm"
-                                className="mt-2 md:mt-0"
+                                className="mt-2 lg:mt-0"
                                 onClick={() => memberName.trim().length > 0 && setMemberFormStep(2)}
                                 disabled={!memberName.trim()}
                               >
@@ -623,7 +623,7 @@ const Settings = () => {
                             </div>
                           )}
                           {memberFormStep === 2 && (
-                            <div className="flex flex-col gap-2 md:flex-row items-end">
+                            <div className="flex flex-col gap-2 lg:flex-row items-end">
                               <div className="flex-1">
                                 <Label>Função</Label>
                                 <Select value={memberRole} onValueChange={v => setMemberRole(v as any)}>
@@ -644,7 +644,7 @@ const Settings = () => {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="flex gap-2 mt-2 md:mt-0">
+                              <div className="flex gap-2 mt-2 lg:mt-0">
                                 <Button size="sm" variant="outline" onClick={() => setMemberFormStep(1)}>Voltar</Button>
                                 <Button size="sm" onClick={() => setMemberFormStep(3)}>Avançar</Button>
                               </div>
@@ -653,7 +653,7 @@ const Settings = () => {
                           {memberFormStep === 3 && (
                             <>
                               {memberRole === 'admin' && (
-                                <div className="flex flex-col gap-2 md:flex-row items-end mb-2">
+                                <div className="flex flex-col gap-2 lg:flex-row items-end mb-2">
                                   <div className="flex-1">
                                     <Label>Senha (4 dígitos)</Label>
                                     <Input 
@@ -754,7 +754,7 @@ const Settings = () => {
                         </p>
                       </div>
                       
-                      <div className="grid gap-6 md:grid-cols-2">
+                      <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-2">
                           <Label htmlFor="user_full_name" className="text-sm font-medium">
                             Nome Responsável *
@@ -796,8 +796,8 @@ const Settings = () => {
                         </p>
                       </div>
                       
-                      <div className="grid gap-6 md:grid-cols-2">
-                        <div className="space-y-2 md:col-span-2">
+                      <div className="grid gap-6 lg:grid-cols-2">
+                        <div className="space-y-2 lg:col-span-2">
                           <Label htmlFor="establishment_name" className="text-sm font-medium">
                             Nome do Estabelecimento *
                           </Label>
@@ -871,7 +871,7 @@ const Settings = () => {
                           </p>
                         </div>
 
-                        <div className="space-y-2 md:col-span-2">
+                        <div className="space-y-2 lg:col-span-2">
                           <Label htmlFor="address" className="text-sm font-medium flex items-center gap-2">
                             <MapPin className="h-4 w-4 text-muted-foreground" />
                             Endereço Completo
@@ -886,7 +886,7 @@ const Settings = () => {
                           />
                         </div>
 
-                        <div className="space-y-2 md:col-span-2">
+                        <div className="space-y-2 lg:col-span-2">
                           <Label htmlFor="pix_key" className="text-sm font-medium flex items-center gap-2">
                             <CreditCard className="h-4 w-4 text-muted-foreground" />
                             Chave PIX
@@ -916,7 +916,7 @@ const Settings = () => {
                           Defina taxas e valores padrão para seus pedidos
                         </p>
                       </div>
-                      <div className="grid gap-6 md:grid-cols-2">
+                      <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-2">
                           <Label htmlFor="tax_rate" className="text-sm font-medium">
                             Taxa de Imposto (%)
@@ -963,7 +963,7 @@ const Settings = () => {
                           Defina suas metas de faturamento por período
                         </p>
                       </div>
-                      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-6 lg:grid-cols-3">
                         <div className="space-y-2">
                           <Label htmlFor="daily_goal" className="text-sm font-medium">
                             Meta Diária (R$)
@@ -1013,7 +1013,7 @@ const Settings = () => {
                         </div>
                       </div>
                       
-                      <div className="grid gap-6 md:grid-cols-2">
+                      <div className="grid gap-6 lg:grid-cols-2">
                         <div className="space-y-2">
                           <Label htmlFor="monthly_orders_goal" className="text-sm font-medium">
                             Meta Mensal de Pedidos

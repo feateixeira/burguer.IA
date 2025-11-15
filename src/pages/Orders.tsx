@@ -2002,7 +2002,7 @@ import { Checkbox } from "@/components/ui/checkbox";
                               setSelectedDate(e.target.value);
                               // Não desmarcar "mostrar todos" - permitir filtrar por data mesmo com "todos" marcado
                             }}
-                            className="w-full sm:w-auto"
+                            className="w-full lg:w-auto"
                           />
                         </div>
 
@@ -2017,7 +2017,7 @@ import { Checkbox } from "@/components/ui/checkbox";
                               setSelectedPaymentMethod(value === "all" ? "" : value);
                             }}
                           >
-                            <SelectTrigger className="w-full sm:w-[200px]">
+                            <SelectTrigger className="w-full lg:w-[200px]">
                               <SelectValue placeholder="Todos os métodos" />
                             </SelectTrigger>
                             <SelectContent>
@@ -2094,7 +2094,7 @@ import { Checkbox } from "@/components/ui/checkbox";
                     return (
                       <Card key={order.id} className="p-6">
                         <div className="flex justify-between items-start">
-                          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <div>
                               <h3 className="font-semibold text-lg mb-2 flex items-center gap-2">
                                 Pedido #{order.order_number}

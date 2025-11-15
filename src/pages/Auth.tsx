@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -316,7 +317,7 @@ const Auth = () => {
   return (
     <div 
       ref={containerRef}
-      className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50/50 dark:from-slate-950 dark:via-primary/10 dark:to-slate-900 flex flex-col relative overflow-hidden"
+      className="h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50/50 dark:from-slate-950 dark:via-primary/10 dark:to-slate-900 flex flex-col relative overflow-hidden"
       style={{
         background: `radial-gradient(circle at ${mousePosition.x}px ${mousePosition.y}px, rgba(249, 116, 21, 0.15) 0%, transparent 50%)`
       }}
@@ -384,46 +385,66 @@ const Auth = () => {
       </div>
 
       {/* Seção de Boas-vindas */}
-      <div className="hidden lg:flex lg:w-1/2 p-12 flex-col justify-center relative z-10">
-        <div className="relative space-y-8 animate-fade-in">
-          <div className="space-y-6">
-            <div className="flex items-center gap-4 group">
+      <div className="hidden lg:flex lg:w-1/2 pl-12 pr-8 py-6 flex-col justify-start pt-12 relative z-10 overflow-y-auto">
+        <div className="relative space-y-4 animate-fade-in">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 group">
               <div className="relative">
-                <div className="absolute inset-0 bg-primary/30 rounded-2xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
-                <div className="relative p-4 bg-gradient-to-br from-primary/20 to-primary/10 rounded-2xl backdrop-blur-sm border border-primary/30 group-hover:border-primary/50 transition-all duration-300 group-hover:scale-105">
-                  <Brain className="h-10 w-10 text-primary animate-pulse" />
+                <div className="absolute inset-0 bg-primary/30 rounded-xl blur-lg group-hover:blur-xl transition-all duration-300"></div>
+                <div className="relative p-3 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl backdrop-blur-sm border border-primary/30 group-hover:border-primary/50 transition-all duration-300 group-hover:scale-105">
+                  <Brain className="h-8 w-8 text-primary animate-pulse" />
                 </div>
               </div>
               <div>
-                <h1 className="text-5xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-gradient">
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-gradient select-none cursor-default">
                   burguer.IA
                 </h1>
-                <p className="text-sm text-slate-600 dark:text-primary/70 font-medium mt-1">Inteligência Artificial para Gestão</p>
+                <p className="text-xs text-slate-600 dark:text-primary/70 font-medium mt-0.5 select-none cursor-default">Inteligência Artificial para Gestão</p>
               </div>
             </div>
             
-            <h2 className="text-4xl font-bold text-slate-900 dark:text-white leading-tight">
+            <h2 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight select-none cursor-default">
               Bem-vindo ao futuro da
               <span className="block bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
                 gestão inteligente
               </span>
             </h2>
             
-            <p className="text-lg text-slate-700 dark:text-white/90 max-w-md leading-relaxed">
+            <p className="text-base text-slate-700 dark:text-white/90 max-w-md leading-relaxed select-none cursor-default">
               Transforme seu estabelecimento com tecnologia de ponta, IA e automação completa.
             </p>
           </div>
 
-          <div className="space-y-4 pt-8">
+          <div className="space-y-2.5 pt-3">
             <div className="group relative">
               <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative flex items-start gap-4 p-4 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
-                <div className="p-2.5 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
-                  <Store className="h-6 w-6 text-primary" />
+              <div className="relative flex items-start gap-3 p-3 bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 backdrop-blur-md rounded-xl border-2 border-primary/30 dark:border-primary/40 group-hover:border-primary/60 transition-all duration-300 group-hover:bg-gradient-to-br group-hover:from-primary/15 group-hover:to-primary/10 dark:group-hover:from-primary/25 dark:group-hover:to-primary/15 shadow-lg shadow-primary/10">
+                <div className="p-2 bg-primary/30 dark:bg-primary/40 rounded-lg group-hover:bg-primary/40 dark:group-hover:bg-primary/50 transition-colors group-hover:scale-110 transform duration-300">
+                  <Brain className="h-5 w-5 text-primary animate-pulse" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white mb-1 group-hover:text-primary transition-colors">Gestão Completa</h3>
-                  <p className="text-sm text-slate-700 dark:text-white/80">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <h3 className="font-semibold text-sm text-slate-900 dark:text-white group-hover:text-primary transition-colors select-none cursor-default">Assistente de IA</h3>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-primary/20 text-primary border-primary/30 select-none cursor-default">
+                      Novo
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-white/80 leading-relaxed select-none cursor-default">
+                    Converse com inteligência artificial sobre suas vendas, produtos mais lucrativos, horários de pico e receba insights automáticos para otimizar seu negócio.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="group relative">
+              <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <div className="relative flex items-start gap-3 p-3 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
+                <div className="p-2 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
+                  <Store className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-white mb-0.5 group-hover:text-primary transition-colors select-none cursor-default">Gestão Completa</h3>
+                  <p className="text-xs text-slate-700 dark:text-white/80 leading-relaxed select-none cursor-default">
                     Controle total sobre produtos, pedidos, clientes e muito mais em um só lugar.
                   </p>
                 </div>
@@ -432,13 +453,13 @@ const Auth = () => {
 
             <div className="group relative">
               <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative flex items-start gap-4 p-4 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
-                <div className="p-2.5 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
-                  <TrendingUp className="h-6 w-6 text-primary" />
+              <div className="relative flex items-start gap-3 p-3 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
+                <div className="p-2 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
+                  <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white mb-1 group-hover:text-primary transition-colors">Relatórios Inteligentes</h3>
-                  <p className="text-sm text-slate-700 dark:text-white/80">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-white mb-0.5 group-hover:text-primary transition-colors select-none cursor-default">Relatórios Inteligentes</h3>
+                  <p className="text-xs text-slate-700 dark:text-white/80 leading-relaxed select-none cursor-default">
                     Acompanhe suas vendas, custos e desempenho com dashboards em tempo real.
                   </p>
                 </div>
@@ -447,13 +468,13 @@ const Auth = () => {
 
             <div className="group relative">
               <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative flex items-start gap-4 p-4 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
-                <div className="p-2.5 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
-                  <Users className="h-6 w-6 text-primary" />
+              <div className="relative flex items-start gap-3 p-3 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
+                <div className="p-2 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
+                  <Users className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white mb-1 group-hover:text-primary transition-colors">Equipe Integrada</h3>
-                  <p className="text-sm text-slate-700 dark:text-white/80">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-white mb-0.5 group-hover:text-primary transition-colors select-none cursor-default">Equipe Integrada</h3>
+                  <p className="text-xs text-slate-700 dark:text-white/80 leading-relaxed select-none cursor-default">
                     Gerencie sua equipe com diferentes níveis de acesso e permissões.
                   </p>
                 </div>
@@ -462,13 +483,13 @@ const Auth = () => {
 
             <div className="group relative">
               <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative flex items-start gap-4 p-4 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
-                <div className="p-2.5 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
-                  <Shield className="h-6 w-6 text-primary" />
+              <div className="relative flex items-start gap-3 p-3 bg-white/80 dark:bg-white/10 backdrop-blur-md rounded-xl border border-primary/20 dark:border-white/20 group-hover:border-primary/50 transition-all duration-300 group-hover:bg-white dark:group-hover:bg-white/15 shadow-sm">
+                <div className="p-2 bg-primary/20 dark:bg-primary/30 rounded-lg group-hover:bg-primary/30 dark:group-hover:bg-primary/40 transition-colors group-hover:scale-110 transform duration-300">
+                  <Shield className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white mb-1 group-hover:text-primary transition-colors">Seguro e Confiável</h3>
-                  <p className="text-sm text-slate-700 dark:text-white/80">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-white mb-0.5 group-hover:text-primary transition-colors select-none cursor-default">Seguro e Confiável</h3>
+                  <p className="text-xs text-slate-700 dark:text-white/80 leading-relaxed select-none cursor-default">
                     Seus dados protegidos com criptografia de ponta e backup automático.
                   </p>
                 </div>
@@ -477,16 +498,16 @@ const Auth = () => {
           </div>
 
           {/* Elementos de tecnologia flutuantes */}
-          <div className="pt-8 flex items-center gap-6">
-            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm">
+          <div className="pt-4 flex items-center gap-4">
+            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm select-none cursor-default">
               <Cpu className="h-4 w-4 animate-pulse text-primary" />
               <span>IA Integrada</span>
             </div>
-            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm">
+            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm select-none cursor-default">
               <Zap className="h-4 w-4 animate-pulse text-primary" />
               <span>Alta Performance</span>
             </div>
-            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm">
+            <div className="flex items-center gap-2 text-slate-700 dark:text-white/80 text-sm select-none cursor-default">
               <Network className="h-4 w-4 animate-pulse text-primary" />
               <span>Cloud Native</span>
             </div>
@@ -495,7 +516,7 @@ const Auth = () => {
       </div>
 
       {/* Seção de Login */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-12 relative z-10">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8 relative z-10">
         <div className="relative group w-full max-w-lg">
           {/* Efeito de brilho ao redor do card */}
           <div className="absolute -inset-0.5 bg-gradient-to-r from-primary via-primary/50 to-primary rounded-2xl blur-xl opacity-30 group-hover:opacity-50 transition-opacity duration-500"></div>
@@ -513,12 +534,12 @@ const Auth = () => {
                     <Sparkles className="h-7 w-7 text-primary animate-pulse" />
                   </div>
                 </div>
-                <div className="text-3xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-gradient">
+                <div className="text-3xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent animate-gradient select-none cursor-default">
                   burguer.IA
                 </div>
               </div>
-              <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Acesse sua conta</CardTitle>
-              <CardDescription className="text-base text-slate-700 dark:text-slate-300">
+              <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white select-none cursor-default">Acesse sua conta</CardTitle>
+              <CardDescription className="text-base text-slate-700 dark:text-slate-300 select-none cursor-default">
                 Entre para gerenciar seu estabelecimento
               </CardDescription>
             </CardHeader>

@@ -957,7 +957,16 @@ const MenuPublic = () => {
                   🍔 Combos
                 </Button>
               )}
-              {categories.map(category => (
+              {categories
+                .filter(category => {
+                  // Filtrar categoria "Adicionais" e "Combos" (case-insensitive)
+                  const categoryName = category.name.toLowerCase().trim();
+                  return !categoryName.includes('adicional') && 
+                         !categoryName.includes('adicionais') &&
+                         !categoryName.includes('combo') &&
+                         !categoryName.includes('combos');
+                })
+                .map(category => (
                 <Button
                   key={category.id}
                   variant={selectedCategory === category.id ? "default" : "outline"}
@@ -1007,22 +1016,27 @@ const MenuPublic = () => {
             return (
             <Card 
               key={product.id} 
-              className="overflow-hidden hover:shadow-lg transition-shadow"
+              className="overflow-hidden hover:shadow-lg transition-shadow flex flex-col h-full"
               style={{
                 backgroundColor: `${menuCustomization.backgroundColor}${Math.round(menuCustomization.cardOpacity * 255).toString(16).padStart(2, '0')}`,
                 backdropFilter: "blur(10px)",
               }}
             >
-              {product.image_url && (
-                <div className="aspect-video w-full overflow-hidden bg-muted">
+              {/* Sempre renderizar o espaço da imagem para manter altura consistente */}
+              <div className="aspect-video w-full overflow-hidden bg-muted flex-shrink-0">
+                {product.image_url ? (
                   <img
                     src={normalizeImageUrl(product.image_url) || product.image_url}
                     alt={product.name}
                     className="w-full h-full object-cover"
                   />
-                </div>
-              )}
-              <CardContent className="p-4">
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                    <Package className="h-12 w-12 text-muted-foreground/30" />
+                  </div>
+                )}
+              </div>
+              <CardContent className="p-4 flex flex-col flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-semibold text-lg">{product.name}</h3>
                   {product.isCombo && (
@@ -1032,11 +1046,11 @@ const MenuPublic = () => {
                   )}
                 </div>
                 {product.description && (
-                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2 flex-shrink-0">
                     {product.description}
                   </p>
                 )}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mt-auto">
                   <span className="text-xl font-bold" style={{ color: menuCustomization.primaryColor }}>
                     R$ {Number(product.price).toFixed(2)}
                   </span>

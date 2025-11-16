@@ -201,14 +201,39 @@ export const printReceipt = async (r: ReceiptData) => {
     }
     
     // Monta o HTML do item: nome, trio (se houver), adicionais, outras notes (molhos, etc.), preço
+    // Formatar adicionais para exibir cada um em uma linha com seu valor
+    let formattedAddonsNote = '';
+    if (addonsNote) {
+      // Se addonsNote contém múltiplas linhas (formato "Adicionais:\n1x Nome - R$5,00")
+      const addonsLines = addonsNote.split('\n');
+      if (addonsLines.length > 1) {
+        // Primeira linha é "Adicionais:"
+        formattedAddonsNote = `<div class="notes"><strong>${addonsLines[0]}</strong></div>`;
+        // Linhas seguintes são os adicionais individuais - remover espaços extras e "+" se houver
+        addonsLines.slice(1).forEach(line => {
+          if (line.trim()) {
+            // Remove "+" no início e espaços extras
+            let cleanLine = line.trim().replace(/^\+\s*/, '').trim();
+            // Garante que R$ não tenha espaço antes do valor
+            cleanLine = cleanLine.replace(/R\$\s+/g, 'R$');
+            formattedAddonsNote += `<div class="notes">${cleanLine}</div>`;
+          }
+        });
+      } else {
+        // Formato antigo (tudo em uma linha) - limpar também
+        let cleanNote = addonsNote.replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
+        formattedAddonsNote = `<div class="notes">${cleanNote}</div>`;
+      }
+    }
+    
     return `
     <div class="row item">
       <span class="left">${it.quantity}x ${it.name}</span>
     </div>
     ${trioNote ? `<div class="notes">${trioNote.replace(/\n/g, '<br>')}</div>` : ''}
-    ${addonsNote ? `<div class="notes">${addonsNote}</div>` : ''}
+    ${formattedAddonsNote}
     ${otherNotes.length > 0 ? `<div class="notes">${otherNotes.join('<br>')}</div>` : ''}
-    ${it.totalPrice > 0 ? `<div class="row item"><span class="left"></span><span class="right">R$ ${it.totalPrice.toFixed(2)}</span></div>` : ''}
+    ${it.totalPrice > 0 ? `<div class="row item"><span class="left"></span><span class="right">R$ ${it.totalPrice.toFixed(2).replace('.', ',')}</span></div>` : ''}
     ${i < r.items.length - 1 ? `<div class="sep sep--light"></div>` : ""}
   `;
   }).join("");
@@ -505,22 +530,53 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
     let otherNotes = item.notes || '';
     
     if (item.notes) {
-      const addonsPattern = /Adicionais:\s*([^|]+?)(?:\s*\||$)/i;
+      // Procura por "Adicionais:" seguido de múltiplas linhas
+      const addonsPattern = /Adicionais:\s*([\s\S]+?)(?:\n\n|\n(?!\s+\+)|$)/i;
       let addonsMatch = item.notes.match(addonsPattern);
-      if (!addonsMatch) {
-        addonsMatch = item.notes.match(/Adicionais:\s*([^\n]+)/i);
-      }
       if (addonsMatch && addonsMatch[1]) {
-        addonsNote = addonsMatch[1].trim();
+        addonsNote = `Adicionais:\n${addonsMatch[1].trim()}`;
         // Remove adicionais das outras notes
-        otherNotes = item.notes.split('|').map(part => part.trim()).filter(part => {
-          return !part.toLowerCase().includes('adicionais:');
-        }).join(' | ').trim();
+        otherNotes = item.notes.replace(addonsPattern, '').trim();
+        // Remove linhas vazias extras
+        otherNotes = otherNotes.replace(/\n\n+/g, '\n').trim();
+      } else {
+        // Fallback: formato antigo (tudo em uma linha)
+        const addonsPatternOld = /Adicionais:\s*([^|]+?)(?:\s*\||$)/i;
+        let addonsMatchOld = item.notes.match(addonsPatternOld);
+        if (!addonsMatchOld) {
+          addonsMatchOld = item.notes.match(/Adicionais:\s*([^\n]+)/i);
+        }
+        if (addonsMatchOld && addonsMatchOld[1]) {
+          addonsNote = addonsMatchOld[1].trim();
+          // Remove adicionais das outras notes
+          otherNotes = item.notes.split('|').map(part => part.trim()).filter(part => {
+            return !part.toLowerCase().includes('adicionais:');
+          }).join(' | ').trim();
+        }
+      }
+    }
+    
+    // Formatar adicionais para exibir cada um em uma linha
+    let formattedAddonsHtml = '';
+    if (addonsNote) {
+      const addonsLines = addonsNote.split('\n');
+      if (addonsLines.length > 1) {
+        formattedAddonsHtml = `<div style="margin-top: 4px;"><strong>${addonsLines[0]}</strong></div>`;
+        addonsLines.slice(1).forEach(line => {
+          if (line.trim()) {
+            // Remove "+" no início e espaços extras, garante R$ sem espaço antes do valor
+            let cleanLine = line.trim().replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
+            formattedAddonsHtml += `<div style="margin-left: 8px; margin-top: 2px;">${cleanLine}</div>`;
+          }
+        });
+      } else {
+        // Formato antigo - limpar também
+        let cleanNote = addonsNote.replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
+        formattedAddonsHtml = `<div style="margin-top: 4px;">${cleanNote}</div>`;
       }
     }
     
     const itemNotesHtml = otherNotes ? `<div class="item-notes">${otherNotes}</div>` : "";
-    const addonsHtml = addonsNote ? `<div class="item-notes">${addonsNote}</div>` : "";
     
     return `
       <div class="item-row">
@@ -529,10 +585,10 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
           <span class="item-quantity">Qtd: ${item.quantity}</span>
         </div>
         ${itemNotesHtml}
-        ${addonsHtml}
+        ${formattedAddonsHtml}
         <div class="item-prices">
-          <span class="item-unit-price">Unit: R$ ${item.unitPrice.toFixed(2)}</span>
-          <span class="item-total-price">Total: R$ ${item.totalPrice.toFixed(2)}</span>
+          <span class="item-unit-price">Unit: R$ ${item.unitPrice.toFixed(2).replace('.', ',')}</span>
+          <span class="item-total-price">Total: R$ ${item.totalPrice.toFixed(2).replace('.', ',')}</span>
         </div>
         ${index < r.items.length - 1 ? '<div class="sep-light"></div>' : ''}
       </div>

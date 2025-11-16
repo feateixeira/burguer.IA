@@ -34,7 +34,8 @@ import { Checkbox } from "@/components/ui/checkbox";
     ArrowRight,
     Truck,
     MessageCircle,
-    SquarePen
+    SquarePen,
+    Monitor
   } from "lucide-react";
   import Sidebar from "@/components/Sidebar";
   import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
@@ -261,6 +262,7 @@ interface Order {
         // 1. NÃO tem source_domain (null, undefined, ou string vazia)
         // 2. E NÃO é do site hamburguerianabrasa.com.br
         // 3. E NÃO tem channel="online" nem origin="site"
+        // 4. E NÃO é do totem (channel="totem" ou origin="totem")
         
         // Verificação 1: Se tem source_domain preenchido, não é PDV
         if (order.source_domain && String(order.source_domain).trim() !== '') {
@@ -278,9 +280,14 @@ interface Order {
           return false;
         }
         
+        // Verificação 4: Se é do totem, não é PDV
+        if (order.channel === "totem" || order.origin === "totem") {
+          return false;
+        }
+        
         // Se chegou aqui, é um pedido do PDV
-        // Aceita channel="pdv", origin="balcao", null, undefined, ou qualquer outro valor que não seja "online"/"site"
-        // O importante é que não tem source_domain e não é identificado como online
+        // Aceita channel="pdv", origin="balcao", null, undefined, ou qualquer outro valor que não seja "online"/"site"/"totem"
+        // O importante é que não tem source_domain e não é identificado como online ou totem
         return true;
       };
       
@@ -334,6 +341,11 @@ interface Order {
             return true;
           });
         }
+      } else if (activeTab === "totem") {
+        // Aba "Totem": pedidos do totem (channel="totem" ou origin="totem")
+        filtered = filtered.filter(order => {
+          return order.channel === "totem" || order.origin === "totem";
+        });
       } else if (activeTab === "completed") {
         // Aba "PDV/Concluídos": 
         // Para Na Brasa: APENAS pedidos do PDV pendentes (NÃO incluir pedidos do site)
@@ -1188,19 +1200,22 @@ interface Order {
             const customizations = item.customizations as any;
             if (customizations && customizations.addons && Array.isArray(customizations.addons)) {
               const addons = customizations.addons;
-              const addonsText = addons.map((a: any) => {
+              // Formatar cada adicional em uma linha separada com valor individual
+              const addonsLines = addons.map((a: any) => {
                 const qty = a.quantity || 1;
                 const price = a.price || 0;
-                return `${qty}x ${a.name} (R$ ${(price * qty).toFixed(2)})`;
-              }).join(', ');
+                const totalAddonPrice = price * qty;
+                return `${qty}x ${a.name} - R$${totalAddonPrice.toFixed(2).replace('.', ',')}`;
+              });
               
-              if (addonsText) {
+              if (addonsLines.length > 0) {
+                const addonsText = `Adicionais:\n${addonsLines.join('\n')}`;
                 if (finalNotes) {
                   if (!finalNotes.includes('Adicionais:')) {
-                    finalNotes = `${finalNotes} | Adicionais: ${addonsText}`;
+                    finalNotes = `${finalNotes}\n\n${addonsText}`;
                   }
                 } else {
-                  finalNotes = `Adicionais: ${addonsText}`;
+                  finalNotes = addonsText;
                 }
               }
             }
@@ -1256,7 +1271,7 @@ interface Order {
           
           const { data, error } = await supabase
             .from('order_items')
-            .select('quantity, unit_price, total_price, notes, products(name, categories(name))')
+            .select('quantity, unit_price, total_price, notes, customizations, products(name, categories(name))')
             .eq('order_id', order.id);
           if (!error && data && data.length > 0) {
             items = data.flatMap((it: any) => {
@@ -1282,19 +1297,22 @@ interface Order {
                 }
                 if (customizationsData && customizationsData.addons && Array.isArray(customizationsData.addons)) {
                   const addons = customizationsData.addons;
-                  const addonsText = addons.map((a: any) => {
+                  // Formatar cada adicional em uma linha separada com valor individual
+                  const addonsLines = addons.map((a: any) => {
                     const qty = a.quantity || 1;
                     const price = a.price || 0;
-                    return `${qty}x ${a.name} (R$ ${(price * qty).toFixed(2)})`;
-                  }).join(', ');
+                    const totalAddonPrice = price * qty;
+                    return `${qty}x ${a.name} - R$${totalAddonPrice.toFixed(2).replace('.', ',')}`;
+                  });
                   
-                  if (addonsText) {
+                  if (addonsLines.length > 0) {
+                    const addonsText = `Adicionais:\n${addonsLines.join('\n')}`;
                     if (notes) {
                       if (!notes.includes('Adicionais:')) {
-                        notes = `${notes} | Adicionais: ${addonsText}`;
+                        notes = `${notes}\n\n${addonsText}`;
                       }
                     } else {
-                      notes = `Adicionais: ${addonsText}`;
+                      notes = addonsText;
                     }
                   }
                 }
@@ -1949,10 +1967,14 @@ interface Order {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-              <TabsList className={`grid w-full ${isNaBrasa ? 'grid-cols-4' : 'grid-cols-3'}`}>
+              <TabsList className={`grid w-full ${isNaBrasa ? 'grid-cols-5' : 'grid-cols-4'}`}>
                 <TabsTrigger value="pending" className="flex items-center gap-2">
                   <Clock className="h-4 w-4" />
                   Pendentes (Cardápio Online)
+                </TabsTrigger>
+                <TabsTrigger value="totem" className="flex items-center gap-2">
+                  <Monitor className="h-4 w-4" />
+                  Totem
                 </TabsTrigger>
                 <TabsTrigger value="completed" className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
@@ -2086,6 +2108,8 @@ interface Order {
                         ? isNaBrasa
                           ? "Não há pedidos pendentes do site no momento"
                           : "Não há pedidos pendentes do cardápio online no momento"
+                        : activeTab === "totem"
+                        ? "Não há pedidos do totem no momento"
                         : activeTab === "rejected"
                         ? "Não há pedidos recusados"
                         : activeTab === "all"
@@ -2103,12 +2127,16 @@ interface Order {
                     const isFromOnlineMenu = (order.channel === "online" || order.origin === "site" || order.source_domain) &&
                                            !isFromNaBrasaSite;
                     
+                    // Helper function to check if order is from Totem
+                    const isFromTotem = order.channel === "totem" || order.origin === "totem";
+                    
                     // Helper function to check if order is from PDV
                     const isPDVOrderCheck = (() => {
                       const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
                       const isNotNaBrasa = !order.source_domain?.toLowerCase().includes('hamburguerianabrasa');
                       const isNotOnline = order.channel !== "online" && order.origin !== "site";
-                      return hasNoSourceDomain && isNotNaBrasa && isNotOnline;
+                      const isNotTotem = order.channel !== "totem" && order.origin !== "totem";
+                      return hasNoSourceDomain && isNotNaBrasa && isNotOnline && isNotTotem;
                     })();
                     
                     const isOnlineOrder = isFromNaBrasaSite || isFromOnlineMenu;
@@ -2133,6 +2161,11 @@ interface Order {
                                 {isFromOnlineMenu && (
                                   <Badge variant="outline" className="text-xs bg-purple-50 dark:bg-purple-950/20">
                                     ONLINE
+                                  </Badge>
+                                )}
+                                {isFromTotem && (
+                                  <Badge variant="outline" className="text-xs bg-orange-50 dark:bg-orange-950/20">
+                                    TOTEM
                                   </Badge>
                                 )}
                               </h3>
@@ -2393,8 +2426,8 @@ interface Order {
                                 </Tooltip>
                               )}
 
-                              {/* Botão de Reimprimir */}
-                              {activeTab === "all" && (
+                              {/* Botão de Imprimir/Reimprimir */}
+                              {(activeTab === "all" || activeTab === "totem" || isFromTotem) && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button 
@@ -2407,7 +2440,7 @@ interface Order {
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    <p>Reimprimir Pedido</p>
+                                    <p>{activeTab === "all" ? "Reimprimir Pedido" : "Imprimir Pedido"}</p>
                                   </TooltipContent>
                                 </Tooltip>
                               )}

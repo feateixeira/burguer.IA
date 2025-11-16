@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Minus, ShoppingCart, Home, Check, UtensilsCrossed } from "lucide-react";
+import { Plus, Minus, ShoppingCart, Home, Check, UtensilsCrossed, Package } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { normalizeImageUrl } from "@/utils/imageUrl";
+import { AddonsModal } from "@/components/AddonsModal";
 
 interface Product {
   id: string;
@@ -33,9 +34,18 @@ interface Category {
   name: string;
 }
 
+interface Addon {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  quantity: number;
+}
+
 interface CartItem extends Product {
   quantity: number;
   isCombo?: boolean;
+  addons?: Addon[];
 }
 
 interface DisplayItem {
@@ -60,6 +70,8 @@ export default function Totem() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [establishmentId, setEstablishmentId] = useState("");
   const [establishmentName, setEstablishmentName] = useState<string>("");
+  const [showAddonsModal, setShowAddonsModal] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<DisplayItem | null>(null);
 
   useEffect(() => {
     loadData();
@@ -76,9 +88,10 @@ export default function Totem() {
     const reloadProducts = async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, price, image_url, description, category_id, active, sort_order")
+        .select("id, name, price, image_url, description, category_id, active, sort_order, is_combo")
         .eq("establishment_id", establishmentId)
         .eq("active", true)
+        .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
         .order("sort_order");
       if (!error && data) {
         setProducts(data);
@@ -248,9 +261,10 @@ export default function Totem() {
       const [productsResult, combosResult] = await Promise.all([
         supabase
           .from("products")
-          .select("id, name, price, image_url, description, category_id, active, sort_order")
+          .select("id, name, price, image_url, description, category_id, active, sort_order, is_combo")
           .eq("establishment_id", establishmentIdToUse)
           .eq("active", true)
+          .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
           .order("sort_order"),
         supabase
           .from("combos")
@@ -271,33 +285,120 @@ export default function Totem() {
     }
   };
 
-  const addToCart = (item: DisplayItem) => {
-    const existing = cart.find((cartItem) => cartItem.id === item.id);
-    if (existing) {
-      setCart(
-        cart.map((cartItem) =>
-          cartItem.id === item.id
-            ? { ...cartItem, quantity: cartItem.quantity + 1 }
-            : cartItem
-        )
-      );
-    } else {
-      setCart([...cart, { 
-        ...item, 
+  const checkProductHasAddons = async (item: DisplayItem): Promise<boolean> => {
+    if (!establishmentId || !item.id) return false;
+    
+    try {
+      const promises: Promise<any>[] = [];
+
+      // Verificar se há adicionais associados à categoria do produto
+      if (item.category_id) {
+        const categoryQuery = supabase
+          .from("category_addons")
+          .select("addon_id, addons!inner(id, active)")
+          .eq("category_id", item.category_id)
+          .eq("addons.active", true)
+          .limit(1);
+        promises.push(categoryQuery);
+      }
+
+      // Verificar se há adicionais associados diretamente ao produto
+      const productQuery = supabase
+        .from("product_addons")
+        .select("addon_id, addons!inner(id, active)")
+        .eq("product_id", item.id)
+        .eq("addons.active", true)
+        .limit(1);
+      promises.push(productQuery);
+
+      const results = await Promise.all(promises);
+
+      // Verificar se algum resultado tem dados
+      for (const result of results) {
+        if (result.data && result.data.length > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error("Error checking addons:", error);
+      return false;
+    }
+  };
+
+  const addToCart = async (item: DisplayItem, selectedAddons?: Addon[]) => {
+    // Se adicionais foram passados, adicionar com eles
+    if (selectedAddons !== undefined) {
+      const cartItem: CartItem = {
+        ...item,
         quantity: 1,
         isCombo: item.isCombo,
         category_id: item.category_id || null,
         image_url: item.image_url || null,
-        description: item.description || null
-      }]);
+        description: item.description || null,
+        addons: selectedAddons.length > 0 ? selectedAddons : undefined,
+      };
+      
+      setCart([...cart, cartItem]);
+      toast.success(`${item.name} adicionado ao carrinho!`, {
+        position: "top-left",
+        duration: 2000,
+        style: {
+          zIndex: 9999,
+        },
+      });
+      return;
     }
-    toast.success("Adicionado ao carrinho!", {
-      position: "top-left",
-      duration: 2000,
-      style: {
-        zIndex: 9999,
-      },
-    });
+
+    // Verificar se produto tem adicionais antes de adicionar
+    const hasAddons = await checkProductHasAddons(item);
+    
+    if (hasAddons) {
+      // Abrir modal de adicionais
+      setPendingProduct(item);
+      setShowAddonsModal(true);
+    } else {
+      // Adicionar diretamente ao carrinho
+      const existing = cart.find((cartItem) => 
+        cartItem.id === item.id && 
+        (!cartItem.addons || cartItem.addons.length === 0)
+      );
+      
+      if (existing) {
+        setCart(
+          cart.map((cartItem) =>
+            cartItem.id === item.id && (!cartItem.addons || cartItem.addons.length === 0)
+              ? { ...cartItem, quantity: cartItem.quantity + 1 }
+              : cartItem
+          )
+        );
+      } else {
+        setCart([...cart, { 
+          ...item, 
+          quantity: 1,
+          isCombo: item.isCombo,
+          category_id: item.category_id || null,
+          image_url: item.image_url || null,
+          description: item.description || null
+        }]);
+      }
+      toast.success("Adicionado ao carrinho!", {
+        position: "top-left",
+        duration: 2000,
+        style: {
+          zIndex: 9999,
+        },
+      });
+    }
+  };
+
+  const handleAddonsConfirm = (selectedAddons: Addon[]) => {
+    if (!pendingProduct) return;
+    
+    addToCart(pendingProduct, selectedAddons);
+    setShowAddonsModal(false);
+    setPendingProduct(null);
   };
 
   const removeFromCart = (productId: string) => {
@@ -398,6 +499,8 @@ export default function Totem() {
           total_amount: subtotal,
           status: "pending",
           payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
+          channel: "totem", // Identificar pedidos do totem
+          origin: "totem",
         })
         .select()
         .single();
@@ -445,13 +548,21 @@ export default function Totem() {
             }
           }
 
+          // Calcular preço total incluindo adicionais
+          const addonsPrice = item.addons?.reduce((sum, addon) => 
+            sum + (addon.price * addon.quantity), 0) || 0;
+          const itemTotalPrice = (item.price + addonsPrice) * item.quantity;
+
           return {
             order_id: newOrder.id,
             product_id: productId,
             quantity: item.quantity,
             unit_price: item.price,
-            total_price: item.price * item.quantity,
+            total_price: itemTotalPrice,
             notes: item.isCombo ? `Combo do totem` : null,
+            customizations: item.addons && item.addons.length > 0 
+              ? { addons: item.addons } 
+              : null,
           };
         })
       );
@@ -517,7 +628,10 @@ export default function Totem() {
   // Combine products and combos for display (recalcula sempre que products/combos mudarem)
   const displayItems: DisplayItem[] = useMemo(() => {
     return [
-      ...products.map(p => ({ ...p, isCombo: false })),
+      // Filtrar produtos para excluir aqueles marcados como combos
+      ...products
+        .filter((p: any) => !p.is_combo)
+        .map(p => ({ ...p, isCombo: false })),
       ...combos.map(c => ({ 
         id: c.id, 
         name: c.name, 
@@ -756,8 +870,16 @@ export default function Totem() {
               🍔 Combos
             </Button>
           )}
-          {categories.length > 0 ? (
-            categories.map((category) => (
+          {categories
+            .filter(category => {
+              // Filtrar categoria "Adicionais" e "Combos" (case-insensitive)
+              const categoryName = category.name.toLowerCase().trim();
+              return !categoryName.includes('adicional') && 
+                     !categoryName.includes('adicionais') &&
+                     !categoryName.includes('combo') &&
+                     !categoryName.includes('combos');
+            })
+            .map((category) => (
             <Button
               key={category.id}
               size="lg"
@@ -767,12 +889,7 @@ export default function Totem() {
                 <span className="mr-2">{getCategoryIcon(category.name)}</span>
               {category.name}
             </Button>
-            ))
-          ) : (
-            <div className="text-sm text-muted-foreground p-2">
-              Carregando categorias...
-            </div>
-          )}
+            ))}
         </div>
 
         {/* Products and Combos Grid - Tamanho otimizado para tablet */}
@@ -780,62 +897,38 @@ export default function Totem() {
           {filteredItems.map((item) => (
             <Card
               key={item.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow overflow-hidden"
+              className="cursor-pointer hover:shadow-lg transition-shadow overflow-hidden flex flex-col h-full"
               onClick={() => addToCart(item)}
             >
-              <CardHeader className="p-2 pb-1">
-                <div className="aspect-square rounded-md overflow-hidden bg-muted mb-2 min-h-[120px] w-full flex items-center justify-center">
-                  {item.image_url && item.image_url.trim() ? (
-                    <img
-                      src={normalizeImageUrl(item.image_url) || item.image_url}
-                      alt={item.name}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const parent = target.parentElement;
-                        if (parent) {
-                          const existingPlaceholder = parent.querySelector('.no-image-placeholder');
-                          if (!existingPlaceholder) {
-                            const placeholder = document.createElement('div');
-                            placeholder.className = 'no-image-placeholder w-full h-full flex items-center justify-center text-muted-foreground text-xs';
-                            placeholder.textContent = 'Erro ao carregar';
-                            parent.appendChild(placeholder);
-                          }
-                        }
-                      }}
-                      onLoad={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'block';
-                        const parent = target.parentElement;
-                        if (parent) {
-                          const placeholder = parent.querySelector('.no-image-placeholder');
-                          if (placeholder) {
-                            placeholder.remove();
-                          }
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
-                      Sem imagem
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <CardTitle className="text-sm font-semibold leading-tight min-h-[3rem]">
+              {/* Sempre renderizar o espaço da imagem para manter altura consistente */}
+              <div className="aspect-video w-full overflow-hidden bg-muted flex-shrink-0">
+                {item.image_url && item.image_url.trim() ? (
+                  <img
+                    src={normalizeImageUrl(item.image_url) || item.image_url}
+                    alt={item.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                    <Package className="h-12 w-12 text-muted-foreground/30" />
+                  </div>
+                )}
+              </div>
+              <CardContent className="p-2 pt-2 pb-3 flex flex-col flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <CardTitle className="text-sm font-semibold leading-tight">
                     {item.name}
                   </CardTitle>
                   {item.isCombo && (
-                    <Badge variant="secondary" className="text-xs w-fit">Combo</Badge>
+                    <Badge variant="secondary" className="text-xs w-fit shrink-0">Combo</Badge>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent className="p-2 pt-0 pb-3">
-                <p className="text-lg font-bold text-primary">
-                  R$ {item.price.toFixed(2)}
-                </p>
+                <div className="mt-auto pt-2">
+                  <p className="text-lg font-bold text-primary">
+                    R$ {item.price.toFixed(2)}
+                  </p>
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -858,6 +951,23 @@ export default function Totem() {
           </div>
         )}
       </div>
+
+      {/* Addons Modal */}
+      {pendingProduct && establishmentId && (
+        <AddonsModal
+          open={showAddonsModal}
+          onClose={() => {
+            setShowAddonsModal(false);
+            setPendingProduct(null);
+          }}
+          onConfirm={handleAddonsConfirm}
+          productId={pendingProduct.id}
+          categoryId={pendingProduct.category_id || null}
+          establishmentId={establishmentId}
+          productName={pendingProduct.name}
+          variant="fancy"
+        />
+      )}
     </div>
   );
 }

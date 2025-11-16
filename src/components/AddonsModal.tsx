@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface Addon {
@@ -28,6 +28,8 @@ interface AddonsModalProps {
   categoryId?: string | null;
   establishmentId: string;
   productName: string;
+  primaryColor?: string;
+  secondaryColor?: string;
 }
 
 export const AddonsModal = ({
@@ -38,6 +40,8 @@ export const AddonsModal = ({
   categoryId,
   establishmentId,
   productName,
+  primaryColor = "#3b82f6",
+  secondaryColor = "#8b5cf6",
 }: AddonsModalProps) => {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<Map<string, number>>(new Map());
@@ -146,33 +150,65 @@ export const AddonsModal = ({
 
   if (!open) return null;
 
+  const totalAddonsPrice = getTotalAddonsPrice();
+  const hasSelectedAddons = selectedAddons.size > 0;
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-3">
-          <DialogTitle className="text-lg">Adicionais para {productName}</DialogTitle>
-          <DialogDescription className="text-sm">
-            Selecione os adicionais desejados
-          </DialogDescription>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        {/* Header com gradiente */}
+        <DialogHeader 
+          className="px-6 pt-6 pb-4 relative overflow-hidden"
+          style={{
+            background: `linear-gradient(135deg, ${primaryColor}15 0%, ${secondaryColor}15 100%)`,
+          }}
+        >
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="h-5 w-5" style={{ color: primaryColor }} />
+              <DialogTitle className="text-2xl font-bold">
+                Personalize seu {productName}
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-base text-muted-foreground">
+              Você deseja adicionar ao seu lanche algum dos adicionais? 
+              <span className="block mt-1 text-sm font-medium" style={{ color: primaryColor }}>
+                Torne seu pedido ainda mais especial! ✨
+              </span>
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden flex flex-col px-6">
+        <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 mb-4" style={{ borderColor: primaryColor }}></div>
+              <p className="text-sm text-muted-foreground">Carregando adicionais...</p>
             </div>
           ) : addons.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">
-                Não há adicionais disponíveis para este produto
+            <div className="text-center py-12">
+              <div className="text-4xl mb-4">🍔</div>
+              <p className="text-base font-medium text-muted-foreground mb-2">
+                Nenhum adicional disponível
               </p>
-              <Button onClick={onClose} size="sm" className="mt-4">
-                Fechar
+              <p className="text-sm text-muted-foreground mb-6">
+                Este produto já está completo e delicioso!
+              </p>
+              <Button 
+                onClick={onClose} 
+                size="lg"
+                style={{ backgroundColor: primaryColor, color: "#ffffff" }}
+                className="px-8"
+              >
+                Continuar sem adicionais
               </Button>
             </div>
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
-              <div className="space-y-2 overflow-y-auto flex-1 pr-2">
+              <p className="text-sm font-medium text-muted-foreground mb-4">
+                Escolha quantos quiser - todos são opcionais! 😊
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto flex-1 pr-2 pb-2">
                 {addons.map((addon) => {
                   const quantity = selectedAddons.get(addon.id) || 0;
                   const isSelected = quantity > 0;
@@ -180,70 +216,97 @@ export const AddonsModal = ({
                   return (
                     <div
                       key={addon.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                        isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                      className={`relative p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                        isSelected 
+                          ? "border-opacity-100 shadow-lg scale-[1.02]" 
+                          : "border-opacity-30 hover:border-opacity-60 hover:shadow-md"
                       }`}
+                      style={{
+                        borderColor: isSelected ? primaryColor : "currentColor",
+                        backgroundColor: isSelected ? `${primaryColor}08` : "transparent",
+                      }}
                       onClick={() => handleAddonToggle(addon.id)}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                      {/* Badge de selecionado */}
+                      {isSelected && (
+                        <div 
+                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          ✓
+                        </div>
+                      )}
+
+                      <div className="flex items-start gap-3">
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => handleAddonToggle(addon.id)}
                           onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5"
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-start justify-between gap-2 mb-1">
                             <Label
                               htmlFor={`addon-${addon.id}`}
-                              className="font-medium cursor-pointer text-sm"
+                              className="font-semibold text-base cursor-pointer leading-tight"
                             >
                               {addon.name}
                             </Label>
-                            {isSelected && (
-                              <Badge variant="secondary" className="text-xs">
-                                {quantity}x
-                              </Badge>
-                            )}
+                            <div className="flex-shrink-0">
+                              <span 
+                                className="text-lg font-bold"
+                                style={{ color: primaryColor }}
+                              >
+                                R$ {addon.price.toFixed(2)}
+                              </span>
+                            </div>
                           </div>
                           {addon.description && (
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
                               {addon.description}
                             </p>
                           )}
-                          <p className="text-sm font-semibold text-primary mt-1">
-                            R$ {addon.price.toFixed(2)}
-                          </p>
+                          
+                          {isSelected && (
+                            <div
+                              className="flex items-center gap-2 mt-3 pt-3 border-t"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ borderColor: `${primaryColor}20` }}
+                            >
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleQuantityChange(addon.id, -1)}
+                                className="h-8 w-8 p-0 rounded-full"
+                                style={{ borderColor: primaryColor }}
+                              >
+                                <Minus className="h-4 w-4" style={{ color: primaryColor }} />
+                              </Button>
+                              <span 
+                                className="w-10 text-center font-bold text-base"
+                                style={{ color: primaryColor }}
+                              >
+                                {quantity}
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleQuantityChange(addon.id, 1)}
+                                className="h-8 w-8 p-0 rounded-full"
+                                style={{ backgroundColor: primaryColor, color: "#ffffff" }}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                              <span className="text-xs text-muted-foreground ml-auto">
+                                Total: <span className="font-semibold" style={{ color: primaryColor }}>
+                                  R$ {(addon.price * quantity).toFixed(2)}
+                                </span>
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
-
-                      {isSelected && (
-                        <div
-                          className="flex items-center space-x-2 ml-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQuantityChange(addon.id, -1)}
-                            className="h-7 w-7 p-0"
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="w-6 text-center font-medium text-sm">
-                            {quantity}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQuantityChange(addon.id, 1)}
-                            className="h-7 w-7 p-0"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -253,23 +316,60 @@ export const AddonsModal = ({
         </div>
 
         {!loading && addons.length > 0 && (
-          <div className="px-6 pb-6 pt-3 border-t space-y-3">
-            {selectedAddons.size > 0 && (
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-sm">Total de Adicionais:</span>
-                <span className="text-base font-bold text-primary">
-                  R$ {getTotalAddonsPrice().toFixed(2)}
-                </span>
+          <div 
+            className="px-6 pb-6 pt-4 border-t space-y-4"
+            style={{ borderColor: `${primaryColor}20` }}
+          >
+            {hasSelectedAddons && (
+              <div 
+                className="p-4 rounded-lg"
+                style={{ backgroundColor: `${primaryColor}10` }}
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-semibold text-base">Total de Adicionais:</span>
+                  <span 
+                    className="text-2xl font-bold"
+                    style={{ color: primaryColor }}
+                  >
+                    R$ {totalAddonsPrice.toFixed(2)}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {selectedAddons.size} {selectedAddons.size === 1 ? 'adicional selecionado' : 'adicionais selecionados'}
+                </p>
               </div>
             )}
 
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={onClose} size="sm">
-                Cancelar
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                onClick={onClose} 
+                size="lg"
+                className="flex-1"
+              >
+                {hasSelectedAddons ? 'Continuar sem adicionais' : 'Pular'}
               </Button>
-              <Button onClick={handleConfirm} size="sm">
-                Confirmar
-                {selectedAddons.size > 0 && ` (+R$ ${getTotalAddonsPrice().toFixed(2)})`}
+              <Button 
+                onClick={handleConfirm} 
+                size="lg"
+                className="flex-1 font-semibold shadow-lg hover:shadow-xl transition-shadow"
+                style={{ 
+                  backgroundColor: hasSelectedAddons ? primaryColor : secondaryColor,
+                  color: "#ffffff"
+                }}
+              >
+                {hasSelectedAddons ? (
+                  <>
+                    Adicionar ao Pedido
+                    <span className="ml-2 opacity-90">
+                      (+R$ {totalAddonsPrice.toFixed(2)})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Continuar sem Adicionais
+                  </>
+                )}
               </Button>
             </div>
           </div>

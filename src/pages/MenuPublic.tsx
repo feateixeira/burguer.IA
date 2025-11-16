@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, AlertTriangle, Settings, Circle, UtensilsCrossed } from "lucide-react";
+import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, AlertTriangle, Settings, Circle, UtensilsCrossed, Sparkles, Package } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AddonsModal } from "@/components/AddonsModal";
 
 interface Product {
   id: string;
@@ -39,9 +40,18 @@ interface Category {
   sort_order: number;
 }
 
+interface Addon {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  quantity: number;
+}
+
 interface CartItem extends Product {
   quantity: number;
   notes?: string;
+  addons?: Addon[]; // adicionais selecionados
 }
 
 interface Establishment {
@@ -83,6 +93,8 @@ const MenuPublic = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState<string>("");
+  const [showAddonsModal, setShowAddonsModal] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   
   // Form fields
   const [customerName, setCustomerName] = useState("");
@@ -144,6 +156,7 @@ const MenuPublic = () => {
         .select("*")
         .eq("establishment_id", establishment.id)
         .eq("active", true)
+        .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
         .order("sort_order");
       if (!error && data) {
         setProducts(data);
@@ -309,6 +322,7 @@ const MenuPublic = () => {
           .select("*")
           .eq("establishment_id", estabId)
           .eq("active", true)
+          .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
           .order("sort_order"),
         supabase
           .from("categories")
@@ -342,19 +356,104 @@ const MenuPublic = () => {
     }
   };
 
-  const addToCart = (product: Product) => {
-    const existingItem = cart.find(item => item.id === product.id && !item.notes);
+  // Verificar se produto tem adicionais
+  const checkProductHasAddons = async (product: Product): Promise<boolean> => {
+    if (!establishment?.id || !product.id) return false;
     
-    if (existingItem) {
-      setCart(cart.map(item =>
-        item.id === product.id && !item.notes
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
-    } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
+    try {
+      const promises: Promise<any>[] = [];
+
+      // Verificar se há adicionais associados à categoria do produto
+      if (product.category_id) {
+        const categoryQuery = supabase
+          .from("category_addons")
+          .select("addon_id, addons!inner(id, active)")
+          .eq("category_id", product.category_id)
+          .eq("addons.active", true)
+          .limit(1);
+        promises.push(categoryQuery);
+      }
+
+      // Verificar se há adicionais associados diretamente ao produto
+      const productQuery = supabase
+        .from("product_addons")
+        .select("addon_id, addons!inner(id, active)")
+        .eq("product_id", product.id)
+        .eq("addons.active", true)
+        .limit(1);
+      promises.push(productQuery);
+
+      const results = await Promise.all(promises);
+
+      // Verificar se algum resultado tem dados
+      for (const result of results) {
+        if (result.data && result.data.length > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error("Error checking addons:", error);
+      return false;
     }
-    toast.success(`${product.name} adicionado ao carrinho`);
+  };
+
+  const addToCart = async (product: Product, selectedAddons?: Addon[]) => {
+    // Se adicionais foram passados, adicionar com eles
+    if (selectedAddons !== undefined) {
+      const cartItem: CartItem = {
+        ...product,
+        quantity: 1,
+        addons: selectedAddons.length > 0 ? selectedAddons : undefined,
+      };
+      
+      setCart([...cart, cartItem]);
+      toast.success(`${product.name} adicionado ao carrinho`);
+      return;
+    }
+
+    // Verificar se produto tem adicionais antes de adicionar
+    const hasAddons = await checkProductHasAddons(product);
+    
+    if (hasAddons) {
+      // Abrir modal de adicionais
+      setPendingProduct(product);
+      setShowAddonsModal(true);
+    } else {
+      // Adicionar diretamente ao carrinho
+      const existingItem = cart.find(item => 
+        item.id === product.id && 
+        !item.notes && 
+        (!item.addons || item.addons.length === 0)
+      );
+      
+      if (existingItem) {
+        setCart(cart.map(item =>
+          item.id === product.id && !item.notes && (!item.addons || item.addons.length === 0)
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        ));
+      } else {
+        setCart([...cart, { ...product, quantity: 1 }]);
+      }
+      toast.success(`${product.name} adicionado ao carrinho`);
+    }
+  };
+
+  const handleAddonsConfirm = (selectedAddons: Addon[]) => {
+    if (!pendingProduct) return;
+    
+    const cartItem: CartItem = {
+      ...pendingProduct,
+      quantity: 1,
+      addons: selectedAddons.length > 0 ? selectedAddons : undefined,
+    };
+    
+    setCart([...cart, cartItem]);
+    toast.success(`${pendingProduct.name} adicionado ao carrinho`);
+    setPendingProduct(null);
+    setShowAddonsModal(false);
   };
 
   const updateQuantity = (productId: string, quantity: number) => {
@@ -389,9 +488,9 @@ const MenuPublic = () => {
         isCombo: true, // Flag para identificar combos
       }));
 
-    // Filtrar produtos válidos também
+    // Filtrar produtos válidos também (excluindo produtos que são combos)
     const validProducts = products
-      .filter((p: any) => p && p.id && p.name)
+      .filter((p: any) => p && p.id && p.name && !p.is_combo) // Excluir produtos marcados como combos
       .map((p: any) => ({
         ...p,
         price: Number(p.price) || 0,
@@ -443,7 +542,12 @@ const MenuPublic = () => {
     return '🍽️';
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const cartTotal = cart.reduce((sum, item) => {
+    const itemPrice = item.price * item.quantity;
+    const addonsPrice = item.addons?.reduce((addonSum, addon) => 
+      addonSum + (addon.price * addon.quantity), 0) || 0;
+    return sum + itemPrice + (addonsPrice * item.quantity);
+  }, 0);
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleCheckout = async () => {
@@ -540,14 +644,23 @@ const MenuPublic = () => {
       }
 
       // Create order items
-      const orderItems = cart.map(item => ({
-        order_id: newOrder.id,
-        product_id: item.id,
-        quantity: item.quantity,
-        unit_price: item.price,
-        total_price: item.price * item.quantity,
-        notes: item.notes || null,
-      }));
+      const orderItems = cart.map(item => {
+        const addonsPrice = item.addons?.reduce((sum, addon) => 
+          sum + (addon.price * addon.quantity), 0) || 0;
+        const itemTotalPrice = (item.price + addonsPrice) * item.quantity;
+        
+        return {
+          order_id: newOrder.id,
+          product_id: item.id,
+          quantity: item.quantity,
+          unit_price: item.price,
+          total_price: itemTotalPrice,
+          notes: item.notes || null,
+          customizations: item.addons && item.addons.length > 0 
+            ? { addons: item.addons } 
+            : null,
+        };
+      });
 
       const { error: itemsError } = await supabase
         .from("order_items")
@@ -940,69 +1053,183 @@ const MenuPublic = () => {
 
       {/* Cart Dialog */}
       <Dialog open={showCart} onOpenChange={setShowCart}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Carrinho de Compras</DialogTitle>
-            <DialogDescription>
-              {cartItemsCount} item(s) no carrinho
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          {/* Header com gradiente */}
+          <DialogHeader 
+            className="px-6 pt-6 pb-4 relative overflow-hidden"
+            style={{
+              background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <ShoppingCart className="h-5 w-5" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-2xl font-bold">
+                Seu Carrinho
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-base text-muted-foreground">
+              {cart.length === 0 
+                ? "Seu carrinho está esperando por delícias! 🛒"
+                : `${cartItemsCount} ${cartItemsCount === 1 ? 'item delicioso' : 'itens deliciosos'} no seu carrinho`}
             </DialogDescription>
           </DialogHeader>
 
-          {cart.length === 0 ? (
-            <div className="text-center py-8">
-              <ShoppingCart className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-50" />
-              <p className="text-muted-foreground">Seu carrinho está vazio</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {cart.map(item => (
-                <div key={`${item.id}-${item.notes || ''}`} className="flex items-center gap-3 p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      R$ {Number(item.price).toFixed(2)} cada
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+          <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
+            {cart.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">🛒</div>
+                <p className="text-lg font-medium text-muted-foreground mb-2">
+                  Seu carrinho está vazio
+                </p>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Que tal adicionar alguns itens deliciosos?
+                </p>
+                <Button 
+                  onClick={() => setShowCart(false)} 
+                  size="lg"
+                  style={{ backgroundColor: menuCustomization.primaryColor, color: "#ffffff" }}
+                  className="px-8"
+                >
+                  Continuar Comprando
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3 overflow-y-auto flex-1 pr-2">
+                {cart.map((item, index) => {
+                  const itemAddonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
+                  const itemTotalPrice = (item.price + itemAddonsPrice) * item.quantity;
+                  
+                  return (
+                    <div 
+                      key={`${item.id}-${item.notes || ''}-${index}`} 
+                      className="p-4 border-2 rounded-xl transition-all hover:shadow-md"
+                      style={{ 
+                        borderColor: `${menuCustomization.primaryColor}30`,
+                        backgroundColor: `${menuCustomization.primaryColor}05`
+                      }}
                     >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                    <span className="w-8 text-center font-medium">{item.quantity}</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeFromCart(item.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <p className="font-semibold text-base">{item.name}</p>
+                              {item.addons && item.addons.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {item.addons.map((addon) => (
+                                    <p 
+                                      key={addon.id} 
+                                      className="text-xs pl-2 border-l-2"
+                                      style={{ 
+                                        borderColor: `${menuCustomization.primaryColor}40`,
+                                        color: menuCustomization.primaryColor
+                                      }}
+                                    >
+                                      + {addon.quantity}x {addon.name}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p 
+                                className="text-lg font-bold"
+                                style={{ color: menuCustomization.primaryColor }}
+                              >
+                                R$ {itemTotalPrice.toFixed(2)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                R$ {(item.price + itemAddonsPrice).toFixed(2)} cada
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 mt-3">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                              className="h-8 w-8 p-0 rounded-full"
+                              style={{ borderColor: menuCustomization.primaryColor }}
+                            >
+                              <Minus className="h-4 w-4" style={{ color: menuCustomization.primaryColor }} />
+                            </Button>
+                            <span 
+                              className="w-10 text-center font-bold text-base"
+                              style={{ color: menuCustomization.primaryColor }}
+                            >
+                              {item.quantity}
+                            </span>
+                            <Button
+                              size="sm"
+                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                              className="h-8 w-8 p-0 rounded-full"
+                              style={{ backgroundColor: menuCustomization.primaryColor, color: "#ffffff" }}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removeFromCart(item.id)}
+                              className="ml-auto text-muted-foreground hover:text-destructive"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-              <div className="border-t pt-4 space-y-4">
-                <div className="flex justify-between text-lg font-bold">
-                  <span>Total:</span>
-                  <span>R$ {cartTotal.toFixed(2)}</span>
+          {cart.length > 0 && (
+            <div 
+              className="px-6 pb-6 pt-4 border-t space-y-4"
+              style={{ borderColor: `${menuCustomization.primaryColor}20` }}
+            >
+              <div 
+                className="p-4 rounded-lg"
+                style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-semibold text-base">Total do Pedido:</span>
+                  <span 
+                    className="text-2xl font-bold"
+                    style={{ color: menuCustomization.primaryColor }}
+                  >
+                    R$ {cartTotal.toFixed(2)}
+                  </span>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {cartItemsCount} {cartItemsCount === 1 ? 'item' : 'itens'} no carrinho
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowCart(false)} 
+                  size="lg"
+                  className="flex-1"
+                >
+                  Continuar Comprando
+                </Button>
                 <Button
                   onClick={() => {
                     setShowCart(false);
                     setShowCheckout(true);
                   }}
-                  className="w-full"
                   size="lg"
+                  className="flex-1 font-semibold shadow-lg hover:shadow-xl transition-shadow"
+                  style={{ 
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  }}
                 >
+                  <Package className="h-4 w-4 mr-2" />
                   Finalizar Pedido
                 </Button>
               </div>
@@ -1013,15 +1240,27 @@ const MenuPublic = () => {
 
       {/* Checkout Dialog */}
       <Dialog open={showCheckout} onOpenChange={setShowCheckout}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Finalizar Pedido</DialogTitle>
-            <DialogDescription>
-              Preencha os dados para finalizar seu pedido
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          {/* Header com gradiente */}
+          <DialogHeader 
+            className="px-6 pt-6 pb-4 relative overflow-hidden"
+            style={{
+              background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle2 className="h-5 w-5" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-2xl font-bold">
+                Finalizar Pedido
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-base text-muted-foreground">
+              Estamos quase lá! Preencha seus dados e finalize seu pedido delicioso 🍔
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-4">
             <div>
               <Label htmlFor="customerName">Nome *</Label>
               <Input
@@ -1044,13 +1283,17 @@ const MenuPublic = () => {
             </div>
 
             <div>
-              <Label>Tipo de Pedido *</Label>
-              <div className="flex gap-2 mt-2">
+              <Label className="text-base font-medium">Tipo de Pedido *</Label>
+              <div className="flex gap-3 mt-2">
                 <Button
                   type="button"
                   variant={orderType === "delivery" ? "default" : "outline"}
                   onClick={() => setOrderType("delivery")}
-                  className="flex-1"
+                  className="flex-1 h-12"
+                  style={orderType === "delivery" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <MapPin className="h-4 w-4 mr-2" />
                   Entrega
@@ -1059,7 +1302,11 @@ const MenuPublic = () => {
                   type="button"
                   variant={orderType === "pickup" ? "default" : "outline"}
                   onClick={() => setOrderType("pickup")}
-                  className="flex-1"
+                  className="flex-1 h-12"
+                  style={orderType === "pickup" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <Clock className="h-4 w-4 mr-2" />
                   Retirada
@@ -1081,13 +1328,17 @@ const MenuPublic = () => {
             )}
 
             <div>
-              <Label>Forma de Pagamento *</Label>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <Label className="text-base font-medium">Forma de Pagamento *</Label>
+              <div className="grid grid-cols-2 gap-3 mt-2">
                 <Button
                   type="button"
                   variant={paymentMethod === "dinheiro" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("dinheiro")}
-                  className="flex items-center justify-center gap-2"
+                  className="flex items-center justify-center gap-2 h-12"
+                  style={paymentMethod === "dinheiro" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <Wallet className="h-4 w-4" />
                   Dinheiro
@@ -1096,7 +1347,11 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "pix" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("pix")}
-                  className="flex items-center justify-center gap-2"
+                  className="flex items-center justify-center gap-2 h-12"
+                  style={paymentMethod === "pix" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <CreditCard className="h-4 w-4" />
                   PIX
@@ -1105,7 +1360,11 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "cartao_debito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_debito")}
-                  className="flex items-center justify-center gap-2"
+                  className="flex items-center justify-center gap-2 h-12"
+                  style={paymentMethod === "cartao_debito" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <CreditCard className="h-4 w-4" />
                   Débito
@@ -1114,7 +1373,11 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "cartao_credito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_credito")}
-                  className="flex items-center justify-center gap-2"
+                  className="flex items-center justify-center gap-2 h-12"
+                  style={paymentMethod === "cartao_credito" ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff"
+                  } : {}}
                 >
                   <CreditCard className="h-4 w-4" />
                   Crédito
@@ -1133,16 +1396,27 @@ const MenuPublic = () => {
               />
             </div>
 
-            <div className="border-t pt-4">
-              <div className="flex justify-between mb-4">
-                <span className="font-semibold">Total:</span>
-                <span className="text-xl font-bold text-primary">
-                  R$ {cartTotal.toFixed(2)}
-                </span>
+            <div 
+              className="border-t pt-4 mt-4"
+              style={{ borderColor: `${menuCustomization.primaryColor}20` }}
+            >
+              <div 
+                className="p-4 rounded-lg mb-4"
+                style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-base">Total do Pedido:</span>
+                  <span 
+                    className="text-2xl font-bold"
+                    style={{ color: menuCustomization.primaryColor }}
+                  >
+                    R$ {cartTotal.toFixed(2)}
+                  </span>
+                </div>
               </div>
               <Button
                 onClick={handleCheckout}
-                className="w-full"
+                className="w-full font-semibold shadow-lg hover:shadow-xl transition-shadow"
                 size="lg"
                 disabled={
                   !customerName.trim() || 
@@ -1150,25 +1424,50 @@ const MenuPublic = () => {
                   !paymentMethod ||
                   (!isOpen && !establishment?.allow_orders_when_closed)
                 }
+                style={{ 
+                  backgroundColor: menuCustomization.primaryColor,
+                  color: "#ffffff",
+                  opacity: (!customerName.trim() || !customerPhone.trim() || !paymentMethod || (!isOpen && !establishment?.allow_orders_when_closed)) ? 0.5 : 1
+                }}
                 title={
                   !isOpen && !establishment?.allow_orders_when_closed
                     ? "Estamos fechados agora. Tente novamente quando estivermos abertos."
                     : undefined
                 }
               >
+                <CheckCircle2 className="h-4 w-4 mr-2" />
                 {!isOpen && establishment?.allow_orders_when_closed
                   ? "Confirmar Pré-Pedido"
                   : "Confirmar Pedido"}
               </Button>
               {!isOpen && !establishment?.allow_orders_when_closed && (
-                <p className="text-sm text-muted-foreground text-center mt-2">
+                <p className="text-sm text-muted-foreground text-center mt-3">
                   Estamos fechados agora. Tente novamente quando estivermos abertos.
                 </p>
               )}
             </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Addons Modal */}
+      {pendingProduct && establishment && (
+        <AddonsModal
+          open={showAddonsModal}
+          onClose={() => {
+            setShowAddonsModal(false);
+            setPendingProduct(null);
+          }}
+          onConfirm={handleAddonsConfirm}
+          productId={pendingProduct.id}
+          categoryId={pendingProduct.category_id || null}
+          establishmentId={establishment.id}
+          productName={pendingProduct.name}
+          primaryColor={menuCustomization.primaryColor}
+          secondaryColor={menuCustomization.secondaryColor}
+        />
+      )}
       </div>
     </div>
   );

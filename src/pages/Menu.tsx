@@ -854,9 +854,6 @@ const Menu = () => {
                         onChange={handleImageUpload}
                         className="hidden"
                       />
-                      <p className="text-xs text-muted-foreground mt-3">
-                        💡 Dica: Se o upload falhar, use uma URL externa ou crie o bucket 'establishments' no Supabase Storage
-                      </p>
                     </div>
                     {showUrlInput && (
                       <div className="space-y-2 p-4 border rounded-lg bg-muted/50">

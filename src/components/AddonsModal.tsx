@@ -30,6 +30,7 @@ interface AddonsModalProps {
   productName: string;
   primaryColor?: string;
   secondaryColor?: string;
+  variant?: "fancy" | "normal"; // "fancy" para cardápio online/totem, "normal" para PDV
 }
 
 export const AddonsModal = ({
@@ -42,6 +43,7 @@ export const AddonsModal = ({
   productName,
   primaryColor = "#3b82f6",
   secondaryColor = "#8b5cf6",
+  variant = "fancy",
 }: AddonsModalProps) => {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [selectedAddons, setSelectedAddons] = useState<Map<string, number>>(new Map());
@@ -152,34 +154,44 @@ export const AddonsModal = ({
 
   const totalAddonsPrice = getTotalAddonsPrice();
   const hasSelectedAddons = selectedAddons.size > 0;
+  const isFancy = variant === "fancy";
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-        {/* Header com gradiente */}
-        <DialogHeader 
-          className="px-6 pt-6 pb-4 relative overflow-hidden"
-          style={{
-            background: `linear-gradient(135deg, ${primaryColor}15 0%, ${secondaryColor}15 100%)`,
-          }}
-        >
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="h-5 w-5" style={{ color: primaryColor }} />
-              <DialogTitle className="text-2xl font-bold">
-                Personalize seu {productName}
-              </DialogTitle>
+      <DialogContent className={isFancy ? "max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden" : "max-w-lg"}>
+        {/* Header */}
+        {isFancy ? (
+          <DialogHeader 
+            className="px-6 pt-6 pb-4 relative overflow-hidden"
+            style={{
+              background: `linear-gradient(135deg, ${primaryColor}15 0%, ${secondaryColor}15 100%)`,
+            }}
+          >
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="h-5 w-5" style={{ color: primaryColor }} />
+                <DialogTitle className="text-2xl font-bold">
+                  Personalize seu {productName}
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-base text-muted-foreground">
+                Você deseja adicionar ao seu lanche algum dos adicionais? 
+                <span className="block mt-1 text-sm font-medium" style={{ color: primaryColor }}>
+                  Torne seu pedido ainda mais especial! ✨
+                </span>
+              </DialogDescription>
             </div>
-            <DialogDescription className="text-base text-muted-foreground">
-              Você deseja adicionar ao seu lanche algum dos adicionais? 
-              <span className="block mt-1 text-sm font-medium" style={{ color: primaryColor }}>
-                Torne seu pedido ainda mais especial! ✨
-              </span>
+          </DialogHeader>
+        ) : (
+          <DialogHeader>
+            <DialogTitle>Adicionais</DialogTitle>
+            <DialogDescription>
+              Deseja adicionar algum adicional?
             </DialogDescription>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
+        )}
 
-        <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
+        <div className={isFancy ? "flex-1 overflow-hidden flex flex-col px-6 py-4" : "space-y-4"}>
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 mb-4" style={{ borderColor: primaryColor }}></div>
@@ -187,128 +199,194 @@ export const AddonsModal = ({
             </div>
           ) : addons.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-4xl mb-4">🍔</div>
-              <p className="text-base font-medium text-muted-foreground mb-2">
-                Nenhum adicional disponível
-              </p>
-              <p className="text-sm text-muted-foreground mb-6">
-                Este produto já está completo e delicioso!
-              </p>
-              <Button 
-                onClick={onClose} 
-                size="lg"
-                style={{ backgroundColor: primaryColor, color: "#ffffff" }}
-                className="px-8"
-              >
-                Continuar sem adicionais
-              </Button>
+              {isFancy ? (
+                <>
+                  <div className="text-4xl mb-4">🍔</div>
+                  <p className="text-base font-medium text-muted-foreground mb-2">
+                    Nenhum adicional disponível
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    Este produto já está completo e delicioso!
+                  </p>
+                  <Button 
+                    onClick={onClose} 
+                    size="lg"
+                    style={{ backgroundColor: primaryColor, color: "#ffffff" }}
+                    className="px-8"
+                  >
+                    Continuar sem adicionais
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Nenhum adicional disponível para este produto.
+                  </p>
+                  <Button onClick={onClose} variant="outline">
+                    Fechar
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
-            <div className="flex-1 flex flex-col min-h-0">
-              <p className="text-sm font-medium text-muted-foreground mb-4">
-                Escolha quantos quiser - todos são opcionais! 😊
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto flex-1 pr-2 pb-2">
+            <div className={isFancy ? "flex-1 flex flex-col min-h-0" : "space-y-3"}>
+              {isFancy && (
+                <p className="text-sm font-medium text-muted-foreground mb-4">
+                  Escolha quantos quiser - todos são opcionais! 😊
+                </p>
+              )}
+              <div className={isFancy ? "grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto flex-1 pr-2 pb-2" : "space-y-2 max-h-[400px] overflow-y-auto"}>
                 {addons.map((addon) => {
                   const quantity = selectedAddons.get(addon.id) || 0;
                   const isSelected = quantity > 0;
 
-                  return (
-                    <div
-                      key={addon.id}
-                      className={`relative p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
-                        isSelected 
-                          ? "border-opacity-100 shadow-lg scale-[1.02]" 
-                          : "border-opacity-30 hover:border-opacity-60 hover:shadow-md"
-                      }`}
-                      style={{
-                        borderColor: isSelected ? primaryColor : "currentColor",
-                        backgroundColor: isSelected ? `${primaryColor}08` : "transparent",
-                      }}
-                      onClick={() => handleAddonToggle(addon.id)}
-                    >
-                      {/* Badge de selecionado */}
-                      {isSelected && (
-                        <div 
-                          className="absolute -top-2 -right-2 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          ✓
-                        </div>
-                      )}
-
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => handleAddonToggle(addon.id)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <Label
-                              htmlFor={`addon-${addon.id}`}
-                              className="font-semibold text-base cursor-pointer leading-tight"
-                            >
-                              {addon.name}
-                            </Label>
-                            <div className="flex-shrink-0">
-                              <span 
-                                className="text-lg font-bold"
-                                style={{ color: primaryColor }}
-                              >
-                                R$ {addon.price.toFixed(2)}
-                              </span>
-                            </div>
+                  if (isFancy) {
+                    return (
+                      <div
+                        key={addon.id}
+                        className={`relative p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                          isSelected 
+                            ? "border-opacity-100 shadow-lg scale-[1.02]" 
+                            : "border-opacity-30 hover:border-opacity-60 hover:shadow-md"
+                        }`}
+                        style={{
+                          borderColor: isSelected ? primaryColor : "currentColor",
+                          backgroundColor: isSelected ? `${primaryColor}08` : "transparent",
+                        }}
+                        onClick={() => handleAddonToggle(addon.id)}
+                      >
+                        {/* Badge de selecionado */}
+                        {isSelected && (
+                          <div 
+                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            ✓
                           </div>
-                          {addon.description && (
-                            <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
-                              {addon.description}
-                            </p>
-                          )}
-                          
-                          {isSelected && (
-                            <div
-                              className="flex items-center gap-2 mt-3 pt-3 border-t"
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ borderColor: `${primaryColor}20` }}
-                            >
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleQuantityChange(addon.id, -1)}
-                                className="h-8 w-8 p-0 rounded-full"
-                                style={{ borderColor: primaryColor }}
+                        )}
+
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleAddonToggle(addon.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <Label
+                                htmlFor={`addon-${addon.id}`}
+                                className="font-semibold text-base cursor-pointer leading-tight"
                               >
-                                <Minus className="h-4 w-4" style={{ color: primaryColor }} />
-                              </Button>
-                              <span 
-                                className="w-10 text-center font-bold text-base"
-                                style={{ color: primaryColor }}
-                              >
-                                {quantity}
-                              </span>
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => handleQuantityChange(addon.id, 1)}
-                                className="h-8 w-8 p-0 rounded-full"
-                                style={{ backgroundColor: primaryColor, color: "#ffffff" }}
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                              <span className="text-xs text-muted-foreground ml-auto">
-                                Total: <span className="font-semibold" style={{ color: primaryColor }}>
-                                  R$ {(addon.price * quantity).toFixed(2)}
+                                {addon.name}
+                              </Label>
+                              <div className="flex-shrink-0">
+                                <span 
+                                  className="text-lg font-bold"
+                                  style={{ color: primaryColor }}
+                                >
+                                  R$ {addon.price.toFixed(2)}
                                 </span>
-                              </span>
+                              </div>
                             </div>
-                          )}
+                            {addon.description && (
+                              <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
+                                {addon.description}
+                              </p>
+                            )}
+                            
+                            {isSelected && (
+                              <div
+                                className="flex items-center gap-2 mt-3 pt-3 border-t"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ borderColor: `${primaryColor}20` }}
+                              >
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleQuantityChange(addon.id, -1)}
+                                  className="h-8 w-8 p-0 rounded-full"
+                                  style={{ borderColor: primaryColor }}
+                                >
+                                  <Minus className="h-4 w-4" style={{ color: primaryColor }} />
+                                </Button>
+                                <span 
+                                  className="w-10 text-center font-bold text-base"
+                                  style={{ color: primaryColor }}
+                                >
+                                  {quantity}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleQuantityChange(addon.id, 1)}
+                                  className="h-8 w-8 p-0 rounded-full"
+                                  style={{ backgroundColor: primaryColor, color: "#ffffff" }}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  Total: <span className="font-semibold" style={{ color: primaryColor }}>
+                                    R$ {(addon.price * quantity).toFixed(2)}
+                                  </span>
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  } else {
+                    // Estilo normal para PDV
+                    return (
+                      <div key={addon.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center gap-3 flex-1">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleAddonToggle(addon.id)}
+                            id={`addon-${addon.id}`}
+                          />
+                          <div className="flex-1">
+                            <Label htmlFor={`addon-${addon.id}`} className="font-medium cursor-pointer">
+                              {addon.name}
+                            </Label>
+                            {addon.description && (
+                              <p className="text-sm text-muted-foreground">{addon.description}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold">R$ {addon.price.toFixed(2)}</div>
+                            {isSelected && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleQuantityChange(addon.id, -1)}
+                                  className="h-7 w-7 p-0"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <span className="w-8 text-center text-sm font-medium">
+                                  {quantity}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleQuantityChange(addon.id, 1)}
+                                  className="h-7 w-7 p-0"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
                 })}
               </div>
             </div>
@@ -317,26 +395,25 @@ export const AddonsModal = ({
 
         {!loading && addons.length > 0 && (
           <div 
-            className="px-6 pb-6 pt-4 border-t space-y-4"
-            style={{ borderColor: `${primaryColor}20` }}
+            className={isFancy ? "px-6 pb-6 pt-4 border-t space-y-4" : "border-t pt-4 space-y-4"}
+            style={isFancy ? { borderColor: `${primaryColor}20` } : {}}
           >
             {hasSelectedAddons && (
               <div 
-                className="p-4 rounded-lg"
-                style={{ backgroundColor: `${primaryColor}10` }}
+                className={isFancy ? "p-4 rounded-lg" : "p-3 bg-muted rounded-md"}
+                style={isFancy ? { backgroundColor: `${primaryColor}10` } : {}}
               >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-base">Total de Adicionais:</span>
-                  <span 
-                    className="text-2xl font-bold"
-                    style={{ color: primaryColor }}
-                  >
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold">Total de Adicionais:</span>
+                  <span className={isFancy ? "text-2xl font-bold" : "text-lg font-bold"}>
                     R$ {totalAddonsPrice.toFixed(2)}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {selectedAddons.size} {selectedAddons.size === 1 ? 'adicional selecionado' : 'adicionais selecionados'}
-                </p>
+                {isFancy && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedAddons.size} {selectedAddons.size === 1 ? 'adicional selecionado' : 'adicionais selecionados'}
+                  </p>
+                )}
               </div>
             )}
 
@@ -344,31 +421,31 @@ export const AddonsModal = ({
               <Button 
                 variant="outline" 
                 onClick={onClose} 
-                size="lg"
+                size={isFancy ? "lg" : "default"}
                 className="flex-1"
               >
-                {hasSelectedAddons ? 'Continuar sem adicionais' : 'Pular'}
+                {hasSelectedAddons ? 'Cancelar' : 'Pular'}
               </Button>
               <Button 
                 onClick={handleConfirm} 
-                size="lg"
-                className="flex-1 font-semibold shadow-lg hover:shadow-xl transition-shadow"
-                style={{ 
+                size={isFancy ? "lg" : "default"}
+                className={isFancy ? "flex-1 font-semibold shadow-lg hover:shadow-xl transition-shadow" : "flex-1"}
+                style={isFancy ? { 
                   backgroundColor: hasSelectedAddons ? primaryColor : secondaryColor,
                   color: "#ffffff"
-                }}
+                } : {}}
               >
                 {hasSelectedAddons ? (
                   <>
-                    Adicionar ao Pedido
-                    <span className="ml-2 opacity-90">
-                      (+R$ {totalAddonsPrice.toFixed(2)})
-                    </span>
+                    {isFancy ? "Adicionar ao Pedido" : "Confirmar"}
+                    {isFancy && (
+                      <span className="ml-2 opacity-90">
+                        (+R$ {totalAddonsPrice.toFixed(2)})
+                      </span>
+                    )}
                   </>
                 ) : (
-                  <>
-                    Continuar sem Adicionais
-                  </>
+                  "Continuar sem Adicionais"
                 )}
               </Button>
             </div>

@@ -2593,6 +2593,7 @@ const PDV = () => {
         categoryId={pendingProduct?.category_id || null}
         establishmentId={establishmentId || ""}
         productName={pendingProduct?.name || ""}
+        variant="normal"
       />
 
       <PixPaymentModal

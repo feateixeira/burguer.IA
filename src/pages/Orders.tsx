@@ -137,6 +137,10 @@ interface Order {
   const [customerCpf, setCustomerCpf] = useState("");
   const [customerPhoneNonFiscal, setCustomerPhoneNonFiscal] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState<string>("");
+  const [showDeliveryBoyDialog, setShowDeliveryBoyDialog] = useState(false);
+  const [pendingOrderForAccept, setPendingOrderForAccept] = useState<Order | null>(null);
+  const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
+  const [selectedDeliveryBoyId, setSelectedDeliveryBoyId] = useState<string>("");
   const navigate = useNavigate();
     const sidebarWidth = useSidebarWidth();
     const [isDesktop, setIsDesktop] = useState(false);
@@ -1705,7 +1709,7 @@ interface Order {
       }
     };
 
-    const handleAcceptAndPrintOrder = async (order: Order) => {
+    const handleAcceptAndPrintOrder = async (order: Order, deliveryBoyId?: string) => {
       try {
         // Verificar se é pedido do site externo (Na Brasa)
         const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
@@ -1739,13 +1743,16 @@ interface Order {
           }
         }
         
-        // Atribuir motoboy automaticamente se for pedido do site do Na Brasa
+        // Atribuir motoboy se fornecido ou se for pedido do site do Na Brasa
         const isDelivery = order.order_type === 'delivery';
         const hasAddress = order.notes?.toLowerCase().includes('endereço:') || false;
         const hasDeliveryBoy = order.delivery_boy_id !== null && order.delivery_boy_id !== undefined;
         
-        if (isFromNaBrasaSite && isDelivery && hasAddress && !hasDeliveryBoy && establishment) {
-          // Buscar o primeiro motoboy ativo do estabelecimento
+        if (deliveryBoyId) {
+          // Usar o motoboy selecionado
+          updateData.delivery_boy_id = deliveryBoyId;
+        } else if (isFromNaBrasaSite && isDelivery && hasAddress && !hasDeliveryBoy && establishment) {
+          // Buscar o primeiro motoboy ativo do estabelecimento (comportamento antigo para Na Brasa)
           const { data: deliveryBoys, error: deliveryBoysError } = await supabase
             .from("delivery_boys")
             .select("id")
@@ -2312,21 +2319,6 @@ interface Order {
                               {/* Botões para pedidos online pendentes que ainda não foram aceitos */}
                               {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
                                 <>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        variant="default" 
-                                        size="icon"
-                                        onClick={() => handleAcceptAndPrintOrder(order)}
-                                        className="h-8 w-8 bg-green-600 hover:bg-green-700"
-                                      >
-                                        <Printer className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Aceitar e Imprimir</p>
-                                    </TooltipContent>
-                                  </Tooltip>
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                       <Tooltip>
@@ -2796,6 +2788,50 @@ interface Order {
                       </AlertDialog>
                             </TooltipProvider>
                           </div>
+                          
+                          {/* Botão destacado para aceitar e imprimir - posicionado abaixo dos outros botões */}
+                          {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
+                            <div className="mt-2 w-full">
+                              <Button 
+                                variant="default" 
+                                size="sm"
+                                onClick={async () => {
+                                  // Verificar se é pedido de entrega
+                                  const isDelivery = order.order_type === 'delivery';
+                                  
+                                  if (isDelivery && establishment) {
+                                    // Buscar motoboys ativos
+                                    const { data: boys, error } = await supabase
+                                      .from("delivery_boys")
+                                      .select("id, name")
+                                      .eq("establishment_id", establishment.id)
+                                      .eq("active", true)
+                                      .order("name");
+                                    
+                                    if (!error && boys && boys.length > 1) {
+                                      // Se houver mais de um motoboy, mostrar diálogo de seleção
+                                      setDeliveryBoys(boys);
+                                      setPendingOrderForAccept(order);
+                                      setSelectedDeliveryBoyId("");
+                                      setShowDeliveryBoyDialog(true);
+                                      return;
+                                    } else if (!error && boys && boys.length === 1) {
+                                      // Se houver apenas um, usar automaticamente
+                                      await handleAcceptAndPrintOrder(order, boys[0].id);
+                                      return;
+                                    }
+                                  }
+                                  
+                                  // Se não for entrega ou não houver motoboys, aceitar normalmente
+                                  await handleAcceptAndPrintOrder(order);
+                                }}
+                                className="w-full h-9 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 border-2 border-green-400"
+                              >
+                                <Printer className="h-4 w-4 mr-1.5" />
+                                <span className="text-xs font-semibold">Aceitar e Imprimir</span>
+                              </Button>
+                            </div>
+                          )}
                         </div>
 
                         {order.notes && (
@@ -2863,6 +2899,66 @@ interface Order {
               <Button onClick={handleConfirmNonFiscalPrint}>
                 <Printer className="h-4 w-4 mr-2" />
                 Imprimir Cupom
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        
+        {/* Dialog para seleção de motoboy - fora do map */}
+        <Dialog open={showDeliveryBoyDialog} onOpenChange={setShowDeliveryBoyDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Selecionar Motoboy para Entrega</DialogTitle>
+              <DialogDescription>
+                Selecione qual motoboy fará esta entrega. O pedido #{pendingOrderForAccept?.order_number} será aceito e impresso após a seleção.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {deliveryBoys.map((boy) => (
+                <Button
+                  key={boy.id}
+                  variant={selectedDeliveryBoyId === boy.id ? "default" : "outline"}
+                  className="w-full justify-start h-auto py-3"
+                  onClick={() => setSelectedDeliveryBoyId(boy.id)}
+                >
+                  <Truck className="h-4 w-4 mr-2" />
+                  <span className="font-medium">{boy.name}</span>
+                  {selectedDeliveryBoyId === boy.id && (
+                    <CheckCircle2 className="h-4 w-4 ml-auto" />
+                  )}
+                </Button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeliveryBoyDialog(false);
+                  setPendingOrderForAccept(null);
+                  setSelectedDeliveryBoyId("");
+                  setDeliveryBoys([]);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!selectedDeliveryBoyId || !pendingOrderForAccept) {
+                    toast.error("Por favor, selecione um motoboy");
+                    return;
+                  }
+                  
+                  await handleAcceptAndPrintOrder(pendingOrderForAccept, selectedDeliveryBoyId);
+                  
+                  setShowDeliveryBoyDialog(false);
+                  setPendingOrderForAccept(null);
+                  setSelectedDeliveryBoyId("");
+                  setDeliveryBoys([]);
+                }}
+                disabled={!selectedDeliveryBoyId}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Aceitar e Imprimir
               </Button>
             </div>
           </DialogContent>

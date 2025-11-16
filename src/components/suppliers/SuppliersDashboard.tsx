@@ -15,6 +15,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+// Função para formatar valores monetários no padrão brasileiro
+const formatCurrencyBR = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
 interface DashboardStats {
   totalPending: number;
   totalPaid: number;
@@ -181,7 +191,7 @@ export function SuppliersDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              R$ {stats.totalPending.toFixed(2)}
+              {formatCurrencyBR(stats.totalPending)}
             </div>
             <p className="text-xs text-muted-foreground">
               {pendingPayments.length} pagamentos pendentes
@@ -196,7 +206,7 @@ export function SuppliersDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              R$ {stats.totalPaid.toFixed(2)}
+              {formatCurrencyBR(stats.totalPaid)}
             </div>
             <p className="text-xs text-muted-foreground">
               Pagamentos realizados
@@ -264,7 +274,7 @@ export function SuppliersDashboard() {
                         })}
                       </p>
                       <p className="text-lg font-bold">
-                        R$ {payment.total_amount.toFixed(2)}
+                        {formatCurrencyBR(payment.total_amount)}
                       </p>
                     </div>
                     <Button
@@ -313,7 +323,7 @@ export function SuppliersDashboard() {
                         })}
                       </p>
                       <p className="text-lg font-bold">
-                        R$ {delivery.total_amount.toFixed(2)}
+                        {formatCurrencyBR(delivery.total_amount)}
                       </p>
                     </div>
                     <Button

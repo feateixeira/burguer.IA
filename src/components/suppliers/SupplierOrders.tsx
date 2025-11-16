@@ -10,6 +10,16 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { SupplierOrderDialog } from "./SupplierOrderDialog";
 
+// Função para formatar valores monetários no padrão brasileiro
+const formatCurrencyBR = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
 interface SupplierOrder {
   id: string;
   order_number: string;
@@ -197,7 +207,7 @@ export function SupplierOrders() {
                 </div>
 
                 <div className="text-right flex items-start gap-2">
-                  <p className="text-2xl font-bold">R$ {Number(order.total_amount).toFixed(2)}</p>
+                  <p className="text-2xl font-bold">{formatCurrencyBR(Number(order.total_amount))}</p>
                   <Button variant="outline" size="icon" onClick={(e) => { e.stopPropagation(); handleDelete(order.id); }} title="Apagar pedido">
                     <Trash2 className="h-4 w-4" />
                   </Button>

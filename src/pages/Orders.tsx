@@ -39,10 +39,10 @@ import { Checkbox } from "@/components/ui/checkbox";
   import Sidebar from "@/components/Sidebar";
   import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
   import { useSidebarWidth } from "@/hooks/useSidebarWidth";
-  import { useCashSession } from "@/hooks/useCashSession";
-  import { phoneMask } from "@/utils/phoneNormalizer";
-  import { buildWhatsLink, shouldShowWhatsButton } from "@/utils/whatsappLink";
-  import {
+import { useCashSession } from "@/hooks/useCashSession";
+import { phoneMask } from "@/utils/phoneNormalizer";
+import { buildWhatsLink, shouldShowWhatsButton } from "@/utils/whatsappLink";
+import {
     Dialog,
     DialogContent,
     DialogDescription,
@@ -68,7 +68,17 @@ import {
     TooltipTrigger,
   } from "@/components/ui/tooltip";
 
-  interface Order {
+// Função para formatar valores monetários no padrão brasileiro
+const formatCurrencyBR = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+interface Order {
     id: string;
     order_number: string;
     customer_name?: string;
@@ -2185,9 +2195,7 @@ import {
                             <div className="text-right">
                               <p className="text-2xl font-bold text-primary flex items-center justify-end">
                                 <DollarSign className="h-5 w-5" />
-                                {order.total_amount.toLocaleString("pt-BR", {
-                                  minimumFractionDigits: 2
-                                })}
+                                {formatCurrencyBR(order.total_amount)}
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 {order.order_items?.length || 0} item(s)
@@ -2541,7 +2549,7 @@ import {
                                           <div key={index} className="p-2 border rounded">
                                             <div className="flex justify-between items-center">
                                               <span className="font-medium">{item.quantity}x {item.products.name}</span>
-                                              <span className="font-semibold">R$ {item.total_price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                                              <span className="font-semibold">{formatCurrencyBR(item.total_price)}</span>
                                             </div>
                                             {addonsInfo && (
                                               <div className="mt-1.5 text-sm text-muted-foreground pl-2 border-l-2 border-primary/30">

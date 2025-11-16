@@ -49,6 +49,16 @@ interface SalesReportItem {
   unit_price: number;
 }
 
+// Função para formatar valores monetários no padrão brasileiro
+const formatCurrencyBR = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
 const Reports = () => {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -351,8 +361,8 @@ const Reports = () => {
       item.category_name,
       item.product_name,
       item.total_quantity.toString(),
-      item.total_revenue.toFixed(2).replace(".", ","),
-      item.unit_price.toFixed(2).replace(".", ","),
+      formatCurrencyBR(item.total_revenue),
+      formatCurrencyBR(item.unit_price),
     ]);
 
     const csvContent = [
@@ -450,7 +460,7 @@ const Reports = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                R$ {getTotalRevenue().toFixed(2).replace(".", ",")}
+                {formatCurrencyBR(getTotalRevenue())}
               </div>
               <p className="text-xs text-muted-foreground mt-1">no mês</p>
             </CardContent>
@@ -498,10 +508,10 @@ const Reports = () => {
                           <Badge variant="secondary">{item.total_quantity}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          R$ {item.unit_price.toFixed(2).replace(".", ",")}
+                          {formatCurrencyBR(item.unit_price)}
                         </TableCell>
                         <TableCell className="text-right font-semibold">
-                          R$ {item.total_revenue.toFixed(2).replace(".", ",")}
+                          {formatCurrencyBR(item.total_revenue)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -515,10 +525,9 @@ const Reports = () => {
                       </TableCell>
                       <TableCell className="text-right">-</TableCell>
                       <TableCell className="text-right">
-                        R$ {items
-                          .reduce((sum, item) => sum + item.total_revenue, 0)
-                          .toFixed(2)
-                          .replace(".", ",")}
+                        {formatCurrencyBR(
+                          items.reduce((sum, item) => sum + item.total_revenue, 0)
+                        )}
                       </TableCell>
                     </TableRow>
                   </TableBody>

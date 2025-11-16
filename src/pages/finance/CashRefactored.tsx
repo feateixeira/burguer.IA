@@ -100,8 +100,6 @@ const CashRefactored = () => {
   const [depositDialog, setDepositDialog] = useState(false);
   const [showCashOpenWarning, setShowCashOpenWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
-  const [showOpenCashPrompt, setShowOpenCashPrompt] = useState(false);
-  const [hasCheckedCashStatus, setHasCheckedCashStatus] = useState(false);
   
   // Forms
   const [openingAmount, setOpeningAmount] = useState("");
@@ -133,28 +131,7 @@ const CashRefactored = () => {
     }
   }, [profile, session]);
 
-  // Verificar se deve mostrar diálogo para abrir caixa ao acessar a página
-  useEffect(() => {
-    // Só verifica quando o loading terminar e tiver profile
-    if (!profile?.establishment_id) return;
-    
-    // Se já verificou antes, não verifica novamente
-    if (hasCheckedCashStatus) return;
-
-    // Se ainda está carregando, aguarda
-    if (loading) return;
-
-    // Aguardar um pouco para garantir que todos os dados foram carregados
-    const timer = setTimeout(() => {
-      // Verifica se não tem caixa aberto
-      if (!hasOpenSession && !session && !loading) {
-        setShowOpenCashPrompt(true);
-      }
-      setHasCheckedCashStatus(true);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [profile, loading, hasOpenSession, session, hasCheckedCashStatus]);
+  // Removido: alerta de abrir caixa não é mais necessário
 
   // Interceptar navegação quando caixa está aberto
   const previousPathRef = useRef(location.pathname);
@@ -1112,44 +1089,6 @@ const CashRefactored = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Diálogo: Perguntar se quer abrir o caixa */}
-      <AlertDialog open={showOpenCashPrompt} onOpenChange={setShowOpenCashPrompt}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/20">
-                <Wallet className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <AlertDialogTitle className="text-lg">Abrir Caixa</AlertDialogTitle>
-                <AlertDialogDescription className="mt-1">
-                  Não há caixa aberto no momento.
-                </AlertDialogDescription>
-              </div>
-            </div>
-          </AlertDialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Deseja abrir o caixa agora para começar a trabalhar?
-            </p>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowOpenCashPrompt(false)}>
-              Não, Obrigado
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setShowOpenCashPrompt(false);
-                setOpenDialog(true);
-              }}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Sim, Abrir Caixa
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Alerta personalizado para caixa aberto */}
       <AlertDialog open={showCashOpenWarning} onOpenChange={setShowCashOpenWarning}>

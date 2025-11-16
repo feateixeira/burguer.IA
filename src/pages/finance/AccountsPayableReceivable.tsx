@@ -70,6 +70,16 @@ interface ReceivableByMonth {
   count: number;
 }
 
+// Função para formatar valores monetários no padrão brasileiro
+const formatCurrencyBR = (value: number): string => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
 const AccountsPayableReceivable = () => {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -365,7 +375,7 @@ const AccountsPayableReceivable = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-red-600">
-              R$ {totalPayable.toFixed(2).replace(".", ",")}
+              {formatCurrencyBR(totalPayable)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {payablesByMonth.reduce((sum, month) => sum + month.count, 0)} contas pendentes
@@ -380,7 +390,7 @@ const AccountsPayableReceivable = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-green-600">
-              R$ {totalReceivable.toFixed(2).replace(".", ",")}
+              {formatCurrencyBR(totalReceivable)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Mês atual
@@ -443,7 +453,7 @@ const AccountsPayableReceivable = () => {
                 />
                 <YAxis />
                 <Tooltip
-                  formatter={(value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`}
+                  formatter={(value: number) => formatCurrencyBR(value)}
                 />
                 <Legend />
                 <Bar dataKey="pagar" fill="#ef4444" name="A Pagar" />
@@ -485,7 +495,7 @@ const AccountsPayableReceivable = () => {
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-bold text-red-600">
-                        R$ {month.total.toFixed(2).replace(".", ",")}
+                        {formatCurrencyBR(month.total)}
                       </div>
                     </div>
                   </div>
@@ -511,7 +521,7 @@ const AccountsPayableReceivable = () => {
                             })}
                           </TableCell>
                           <TableCell className="text-right font-semibold">
-                            R$ {item.total_amount.toFixed(2).replace(".", ",")}
+                            {formatCurrencyBR(item.total_amount)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -573,7 +583,7 @@ const AccountsPayableReceivable = () => {
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-bold text-green-600">
-                      R$ {totalReceivable.toFixed(2).replace(".", ",")}
+                      {formatCurrencyBR(totalReceivable)}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {receivablesByMonth.reduce((sum, month) => sum + month.count, 0)}{" "}
@@ -618,7 +628,7 @@ const AccountsPayableReceivable = () => {
                               {getPaymentMethodLabel(method)}
                             </p>
                             <p className="font-semibold">
-                              R$ {amount.toFixed(2).replace(".", ",")}
+                              {formatCurrencyBR(amount)}
                             </p>
                           </div>
                         </div>
@@ -644,7 +654,7 @@ const AccountsPayableReceivable = () => {
                         </div>
                         <div className="text-right">
                           <div className="text-2xl font-bold text-green-600">
-                            R$ {month.total.toFixed(2).replace(".", ",")}
+                            {formatCurrencyBR(month.total)}
                           </div>
                         </div>
                       </div>
@@ -664,7 +674,7 @@ const AccountsPayableReceivable = () => {
                                   {getPaymentMethodLabel(method)}
                                 </p>
                                 <p className="font-semibold">
-                                  R$ {amount.toFixed(2).replace(".", ",")}
+                                  {formatCurrencyBR(amount)}
                                 </p>
                               </div>
                             </div>

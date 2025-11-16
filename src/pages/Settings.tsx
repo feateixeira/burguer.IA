@@ -338,7 +338,6 @@ const Settings = () => {
           phone: formData.get("phone") as string || null,
           address: formData.get("address") as string || null,
           cnpj: formData.get("cnpj") as string || null,
-          pix_key: formData.get("pix_key") as string || null,
           settings,
           daily_goal,
           weekly_goal,
@@ -512,16 +511,16 @@ const Settings = () => {
                 <Truck className="h-4 w-4" />
                 <span className="hidden lg:inline">Delivery</span>
               </TabsTrigger>
-              <TabsTrigger value="security" className="flex items-center gap-2 py-3">
-                <Shield className="h-4 w-4" />
-                <span className="hidden lg:inline">Segurança</span>
-              </TabsTrigger>
               {(userRole === 'master' || userRole === 'admin') && (
                 <TabsTrigger value="team" className="flex items-center gap-2 py-3">
                   <Users className="h-4 w-4" />
                   <span className="hidden lg:inline">Gerenciar Equipe</span>
                 </TabsTrigger>
               )}
+              <TabsTrigger value="security" className="flex items-center gap-2 py-3">
+                <Shield className="h-4 w-4" />
+                <span className="hidden lg:inline">Segurança</span>
+              </TabsTrigger>
             </TabsList>
             {/* Team Management Tab */}
             {(userRole === 'master' || userRole === 'admin') && (
@@ -887,20 +886,29 @@ const Settings = () => {
                         </div>
 
                         <div className="space-y-2 lg:col-span-2">
-                          <Label htmlFor="pix_key" className="text-sm font-medium flex items-center gap-2">
+                          <Label className="text-sm font-medium flex items-center gap-2">
                             <CreditCard className="h-4 w-4 text-muted-foreground" />
                             Chave PIX
                           </Label>
-                          <Input
-                            id="pix_key"
-                            name="pix_key"
-                            defaultValue={establishment?.pix_key || establishment?.pix_key_value || ""}
-                            placeholder="Chave PIX (CPF, CNPJ, Email, Telefone ou Chave Aleatória)"
-                            className="h-11"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Esta chave será usada automaticamente na mensagem do WhatsApp quando enviar PIX por pedidos online
-                          </p>
+                          <div className="p-4 border rounded-lg bg-muted/50">
+                            <p className="text-sm text-muted-foreground mb-2">
+                              A chave PIX é gerenciada na aba <strong>PIX</strong>. 
+                              {establishment?.pix_key_value ? (
+                                <span className="text-foreground"> Chave atual: <strong>{establishment.pix_key_value}</strong></span>
+                              ) : (
+                                <span className="text-orange-600 dark:text-orange-400"> Configure sua chave PIX na aba PIX.</span>
+                              )}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setActiveTab('pix')}
+                            >
+                              <CreditCard className="h-4 w-4 mr-2" />
+                              {establishment?.pix_key_value ? 'Editar Chave PIX' : 'Cadastrar Chave PIX'}
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1187,7 +1195,7 @@ const Settings = () => {
 
             {/* PIX Tab */}
             <TabsContent value="pix">
-              {establishment && <PixConfig establishmentId={establishment.id} />}
+              {establishment && <PixConfig establishmentId={establishment.id} onSave={loadData} />}
             </TabsContent>
 
             {/* Delivery Tab */}

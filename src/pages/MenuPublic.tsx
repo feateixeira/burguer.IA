@@ -55,6 +55,18 @@ interface Establishment {
   allow_orders_when_closed?: boolean;
   show_schedule_on_menu?: boolean;
   menu_online_enabled?: boolean;
+  settings?: {
+    menuCustomization?: {
+      primaryColor?: string;
+      secondaryColor?: string;
+      backgroundColor?: string;
+      backgroundColorTransparent?: boolean;
+      backgroundImage?: string;
+      backgroundBlur?: number;
+      cardOpacity?: number;
+      headerStyle?: "default" | "gradient" | "solid";
+    };
+  };
 }
 
 const MenuPublic = () => {
@@ -83,6 +95,18 @@ const MenuPublic = () => {
   // Hook para verificar horário de funcionamento
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
   const [hasBusinessHoursConfig, setHasBusinessHoursConfig] = useState(false);
+  
+  // Menu customization
+  const menuCustomization = establishment?.settings?.menuCustomization || {
+    primaryColor: "#3b82f6",
+    secondaryColor: "#8b5cf6",
+    backgroundColor: "#ffffff",
+    backgroundColorTransparent: false,
+    backgroundImage: "",
+    backgroundBlur: 10,
+    cardOpacity: 0.95,
+    headerStyle: "default" as const,
+  };
 
   // Atualizar título da página quando o estabelecimento mudar
   useEffect(() => {
@@ -222,7 +246,7 @@ const MenuPublic = () => {
       // Load establishment by slug (tentar com campos novos, se falhar tenta sem eles)
       let { data: estabData, error: estabError } = await supabase
         .from("establishments")
-        .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled")
+        .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
         .eq("slug", slug)
         .single();
 
@@ -648,10 +672,57 @@ const MenuPublic = () => {
     );
   }
 
+  // Get header style class
+  const getHeaderStyle = () => {
+    if (menuCustomization.headerStyle === "gradient") {
+      return {
+        background: `linear-gradient(135deg, ${menuCustomization.primaryColor} 0%, ${menuCustomization.secondaryColor} 100%)`,
+        color: "#ffffff",
+      };
+    } else if (menuCustomization.headerStyle === "solid") {
+      return {
+        background: menuCustomization.primaryColor,
+        color: "#ffffff",
+      };
+    }
+    return {};
+  };
+
   return (
-    <div className="min-h-screen bg-background">
+    <div 
+      className="min-h-screen relative"
+      style={{
+        backgroundColor: menuCustomization.backgroundImage && menuCustomization.backgroundColorTransparent
+          ? "transparent"
+          : menuCustomization.backgroundColor,
+        backgroundImage: menuCustomization.backgroundImage 
+          ? `url(${menuCustomization.backgroundImage})` 
+          : undefined,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
+      }}
+    >
+      {/* Background overlay with blur */}
+      {menuCustomization.backgroundImage && (
+        <div 
+          className="fixed inset-0 z-0"
+          style={{
+            backdropFilter: `blur(${menuCustomization.backgroundBlur}px)`,
+            WebkitBackdropFilter: `blur(${menuCustomization.backgroundBlur}px)`,
+            backgroundColor: menuCustomization.backgroundColorTransparent
+              ? "transparent"
+              : `${menuCustomization.backgroundColor}80`,
+          }}
+        />
+      )}
+      
+      <div className="relative z-10">
       {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header 
+        className="sticky top-0 z-50 w-full border-b backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        style={getHeaderStyle()}
+      >
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -667,11 +738,19 @@ const MenuPublic = () => {
               onClick={() => setShowCart(true)}
               className="relative"
               size="lg"
+              style={{
+                backgroundColor: menuCustomization.headerStyle === "default" 
+                  ? menuCustomization.primaryColor 
+                  : menuCustomization.headerStyle === "gradient" 
+                    ? "rgba(255,255,255,0.2)" 
+                    : "rgba(255,255,255,0.2)",
+                color: menuCustomization.headerStyle === "default" ? "#ffffff" : "#ffffff",
+              }}
             >
               <ShoppingCart className="h-5 w-5 mr-2" />
               Carrinho
               {cartItemsCount > 0 && (
-                <Badge className="ml-2 bg-primary">
+                <Badge className="ml-2" style={{ backgroundColor: menuCustomization.secondaryColor }}>
                   {cartItemsCount}
                 </Badge>
               )}
@@ -681,7 +760,7 @@ const MenuPublic = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-4 py-8 relative z-10">
         {/* Banner de Status do Estabelecimento - só mostrar se houver horário configurado */}
         {!hoursLoading && establishment && hasBusinessHoursConfig && (
           <div className={`mb-6 p-4 rounded-lg border flex items-center gap-3 ${
@@ -732,6 +811,11 @@ const MenuPublic = () => {
                   setShowCombosOnly(false);
                 }}
                 className="whitespace-nowrap"
+                style={selectedCategory === null && !showCombosOnly ? {
+                  backgroundColor: menuCustomization.primaryColor,
+                  color: "#ffffff",
+                  borderColor: menuCustomization.primaryColor,
+                } : {}}
               >
                 <UtensilsCrossed className="h-4 w-4 mr-1" />
                 Todos
@@ -744,6 +828,11 @@ const MenuPublic = () => {
                     setSelectedCategory(null);
                   }}
                   className="whitespace-nowrap"
+                  style={showCombosOnly ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff",
+                    borderColor: menuCustomization.primaryColor,
+                  } : {}}
                 >
                   🍔 Combos
                 </Button>
@@ -757,6 +846,11 @@ const MenuPublic = () => {
                     setShowCombosOnly(false);
                   }}
                   className="whitespace-nowrap"
+                  style={selectedCategory === category.id ? {
+                    backgroundColor: menuCustomization.primaryColor,
+                    color: "#ffffff",
+                    borderColor: menuCustomization.primaryColor,
+                  } : {}}
                 >
                   <span className="mr-1">{getCategoryIcon(category.name)}</span>
                   {category.name}
@@ -791,7 +885,14 @@ const MenuPublic = () => {
             }
             
             return (
-            <Card key={product.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+            <Card 
+              key={product.id} 
+              className="overflow-hidden hover:shadow-lg transition-shadow"
+              style={{
+                backgroundColor: `${menuCustomization.backgroundColor}${Math.round(menuCustomization.cardOpacity * 255).toString(16).padStart(2, '0')}`,
+                backdropFilter: "blur(10px)",
+              }}
+            >
               {product.image_url && (
                 <div className="aspect-video w-full overflow-hidden bg-muted">
                   <img
@@ -805,7 +906,7 @@ const MenuPublic = () => {
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-semibold text-lg">{product.name}</h3>
                   {product.isCombo && (
-                    <Badge variant="secondary" className="text-xs">
+                    <Badge variant="secondary" className="text-xs" style={{ backgroundColor: menuCustomization.secondaryColor, color: "#ffffff" }}>
                       Combo
                     </Badge>
                   )}
@@ -816,12 +917,13 @@ const MenuPublic = () => {
                   </p>
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-xl font-bold text-primary">
+                  <span className="text-xl font-bold" style={{ color: menuCustomization.primaryColor }}>
                     R$ {Number(product.price).toFixed(2)}
                   </span>
                   <Button
                     size="sm"
                     onClick={() => addToCart(product)}
+                    style={{ backgroundColor: menuCustomization.primaryColor, color: "#ffffff" }}
                   >
                     <Plus className="h-4 w-4 mr-1" />
                     Adicionar
@@ -1067,6 +1169,7 @@ const MenuPublic = () => {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 };

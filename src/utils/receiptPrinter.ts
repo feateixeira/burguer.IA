@@ -18,6 +18,9 @@ export interface ReceiptData {
   cashChange?: number;
   generalInstructions?: string;
   createdAt?: string;
+  pixQrCode?: string; // Data URL do QR code PIX (base64)
+  pixKey?: string; // Chave PIX para exibição
+  pixKeyType?: string; // Tipo da chave PIX
 }
 
 export interface NonFiscalReceiptData {
@@ -242,7 +245,7 @@ export const printReceipt = async (r: ReceiptData) => {
         #ticket{
           width: var(--printable);
           min-height: 110mm;         /* mínimo ~11 cm */
-          padding: 0 0;              /* padding interno mínimo */
+          padding: 20mm 0 0 0;       /* espaço superior para costura/grampeio */
           margin: 0 var(--margin);   /* margens iguais esq/dir */
         }
 
@@ -334,6 +337,22 @@ export const printReceipt = async (r: ReceiptData) => {
         ${r.paymentMethod?.toLowerCase() === "dinheiro" ? `
           ${typeof r.cashGiven === "number" ? `<div class="row"><span class="left">Recebido</span><span class="right">R$ ${r.cashGiven.toFixed(2)}</span></div>` : ""}
           ${typeof r.cashChange === "number" ? `<div class="row"><span class="left">Troco</span><span class="right">R$ ${r.cashChange.toFixed(2)}</span></div>` : ""}
+        ` : ""}
+
+        ${r.paymentMethod?.toLowerCase() === "pix" && r.pixQrCode ? `
+          <div class="sep"></div>
+          <div class="center" style="margin: 12px 0;">
+            <div style="font-weight: 700; margin-bottom: 8px; font-size: ${Math.max(14, Math.round(fontSize * 0.9))}px;">PAGAMENTO PIX</div>
+            <img src="${r.pixQrCode}" alt="QR Code PIX" style="width: 200px; height: 200px; border: 2px solid #000; padding: 8px; background: #fff; display: block; margin: 0 auto;" />
+            <div style="margin-top: 8px; font-size: ${Math.max(10, Math.round(fontSize * 0.7))}px; opacity: 0.8;">
+              Escaneie o QR Code para pagar
+            </div>
+            ${r.pixKey ? `
+              <div style="margin-top: 8px; font-size: ${Math.max(11, Math.round(fontSize * 0.75))}px; word-break: break-all;">
+                ${r.pixKey}
+              </div>
+            ` : ""}
+          </div>
         ` : ""}
 
         <div class="grow"></div>

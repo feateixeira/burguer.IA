@@ -18,7 +18,8 @@ interface Order {
 interface Establishment {
   id: string;
   name: string;
-  pix_key?: string | null;
+  pix_key?: string | null; // Deprecated - usar pix_key_value
+  pix_key_value?: string | null;
 }
 
 /**
@@ -32,8 +33,8 @@ export function buildWhatsLink(order: Order, estab: Establishment): string {
   // Normalizar telefone para E.164
   const phoneE164 = normalizePhoneBRToE164(order.customer_phone);
   
-  // Verificar se tem chave PIX
-  const pixKey = estab.pix_key || '';
+  // Verificar se tem chave PIX (priorizar pix_key_value, fallback para pix_key antigo)
+  const pixKey = estab.pix_key_value || estab.pix_key || '';
   
   if (!pixKey) {
     return '#';

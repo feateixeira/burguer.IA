@@ -34,9 +34,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { printReceipt, ReceiptData } from "@/utils/receiptPrinter";
 import { PixPaymentModal } from "@/components/PixPaymentModal";
 import { CashRequiredModal } from "@/components/CashRequiredModal";
+import { generatePixQrCode } from "@/utils/pixQrCode";
 import { AddonsModal } from "@/components/AddonsModal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 interface Product {
   id: string;
@@ -80,6 +81,7 @@ interface CartItem extends Product {
 
 const PDV = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [combos, setCombos] = useState<any[]>([]);
@@ -138,6 +140,9 @@ const PDV = () => {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
   const [generalInstructions, setGeneralInstructions] = useState<string>("");
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [editingOrderNumber, setEditingOrderNumber] = useState<string | null>(null);
+  const [orderLoaded, setOrderLoaded] = useState(false);
 
   const sauceOptions = ["Mostarda e Mel", "Bacon", "Alho", "Ervas"];
 
@@ -156,6 +161,20 @@ const PDV = () => {
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, []);
+
+  // Detectar parâmetro editOrder na URL e carregar pedido
+  useEffect(() => {
+    const editOrderId = searchParams.get('editOrder');
+    if (editOrderId && establishmentId && !loading && !orderLoaded && editOrderId !== editingOrderId) {
+      setOrderLoaded(true);
+      loadOrderForEditing(editOrderId);
+    } else if (!editOrderId && orderLoaded) {
+      // Reset quando sair do modo de edição
+      setOrderLoaded(false);
+      setEditingOrderId(null);
+      setEditingOrderNumber(null);
+    }
+  }, [searchParams, establishmentId, loading]);
 
   // Atalhos com Enter: Enter no campo de busca adiciona primeiro produto; Ctrl+Enter finaliza venda
   useEffect(() => {
@@ -464,6 +483,162 @@ const PDV = () => {
       setCustomers(formattedCustomers);
     } catch (error) {
       console.error("Error loading customers:", error);
+    }
+  };
+
+  const loadOrderForEditing = async (orderId: string) => {
+    try {
+      setLoading(true);
+      
+      // Carregar pedido completo com itens
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .select(`
+          *,
+          order_items (
+            *,
+            products (
+              id,
+              name,
+              price,
+              description,
+              image_url,
+              category_id
+            )
+          )
+        `)
+        .eq("id", orderId)
+        .single();
+
+      if (orderError || !order) {
+        toast.error("Erro ao carregar pedido para edição");
+        return;
+      }
+
+      // Verificar se o pedido pertence ao estabelecimento correto
+      if (order.establishment_id !== establishmentId) {
+        toast.error("Pedido não pertence a este estabelecimento");
+        return;
+      }
+
+      // Salvar ID e número do pedido
+      setEditingOrderId(order.id);
+      setEditingOrderNumber(order.order_number);
+
+      // Preencher dados do cliente
+      setCustomerName(order.customer_name || "");
+      setCustomerPhone(order.customer_phone || "");
+      setCustomerSearch(order.customer_name || "");
+      
+      // Buscar cliente se houver telefone
+      if (order.customer_phone) {
+        const matchingCustomer = customers.find(c => 
+          c.phone === order.customer_phone || c.name === order.customer_name
+        );
+        if (matchingCustomer) {
+          setSelectedCustomer(matchingCustomer);
+        }
+      }
+
+      // Preencher forma de pagamento
+      setPaymentMethod(order.payment_method || "");
+
+      // Preencher entrega
+      const isDelivery = order.order_type === "delivery";
+      setIncludeDelivery(isDelivery);
+      if (isDelivery && order.delivery_boy_id) {
+        setSelectedDeliveryBoy(order.delivery_boy_id);
+        loadDeliveryBoys();
+      }
+
+      // Preencher instruções gerais
+      if (order.notes && order.notes.includes("Instruções do Pedido:")) {
+        const instructions = order.notes.replace("Instruções do Pedido:", "").trim();
+        setGeneralInstructions(instructions);
+      }
+
+      // Popular carrinho com itens do pedido
+      const cartItems: CartItem[] = [];
+      
+      for (const item of order.order_items || []) {
+        const product = item.products;
+        if (!product) continue;
+
+        // Extrair adicionais do campo customizations
+        let addons: Addon[] = [];
+        if (item.customizations && typeof item.customizations === 'object') {
+          const customizations = item.customizations as any;
+          if (customizations.addons && Array.isArray(customizations.addons)) {
+            addons = customizations.addons.map((addon: any) => ({
+              id: addon.id,
+              name: addon.name,
+              price: addon.price || 0,
+              quantity: addon.quantity || 1,
+              description: undefined
+            }));
+          }
+        }
+
+        // Extrair informações de molhos e promoção das notes
+        let notes = item.notes || "";
+        let saucePrice = 0;
+        let originalPrice: number | undefined = undefined;
+        let promotionId: string | undefined = undefined;
+        let promotionName: string | undefined = undefined;
+
+        // Tentar extrair preço original e promoção das notes
+        if (notes.includes("Promoção:")) {
+          const promoMatch = notes.match(/Promoção:\s*([^(]+)(?:\(de R\$\s*([\d,\.]+)\s*por R\$\s*([\d,\.]+)\))?/);
+          if (promoMatch) {
+            promotionName = promoMatch[1].trim();
+            if (promoMatch[2] && promoMatch[3]) {
+              originalPrice = parseFloat(promoMatch[2].replace(',', '.'));
+              // O preço atual já está no unit_price
+            }
+          }
+        }
+
+        // Calcular preço unitário base (sem adicionais e molhos)
+        // O unit_price já inclui tudo, então precisamos calcular o preço base
+        const addonsPrice = addons.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0);
+        const basePrice = item.unit_price - addonsPrice;
+        
+        // Tentar extrair preço de molhos (se houver nas notes)
+        if (notes.includes("molhos") || notes.includes("Molhos:")) {
+          const sauceMatch = notes.match(/\+ R\$\s*([\d,\.]+)\s*\(molhos\)/);
+          if (sauceMatch) {
+            saucePrice = parseFloat(sauceMatch[1].replace(',', '.'));
+          }
+        }
+
+        const finalPrice = basePrice - saucePrice;
+
+        const cartItem: CartItem = {
+          id: product.id,
+          name: product.name,
+          price: finalPrice,
+          description: product.description,
+          image_url: product.image_url,
+          category_id: product.category_id,
+          quantity: item.quantity,
+          notes: notes,
+          saucePrice: saucePrice > 0 ? saucePrice : undefined,
+          originalPrice: originalPrice,
+          promotionId: promotionId,
+          promotionName: promotionName,
+          addons: addons.length > 0 ? addons : undefined
+        };
+
+        cartItems.push(cartItem);
+      }
+
+      setCart(cartItems);
+      toast.success(`Pedido #${order.order_number} carregado para edição`);
+    } catch (error) {
+      console.error("Error loading order for editing:", error);
+      toast.error("Erro ao carregar pedido para edição");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -953,17 +1128,6 @@ const PDV = () => {
         return;
       }
 
-      // Gerar número de pedido sequencial (#00001, #00002, etc)
-      const { data: orderNumber, error: orderNumberError } = await supabase.rpc(
-        "get_next_order_number",
-        { p_establishment_id: profile.establishment_id }
-      );
-
-      if (orderNumberError || !orderNumber) {
-        console.error("Error generating order number:", orderNumberError);
-        toast.error("Erro ao gerar número do pedido");
-        return;
-      }
       const subtotal = calculateSubtotal();
       const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ? 
         calculateDiscountedTotal() : calculateTotal();
@@ -977,28 +1141,80 @@ const PDV = () => {
       const orderNotes = generalInstructions.trim() 
         ? `Instruções do Pedido: ${generalInstructions.trim()}`
         : null;
-      
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          establishment_id: profile.establishment_id,
-          order_number: orderNumber,
-          customer_name: customerName || "Cliente Balcão",
-          customer_phone: customerPhone,
-          order_type: includeDelivery ? "delivery" : "balcao",
-          delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-          status: "pending",
-          payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
-          payment_method: paymentMethod,
-          subtotal: subtotal,
-          discount_amount: discountAmount,
-          total_amount: finalTotal,
-          notes: orderNotes
-        })
-        .select()
-        .single();
 
-      if (orderError) throw orderError;
+      let order: any;
+      let orderNumber: string;
+
+      // Se estiver editando um pedido existente
+      if (editingOrderId && editingOrderNumber) {
+        orderNumber = editingOrderNumber;
+        
+        // Atualizar pedido existente
+        const { data: updatedOrder, error: orderError } = await supabase
+          .from("orders")
+          .update({
+            customer_name: customerName || "Cliente Balcão",
+            customer_phone: customerPhone,
+            order_type: includeDelivery ? "delivery" : "balcao",
+            delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
+            payment_method: paymentMethod,
+            subtotal: subtotal,
+            discount_amount: discountAmount,
+            total_amount: finalTotal,
+            notes: orderNotes
+          })
+          .eq("id", editingOrderId)
+          .select()
+          .single();
+
+        if (orderError) throw orderError;
+        order = updatedOrder;
+
+        // Deletar itens antigos do pedido
+        const { error: deleteItemsError } = await supabase
+          .from("order_items")
+          .delete()
+          .eq("order_id", editingOrderId);
+
+        if (deleteItemsError) throw deleteItemsError;
+      } else {
+        // Gerar número de pedido sequencial (#00001, #00002, etc) para novo pedido
+        const { data: newOrderNumber, error: orderNumberError } = await supabase.rpc(
+          "get_next_order_number",
+          { p_establishment_id: profile.establishment_id }
+        );
+
+        if (orderNumberError || !newOrderNumber) {
+          console.error("Error generating order number:", orderNumberError);
+          toast.error("Erro ao gerar número do pedido");
+          return;
+        }
+        orderNumber = newOrderNumber;
+        
+        // Criar novo pedido
+        const { data: newOrder, error: orderError } = await supabase
+          .from("orders")
+          .insert({
+            establishment_id: profile.establishment_id,
+            order_number: orderNumber,
+            customer_name: customerName || "Cliente Balcão",
+            customer_phone: customerPhone,
+            order_type: includeDelivery ? "delivery" : "balcao",
+            delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
+            status: "pending",
+            payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
+            payment_method: paymentMethod,
+            subtotal: subtotal,
+            discount_amount: discountAmount,
+            total_amount: finalTotal,
+            notes: orderNotes
+          })
+          .select()
+          .single();
+
+        if (orderError) throw orderError;
+        order = newOrder;
+      }
 
       // Create order items (resolve product_id for combos)
       const itemsToInsert = await Promise.all(
@@ -1103,6 +1319,33 @@ const PDV = () => {
         console.error('Erro ao processar estoque:', stockErr);
       }
 
+      // Se for PIX, buscar dados do PIX e gerar QR code
+      let pixQrCode: string | undefined;
+      let pixKey: string | undefined;
+      let pixKeyType: string | undefined;
+      
+      if (isPix) {
+        try {
+          const { data: establishment } = await supabase
+            .from('establishments')
+            .select('pix_key_value, pix_key_type, pix_holder_name')
+            .eq('id', profile.establishment_id)
+            .single();
+
+          if (establishment?.pix_key_value) {
+            pixKey = establishment.pix_key_value;
+            pixKeyType = establishment.pix_key_type;
+            const holderName = establishment.pix_holder_name || establishmentInfo.name || 'Estabelecimento';
+            pixQrCode = await generatePixQrCode(pixKey, holderName, finalTotal);
+          } else {
+            toast.error('Chave PIX não configurada. Configure em Configurações > PIX');
+          }
+        } catch (error: any) {
+          console.error('Error generating PIX QR code:', error);
+          toast.error('Erro ao gerar QR code PIX');
+        }
+      }
+
       // Prepare receipt data
       const receiptData: ReceiptData = {
         orderNumber: orderNumber,
@@ -1143,19 +1386,13 @@ const PDV = () => {
         orderType: includeDelivery ? "delivery" : "balcao",
         cashGiven: paymentMethod === 'dinheiro' ? cashGiven : undefined,
         cashChange: paymentMethod === 'dinheiro' ? Math.max(0, Number(cashGiven) - Number(finalTotal)) : undefined,
-        generalInstructions: generalInstructions.trim() || undefined
+        generalInstructions: generalInstructions.trim() || undefined,
+        pixQrCode: pixQrCode,
+        pixKey: pixKey,
+        pixKeyType: pixKeyType
       };
 
-      // Se for PIX, abrir modal de pagamento
-      if (isPix) {
-        setPendingOrderId(order.id);
-        setPendingOrderAmount(finalTotal);
-        setPendingReceiptData(receiptData);
-        setShowPixModal(true);
-        return; // Não limpa o carrinho ainda
-      }
-
-      // Print receipt (somente para pagamentos não-PIX)
+      // Print receipt (incluindo PIX com QR code)
       await printReceipt(receiptData);
 
       // Clear cart and customer info
@@ -1169,8 +1406,18 @@ const PDV = () => {
       setSelectedDeliveryBoy("");
       setPaymentMethod("");
       setGeneralInstructions("");
-
-      toast.success(`Venda finalizada! Pedido: ${orderNumber}`);
+      
+      // Limpar estados de edição
+      if (editingOrderId) {
+        setEditingOrderId(null);
+        setEditingOrderNumber(null);
+        setOrderLoaded(false);
+        // Remover parâmetro da URL
+        navigate('/pdv', { replace: true });
+        toast.success(`Pedido #${orderNumber} editado com sucesso!`);
+      } else {
+        toast.success(`Venda finalizada! Pedido: ${orderNumber}`);
+      }
     } catch (error) {
       console.error("Checkout error:", error);
       toast.error("Erro ao finalizar venda");
@@ -1182,6 +1429,9 @@ const PDV = () => {
     if (pendingReceiptData) {
       await printReceipt(pendingReceiptData);
     }
+
+    const wasEditing = !!editingOrderId;
+    const orderNum = editingOrderNumber;
 
     // Limpar carrinho e dados do cliente
     setCart([]);
@@ -1198,6 +1448,16 @@ const PDV = () => {
     setPendingOrderAmount(0);
     setPendingReceiptData(null);
     setShowPixModal(false);
+    
+    // Limpar estados de edição
+    if (wasEditing) {
+      setEditingOrderId(null);
+      setEditingOrderNumber(null);
+      setOrderLoaded(false);
+      // Remover parâmetro da URL
+      navigate('/pdv', { replace: true });
+      toast.success(`Pedido #${orderNum} editado com sucesso!`);
+    }
   };
 
   const getProductsByCategory = () => {
@@ -1538,7 +1798,14 @@ const PDV = () => {
       >
         <div className="w-full">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-foreground">PDV - Ponto de Venda</h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-3xl font-bold text-foreground">PDV - Ponto de Venda</h1>
+              {editingOrderId && editingOrderNumber && (
+                <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950/20 border-purple-500 text-purple-700 dark:text-purple-300 text-sm px-3 py-1">
+                  Editando Pedido #{editingOrderNumber}
+                </Badge>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1561,52 +1828,6 @@ const PDV = () => {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {combos && combos.length > 0 && (
-                    <div className="mb-6">
-                      <Collapsible open={combosOpen} onOpenChange={setCombosOpen}>
-                        <CollapsibleTrigger className="w-full">
-                          <div className="flex items-center justify-between text-base font-semibold mb-2 text-primary border-b border-border pb-1 hover:opacity-80 transition-opacity cursor-pointer">
-                            <span>Combos</span>
-                            {combosOpen ? (
-                              <ChevronUp className="h-4 w-4" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4" />
-                            )}
-                          </div>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2 mt-2">
-                            {combos
-                              .filter((c: any) => !searchTerm || c.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                              .map((combo: any) => (
-                                <Card key={combo.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                                  <CardContent className="p-2">
-                                    <div className="space-y-1">
-                                      <h4 className="font-medium text-xs leading-tight line-clamp-2">{combo.name}</h4>
-                                      <div className="text-[11px] text-muted-foreground line-clamp-2">
-                                        {(combo.combo_items?.length || 0)} item(s)
-                                      </div>
-                                      <div className="flex justify-between items-center">
-                                        <span className="font-bold text-primary text-sm">
-                                          R$ {Number(combo.price || 0).toFixed(2)}
-                                        </span>
-                                        <Button 
-                                          size="sm" 
-                                          onClick={() => addComboToCart(combo)}
-                                          className="h-6 w-6 p-0">
-                                          <Plus className="h-3 w-3" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              ))}
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </div>
-                  )}
-
                   {(() => {
                     const productsByCategory = getProductsByCategory();
                     const hasProducts = Object.values(productsByCategory).some(products => products.length > 0);
@@ -1678,6 +1899,53 @@ const PDV = () => {
                       </div>
                     );
                   })()}
+
+                  {/* Combos - exibidos por último */}
+                  {combos && combos.length > 0 && (
+                    <div className="mt-6">
+                      <Collapsible open={combosOpen} onOpenChange={setCombosOpen}>
+                        <CollapsibleTrigger className="w-full">
+                          <div className="flex items-center justify-between text-base font-semibold mb-2 text-primary border-b border-border pb-1 hover:opacity-80 transition-opacity cursor-pointer">
+                            <span>Combos</span>
+                            {combosOpen ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2 mt-2">
+                            {combos
+                              .filter((c: any) => !searchTerm || c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                              .map((combo: any) => (
+                                <Card key={combo.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                                  <CardContent className="p-2">
+                                    <div className="space-y-1">
+                                      <h4 className="font-medium text-xs leading-tight line-clamp-2">{combo.name}</h4>
+                                      <div className="text-[11px] text-muted-foreground line-clamp-2">
+                                        {(combo.combo_items?.length || 0)} item(s)
+                                      </div>
+                                      <div className="flex justify-between items-center">
+                                        <span className="font-bold text-primary text-sm">
+                                          R$ {Number(combo.price || 0).toFixed(2)}
+                                        </span>
+                                        <Button 
+                                          size="sm" 
+                                          onClick={() => addComboToCart(combo)}
+                                          className="h-6 w-6 p-0">
+                                          <Plus className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

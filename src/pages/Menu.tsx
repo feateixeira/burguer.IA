@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Menu as MenuIcon, Lock, ArrowLeft, Copy, Check, ExternalLink, QrCode, Globe, AlertTriangle, Clock, Settings } from "lucide-react";
+import { Menu as MenuIcon, Lock, ArrowLeft, Copy, Check, ExternalLink, QrCode, Globe, AlertTriangle, Clock, Settings, Palette, Image as ImageIcon, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useNavigate } from "react-router-dom";
@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import QRCodeLib from "qrcode";
 
 const Menu = () => {
@@ -34,6 +35,21 @@ const Menu = () => {
   const navigate = useNavigate();
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
+  
+  // Menu customization state
+  const [menuCustomization, setMenuCustomization] = useState({
+    primaryColor: "#3b82f6",
+    secondaryColor: "#8b5cf6",
+    backgroundColor: "#ffffff",
+    backgroundColorTransparent: false,
+    backgroundImage: "",
+    backgroundBlur: 10,
+    cardOpacity: 0.95,
+    headerStyle: "default" as "default" | "gradient" | "solid",
+  });
+  const [showCustomization, setShowCustomization] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
@@ -90,7 +106,7 @@ const Menu = () => {
       if (profileData?.establishment_id) {
         const { data: establishmentData } = await supabase
           .from("establishments")
-          .select("id, name, slug, menu_online_enabled, timezone")
+          .select("id, name, slug, menu_online_enabled, timezone, settings")
           .eq("id", profileData.establishment_id)
           .single();
 
@@ -138,6 +154,14 @@ const Menu = () => {
           } else {
             setIsNaBrasa(false);
           }
+          
+          // Load menu customization from settings
+          if (estabData.settings && estabData.settings.menuCustomization) {
+            setMenuCustomization({
+              ...menuCustomization,
+              ...estabData.settings.menuCustomization,
+            });
+          }
         }
       }
     } catch (error) {
@@ -146,6 +170,142 @@ const Menu = () => {
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleSaveCustomization = async () => {
+    if (!establishment?.id) return;
+    
+    try {
+      // Get current settings
+      const { data: currentData } = await supabase
+        .from("establishments")
+        .select("settings")
+        .eq("id", establishment.id)
+        .single();
+      
+      const currentSettings = currentData?.settings || {};
+      
+      // Update settings with menu customization
+      const { error } = await supabase
+        .from("establishments")
+        .update({
+          settings: {
+            ...currentSettings,
+            menuCustomization,
+          },
+        })
+        .eq("id", establishment.id);
+      
+      if (error) throw error;
+      
+      toast.success("Personalização salva com sucesso!");
+      setShowCustomization(false);
+    } catch (error: any) {
+      toast.error(`Erro ao salvar personalização: ${error.message}`);
+    }
+  };
+  
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !establishment?.id) return;
+    
+    try {
+      // Upload to Supabase Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${establishment.id}/menu-background-${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('establishments')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+      
+      if (uploadError) {
+        // Se o bucket não existe, tentar criar automaticamente
+        if (uploadError.message?.includes('Bucket not found') || 
+            uploadError.message?.includes('not found') ||
+            uploadError.message?.includes('does not exist')) {
+          
+          // Tentar criar o bucket automaticamente via Edge Function
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const { data, error: createBucketError } = await supabase.functions.invoke('create-storage-bucket', {
+                headers: {
+                  Authorization: `Bearer ${session.access_token}`
+                }
+              });
+
+              if (!createBucketError && data?.success) {
+                // Bucket criado, tentar upload novamente
+                const { error: retryError } = await supabase.storage
+                  .from('establishments')
+                  .upload(fileName, file, {
+                    cacheControl: '3600',
+                    upsert: false,
+                  });
+
+                if (retryError) {
+                  // Se ainda falhar, oferecer URL externa
+                  toast.error(
+                    "Erro ao fazer upload. Use uma URL externa ou verifique as permissões do bucket.",
+                    { duration: 7000 }
+                  );
+                  setShowUrlInput(true);
+                  return;
+                }
+
+                // Sucesso no retry, continuar com o fluxo normal
+                const { data: urlData } = supabase.storage
+                  .from('establishments')
+                  .getPublicUrl(fileName);
+                
+                setMenuCustomization({
+                  ...menuCustomization,
+                  backgroundImage: urlData.publicUrl,
+                });
+                
+                toast.success("Bucket criado e imagem de fundo atualizada!");
+                return;
+              }
+            }
+          } catch (createError) {
+            console.error('Error creating bucket:', createError);
+          }
+
+          // Se não conseguiu criar automaticamente, oferecer URL externa
+          toast.error(
+            "Bucket 'establishments' não encontrado. Tentando criar automaticamente... Se falhar, use uma URL externa.",
+            { duration: 7000 }
+          );
+          setShowUrlInput(true);
+          return;
+        }
+        throw uploadError;
+      }
+      
+      // Get public URL
+      const { data } = supabase.storage
+        .from('establishments')
+        .getPublicUrl(fileName);
+      
+      setMenuCustomization({
+        ...menuCustomization,
+        backgroundImage: data.publicUrl,
+      });
+      
+      toast.success("Imagem de fundo atualizada!");
+    } catch (error: any) {
+      toast.error(`Erro ao fazer upload: ${error.message}`);
+    }
+  };
+  
+  const removeBackgroundImage = () => {
+    setMenuCustomization({
+      ...menuCustomization,
+      backgroundImage: "",
+    });
   };
 
   if (loading) {
@@ -438,6 +598,14 @@ const Menu = () => {
                             <QrCode className="h-4 w-4 mr-2" />
                             QR Code
                           </Button>
+                          <Button
+                            onClick={() => setShowCustomization(true)}
+                            variant="outline"
+                            className="flex-1 sm:flex-none"
+                          >
+                            <Palette className="h-4 w-4 mr-2" />
+                            Personalizar
+                          </Button>
                         </div>
                       </div>
 
@@ -544,6 +712,305 @@ const Menu = () => {
             ) : (
               <p className="text-muted-foreground">Gerando QR Code...</p>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Customization Dialog */}
+      <Dialog open={showCustomization} onOpenChange={setShowCustomization}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Palette className="h-5 w-5" />
+              Personalizar Cardápio Online
+            </DialogTitle>
+            <DialogDescription>
+              Personalize as cores, imagens e estilo do seu cardápio online
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Tabs defaultValue="colors" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="colors">Cores</TabsTrigger>
+              <TabsTrigger value="background">Fundo</TabsTrigger>
+              <TabsTrigger value="style">Estilo</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="colors" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="primaryColor">Cor Primária</Label>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    id="primaryColor"
+                    type="color"
+                    value={menuCustomization.primaryColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, primaryColor: e.target.value })}
+                    className="w-20 h-10"
+                  />
+                  <Input
+                    type="text"
+                    value={menuCustomization.primaryColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, primaryColor: e.target.value })}
+                    className="flex-1"
+                    placeholder="#3b82f6"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="secondaryColor">Cor Secundária</Label>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    id="secondaryColor"
+                    type="color"
+                    value={menuCustomization.secondaryColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, secondaryColor: e.target.value })}
+                    className="w-20 h-10"
+                  />
+                  <Input
+                    type="text"
+                    value={menuCustomization.secondaryColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, secondaryColor: e.target.value })}
+                    className="flex-1"
+                    placeholder="#8b5cf6"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="backgroundColor">Cor de Fundo</Label>
+                {menuCustomization.backgroundImage && (
+                  <p className="text-xs text-muted-foreground mb-2">
+                    💡 Com imagem de fundo, você pode tornar a cor transparente na aba "Fundo"
+                  </p>
+                )}
+                <div className="flex gap-2 items-center">
+                  <Input
+                    id="backgroundColor"
+                    type="color"
+                    value={menuCustomization.backgroundColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, backgroundColor: e.target.value })}
+                    className="w-20 h-10"
+                    disabled={menuCustomization.backgroundImage && menuCustomization.backgroundColorTransparent}
+                  />
+                  <Input
+                    type="text"
+                    value={menuCustomization.backgroundColor}
+                    onChange={(e) => setMenuCustomization({ ...menuCustomization, backgroundColor: e.target.value })}
+                    className="flex-1"
+                    placeholder="#ffffff"
+                    disabled={menuCustomization.backgroundImage && menuCustomization.backgroundColorTransparent}
+                  />
+                </div>
+                {menuCustomization.backgroundImage && menuCustomization.backgroundColorTransparent && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    ⚠️ A cor de fundo está transparente. Desative a transparência na aba "Fundo" para editar a cor.
+                  </p>
+                )}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="background" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label>Imagem de Fundo</Label>
+                {menuCustomization.backgroundImage ? (
+                  <div className="relative">
+                    <img
+                      src={menuCustomization.backgroundImage}
+                      alt="Background preview"
+                      className="w-full h-48 object-cover rounded-lg border"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="absolute top-2 right-2"
+                      onClick={removeBackgroundImage}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="border-2 border-dashed rounded-lg p-8 text-center">
+                      <ImageIcon className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground mb-2">Nenhuma imagem de fundo</p>
+                      <div className="flex gap-2 justify-center">
+                        <Label htmlFor="backgroundUpload" className="cursor-pointer">
+                          <Button variant="outline" asChild>
+                            <span>Fazer Upload</span>
+                          </Button>
+                        </Label>
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowUrlInput(!showUrlInput)}
+                        >
+                          Usar URL Externa
+                        </Button>
+                      </div>
+                      <Input
+                        id="backgroundUpload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                      <p className="text-xs text-muted-foreground mt-3">
+                        💡 Dica: Se o upload falhar, use uma URL externa ou crie o bucket 'establishments' no Supabase Storage
+                      </p>
+                    </div>
+                    {showUrlInput && (
+                      <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                        <Label htmlFor="imageUrl">URL da Imagem</Label>
+                        <Input
+                          id="imageUrl"
+                          type="url"
+                          value={imageUrl}
+                          onChange={(e) => setImageUrl(e.target.value)}
+                          placeholder="https://exemplo.com/imagem.jpg"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              if (imageUrl) {
+                                setMenuCustomization({
+                                  ...menuCustomization,
+                                  backgroundImage: imageUrl,
+                                });
+                                setImageUrl("");
+                                setShowUrlInput(false);
+                                toast.success("URL da imagem definida!");
+                              } else {
+                                toast.error("Por favor, insira uma URL válida");
+                              }
+                            }}
+                          >
+                            Usar esta URL
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowUrlInput(false);
+                              setImageUrl("");
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="backgroundBlur">
+                  Desfoque da Imagem: {menuCustomization.backgroundBlur}px
+                </Label>
+                <Input
+                  id="backgroundBlur"
+                  type="range"
+                  min="0"
+                  max="20"
+                  value={menuCustomization.backgroundBlur}
+                  onChange={(e) => setMenuCustomization({ ...menuCustomization, backgroundBlur: parseInt(e.target.value) })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ajuste o nível de desfoque da imagem de fundo
+                </p>
+              </div>
+
+              {menuCustomization.backgroundImage && (
+                <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="backgroundColorTransparent" className="text-sm font-medium">
+                        Cor de Fundo Transparente
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Quando ativado, remove a cor de fundo para que a imagem apareça sem sobreposição
+                      </p>
+                    </div>
+                    <Switch
+                      id="backgroundColorTransparent"
+                      checked={menuCustomization.backgroundColorTransparent}
+                      onCheckedChange={(checked) => 
+                        setMenuCustomization({ ...menuCustomization, backgroundColorTransparent: checked })
+                      }
+                    />
+                  </div>
+                  {!menuCustomization.backgroundColorTransparent && (
+                    <div className="mt-3 space-y-2">
+                      <Label htmlFor="backgroundColorWithImage" className="text-sm">
+                        Cor de Fundo (quando não transparente)
+                      </Label>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          id="backgroundColorWithImage"
+                          type="color"
+                          value={menuCustomization.backgroundColor}
+                          onChange={(e) => setMenuCustomization({ ...menuCustomization, backgroundColor: e.target.value })}
+                          className="w-20 h-10"
+                        />
+                        <Input
+                          type="text"
+                          value={menuCustomization.backgroundColor}
+                          onChange={(e) => setMenuCustomization({ ...menuCustomization, backgroundColor: e.target.value })}
+                          className="flex-1"
+                          placeholder="#ffffff"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="style" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="cardOpacity">
+                  Opacidade dos Cards: {Math.round(menuCustomization.cardOpacity * 100)}%
+                </Label>
+                <Input
+                  id="cardOpacity"
+                  type="range"
+                  min="0.5"
+                  max="1"
+                  step="0.05"
+                  value={menuCustomization.cardOpacity}
+                  onChange={(e) => setMenuCustomization({ ...menuCustomization, cardOpacity: parseFloat(e.target.value) })}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="headerStyle">Estilo do Cabeçalho</Label>
+                <select
+                  id="headerStyle"
+                  value={menuCustomization.headerStyle}
+                  onChange={(e) => setMenuCustomization({ ...menuCustomization, headerStyle: e.target.value as any })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="default">Padrão</option>
+                  <option value="gradient">Gradiente</option>
+                  <option value="solid">Sólido</option>
+                </select>
+              </div>
+            </TabsContent>
+          </Tabs>
+          
+          <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => setShowCustomization(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveCustomization}
+            >
+              Salvar Personalização
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

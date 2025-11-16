@@ -33,7 +33,8 @@ import { Checkbox } from "@/components/ui/checkbox";
     CheckCircle2,
     ArrowRight,
     Truck,
-    MessageCircle
+    MessageCircle,
+    SquarePen
   } from "lucide-react";
   import Sidebar from "@/components/Sidebar";
   import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
@@ -60,6 +61,12 @@ import { Checkbox } from "@/components/ui/checkbox";
     AlertDialogTitle,
     AlertDialogTrigger,
   } from "@/components/ui/alert-dialog";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+  } from "@/components/ui/tooltip";
 
   interface Order {
     id: string;
@@ -111,8 +118,8 @@ import { Checkbox } from "@/components/ui/checkbox";
     const [rejectionReason, setRejectionReason] = useState("");
     const [orderToReject, setOrderToReject] = useState<string | null>(null);
   const [showAllDates, setShowAllDates] = useState(false);
-  const [showPDV, setShowPDV] = useState(true);
-  const [showSite, setShowSite] = useState(true);
+  const [showPDV, setShowPDV] = useState(false);
+  const [showSite, setShowSite] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("");
   const [showNonFiscalModal, setShowNonFiscalModal] = useState(false);
@@ -2032,7 +2039,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 
                         {/* Botão para limpar filtros */}
                         {(selectedDate || selectedPaymentMethod) && (
-                          <div className="flex items-end">
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-sm font-medium opacity-0 pointer-events-none">
+                              &nbsp;
+                            </Label>
                             <Button
                               variant="outline"
                               size="sm"
@@ -2185,200 +2195,284 @@ import { Checkbox } from "@/components/ui/checkbox";
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2 ml-4">
-                            {/* Botões para pedidos do PDV */}
-                            {isPDVOrderCheck && (
-                              <>
-                                {/* Botão de Confirmação de Pagamento - aparece na aba PDV quando pagamento está pendente */}
-                                {order.payment_status === "pending" && (
+                          <div className="flex items-center gap-1 ml-4 flex-wrap">
+                            <TooltipProvider>
+                              {/* Botão Editar no PDV - disponível para todos os pedidos */}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
                                   <Button 
                                     variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleMarkPaymentAsPaid(order.id)}
-                                    className="border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-                                    title="Confirmar pagamento"
+                                    size="icon"
+                                    onClick={() => navigate(`/pdv?editOrder=${order.id}`)}
+                                    className="h-8 w-8 border-purple-500 text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/20"
                                   >
-                                    <DollarSign className="h-4 w-4 mr-2" />
-                                    Confirmar Pagamento
+                                    <SquarePen className="h-4 w-4" />
                                   </Button>
-                                )}
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Editar no PDV</p>
+                                </TooltipContent>
+                              </Tooltip>
 
-                                {/* Botão de Pronto para Retirada - aparece na aba PDV quando entrega está pendente */}
-                                {(order.status === "pending" || order.status === "preparing") && (
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleMarkDeliveryAsCompleted(order.id)}
-                                    className="border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                                    title="Marcar como pronto para retirada"
-                                  >
-                                    <Truck className="h-4 w-4 mr-2" />
-                                    Pronto Retirada/Entrega
-                                  </Button>
-                                )}
-                              </>
-                            )}
+                              {/* Botões para pedidos do PDV */}
+                              {isPDVOrderCheck && (
+                                <>
 
-                            {/* Botões para pedidos online que já foram aceitos/impressos */}
-                            {!isPDVOrderCheck && order.accepted_and_printed_at && (
-                              <>
-                                {/* Botão de Confirmação de Pagamento - para pedidos online que já foram aceitos/impressos */}
-                                {order.payment_status === "pending" && (
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleMarkPaymentAsPaid(order.id)}
-                                    className="border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-                                    title="Confirmar pagamento"
-                                  >
-                                    <DollarSign className="h-4 w-4 mr-2" />
-                                    Confirmar Pagamento
-                                  </Button>
-                                )}
+                                  {/* Botão de Confirmação de Pagamento */}
+                                  {order.payment_status === "pending" && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button 
+                                          variant="outline" 
+                                          size="icon"
+                                          onClick={() => handleMarkPaymentAsPaid(order.id)}
+                                          className="h-8 w-8 border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                        >
+                                          <DollarSign className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Confirmar Pagamento</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
 
-                                {/* Botão de Pronto para Retirada - para pedidos online que já foram aceitos/impressos */}
-                                {order.status === "pending" && (
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleMarkDeliveryAsCompleted(order.id)}
-                                    className="border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                                    title="Marcar como pronto para retirada"
-                                  >
-                                    <Truck className="h-4 w-4 mr-2" />
-                                    Pronto Retirada/Entrega
-                                  </Button>
-                                )}
-                              </>
-                            )}
+                                  {/* Botão de Pronto para Retirada */}
+                                  {(order.status === "pending" || order.status === "preparing") && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button 
+                                          variant="outline" 
+                                          size="icon"
+                                          onClick={() => handleMarkDeliveryAsCompleted(order.id)}
+                                          className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                        >
+                                          <Truck className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Pronto Retirada/Entrega</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </>
+                              )}
 
-                            {/* Show Print and Reject buttons only for pending online orders that haven't been accepted yet */}
-                            {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
-                              <>
-                                <Button 
-                                  variant="default" 
-                                  size="sm"
-                                  onClick={() => handleAcceptAndPrintOrder(order)}
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  <Printer className="h-4 w-4 mr-2" />
-                                  Aceitar e Imprimir
-                                </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button 
-                                      variant="destructive" 
-                                      size="sm"
-                                      onClick={() => {
-                                        setOrderToReject(order.id);
-                                        setRejectionReason("");
-                                      }}
-                                    >
-                                      <XCircle className="h-4 w-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Recusar Pedido</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Tem certeza que deseja recusar o pedido #{order.order_number}? Esta ação não pode ser desfeita.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <div className="py-4">
-                                      <Label htmlFor="rejection-reason" className="text-sm font-medium">
-                                        Justificativa * (obrigatório)
-                                      </Label>
-                                      <Textarea
-                                        id="rejection-reason"
-                                        value={rejectionReason}
-                                        onChange={(e) => setRejectionReason(e.target.value)}
-                                        placeholder="Informe o motivo da recusa do pedido..."
-                                        className="mt-2"
-                                        rows={4}
-                                      />
-                                    </div>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel onClick={() => {
-                                        setOrderToReject(null);
-                                        setRejectionReason("");
-                                      }}>
-                                        Cancelar
-                                      </AlertDialogCancel>
-                                      <AlertDialogAction 
-                                        onClick={handleRejectOrder}
-                                        disabled={!rejectionReason.trim()}
+                              {/* Botões para pedidos online que já foram aceitos/impressos */}
+                              {!isPDVOrderCheck && order.accepted_and_printed_at && (
+                                <>
+                                  {/* Botão de Confirmação de Pagamento */}
+                                  {order.payment_status === "pending" && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button 
+                                          variant="outline" 
+                                          size="icon"
+                                          onClick={() => handleMarkPaymentAsPaid(order.id)}
+                                          className="h-8 w-8 border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
+                                        >
+                                          <DollarSign className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Confirmar Pagamento</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+
+                                  {/* Botão de Pronto para Retirada */}
+                                  {order.status === "pending" && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button 
+                                          variant="outline" 
+                                          size="icon"
+                                          onClick={() => handleMarkDeliveryAsCompleted(order.id)}
+                                          className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                        >
+                                          <Truck className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Pronto Retirada/Entrega</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Botões para pedidos online pendentes que ainda não foram aceitos */}
+                              {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
+                                <>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button 
+                                        variant="default" 
+                                        size="icon"
+                                        onClick={() => handleAcceptAndPrintOrder(order)}
+                                        className="h-8 w-8 bg-green-600 hover:bg-green-700"
                                       >
-                                        Recusar Pedido
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </>
-                            )}
+                                        <Printer className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Aceitar e Imprimir</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button 
+                                            variant="destructive" 
+                                            size="icon"
+                                            onClick={() => {
+                                              setOrderToReject(order.id);
+                                              setRejectionReason("");
+                                            }}
+                                            className="h-8 w-8"
+                                          >
+                                            <XCircle className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Recusar Pedido</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Recusar Pedido</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Tem certeza que deseja recusar o pedido #{order.order_number}? Esta ação não pode ser desfeita.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <div className="py-4">
+                                        <Label htmlFor="rejection-reason" className="text-sm font-medium">
+                                          Justificativa * (obrigatório)
+                                        </Label>
+                                        <Textarea
+                                          id="rejection-reason"
+                                          value={rejectionReason}
+                                          onChange={(e) => setRejectionReason(e.target.value)}
+                                          placeholder="Informe o motivo da recusa do pedido..."
+                                          className="mt-2"
+                                          rows={4}
+                                        />
+                                      </div>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel onClick={() => {
+                                          setOrderToReject(null);
+                                          setRejectionReason("");
+                                        }}>
+                                          Cancelar
+                                        </AlertDialogCancel>
+                                        <AlertDialogAction 
+                                          onClick={handleRejectOrder}
+                                          disabled={!rejectionReason.trim()}
+                                        >
+                                          Recusar Pedido
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </>
+                              )}
 
-                            {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" */}
-                            {order.status === "preparing" && (
-                              <Button 
-                                variant="default" 
-                                size="sm"
-                                onClick={() => handleMarkAsReady(order.id)}
-                                className="bg-blue-600 hover:bg-blue-700"
-                                title="Marcar como pronto para retirada"
-                              >
-                                <ArrowRight className="h-4 w-4 mr-2" />
-                                Pronto Retirada/Entrega
-                              </Button>
-                            )}
+                              {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" */}
+                              {order.status === "preparing" && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button 
+                                      variant="default" 
+                                      size="icon"
+                                      onClick={() => handleMarkAsReady(order.id)}
+                                      className="h-8 w-8 bg-blue-600 hover:bg-blue-700"
+                                    >
+                                      <ArrowRight className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Pronto Retirada/Entrega</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
 
-                            {/* Botão de Reimprimir - aparece em todos os pedidos da aba "Todos os Pedidos" */}
-                            {activeTab === "all" && (
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => handlePrintOrder(order)}
-                                title="Reimprimir pedido"
-                              >
-                                <Printer className="h-4 w-4" />
-                              </Button>
-                            )}
+                              {/* Botão de Reimprimir */}
+                              {activeTab === "all" && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button 
+                                      variant="outline" 
+                                      size="icon"
+                                      onClick={() => handlePrintOrder(order)}
+                                      className="h-8 w-8"
+                                    >
+                                      <Printer className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Reimprimir Pedido</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
 
-                            {/* Botão Enviar PIX por WhatsApp - aparece na listagem */}
-                            {shouldShowWhatsButton(order) && establishment && (
-                              establishment.pix_key ? (
-                                <a
-                                  href={buildWhatsLink(order, establishment)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title="Enviar PIX por WhatsApp"
-                                >
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    className="bg-green-500 hover:bg-green-600 text-white border-green-600"
-                                  >
-                                    <MessageCircle className="h-4 w-4" />
-                                  </Button>
-                                </a>
-                              ) : (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled
-                                  className="bg-gray-400 cursor-not-allowed border-gray-400"
-                                  title="Configure sua chave PIX em Configurações"
-                                >
-                                  <MessageCircle className="h-4 w-4" />
-                                </Button>
-                              )
-                            )}
+                              {/* Botão Enviar PIX por WhatsApp */}
+                              {shouldShowWhatsButton(order) && establishment && (
+                                (establishment.pix_key_value || establishment.pix_key) ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <a
+                                        href={buildWhatsLink(order, establishment)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                      >
+                                        <Button 
+                                          variant="outline" 
+                                          size="icon"
+                                          className="h-8 w-8 bg-green-500 hover:bg-green-600 text-white border-green-600"
+                                        >
+                                          <MessageCircle className="h-4 w-4" />
+                                        </Button>
+                                      </a>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Enviar PIX por WhatsApp</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        disabled
+                                        className="h-8 w-8 bg-gray-400 cursor-not-allowed border-gray-400"
+                                      >
+                                        <MessageCircle className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Configure sua chave PIX em Configurações</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )
+                              )}
 
-                            {/* Standard view button for all orders */}
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
+                              {/* Botão Ver Detalhes */}
+                              <Dialog>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DialogTrigger asChild>
+                                      <Button variant="outline" size="icon" className="h-8 w-8">
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                    </DialogTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Ver Detalhes</p>
+                                  </TooltipContent>
+                                </Tooltip>
                               <DialogContent className="max-w-2xl">
                                 <DialogHeader>
                                   <DialogTitle>Detalhes do Pedido #{order.order_number}</DialogTitle>
@@ -2539,18 +2633,26 @@ import { Checkbox } from "@/components/ui/checkbox";
                                 }
                               }}
                             >
-                              <DialogTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedOrder(order);
-                                    setEditPaymentMethod(order.payment_method || "");
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <DialogTrigger asChild>
+                                    <Button 
+                                      variant="outline" 
+                                      size="icon"
+                                      onClick={() => {
+                                        setSelectedOrder(order);
+                                        setEditPaymentMethod(order.payment_method || "");
+                                      }}
+                                      className="h-8 w-8"
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </DialogTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Editar Pedido</p>
+                                </TooltipContent>
+                              </Tooltip>
                         <DialogContent>
                           <DialogHeader>
                             <DialogTitle>Editar Pedido #{selectedOrder?.order_number || order.order_number}</DialogTitle>
@@ -2654,9 +2756,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="outline" size="icon" className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Excluir Pedido</p>
+                            </TooltipContent>
+                          </Tooltip>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -2677,18 +2786,19 @@ import { Checkbox } from "@/components/ui/checkbox";
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                    </div>
-                  </div>
+                            </TooltipProvider>
+                          </div>
+                        </div>
 
-                  {order.notes && (
-                    <div className="mt-4 p-3 bg-muted rounded-md">
-                      <p className="text-sm"><strong>Observações:</strong> {order.notes}</p>
-                    </div>
-                  )}
-                </Card>
-              );
-            })
-          )}
+                        {order.notes && (
+                          <div className="mt-4 p-3 bg-muted rounded-md">
+                            <p className="text-sm"><strong>Observações:</strong> {order.notes}</p>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })
+                )}
         </TabsContent>
       </Tabs>
           </div>

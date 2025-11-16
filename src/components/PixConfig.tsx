@@ -16,6 +16,7 @@ import { format } from 'date-fns';
 
 interface PixConfigProps {
   establishmentId: string;
+  onSave?: () => void;
 }
 
 type PixKeyType = 'cpf' | 'cnpj' | 'email' | 'phone' | 'random';
@@ -37,7 +38,7 @@ interface AuditLog {
   user_id: string;
 }
 
-export const PixConfig = ({ establishmentId }: PixConfigProps) => {
+export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
   const { authenticateAdmin } = useAdminAuth();
   const [config, setConfig] = useState<PixConfig>({
     pix_key_type: null,
@@ -108,6 +109,36 @@ export const PixConfig = ({ establishmentId }: PixConfigProps) => {
   const saveConfig = async () => {
     setLoading(true);
     try {
+      // Get current values before update
+      const { data: currentData } = await supabase
+        .from('establishments')
+        .select('pix_key_type, pix_key_value, pix_bank_name, pix_holder_name')
+        .eq('id', establishmentId)
+        .single();
+
+      const oldValues = currentData ? {
+        pix_key_type: currentData.pix_key_type,
+        pix_key_value: currentData.pix_key_value,
+        pix_bank_name: currentData.pix_bank_name,
+        pix_holder_name: currentData.pix_holder_name,
+      } : null;
+
+      const newValues = {
+        pix_key_type: config.pix_key_type,
+        pix_key_value: config.pix_key_value,
+        pix_bank_name: config.pix_bank_name,
+        pix_holder_name: config.pix_holder_name,
+      };
+
+      // Check if there are actual changes
+      const hasChanges = oldValues && (
+        oldValues.pix_key_type !== newValues.pix_key_type ||
+        oldValues.pix_key_value !== newValues.pix_key_value ||
+        oldValues.pix_bank_name !== newValues.pix_bank_name ||
+        oldValues.pix_holder_name !== newValues.pix_holder_name
+      );
+
+      // Update establishment
       const { error } = await supabase
         .from('establishments')
         .update({
@@ -120,8 +151,27 @@ export const PixConfig = ({ establishmentId }: PixConfigProps) => {
 
       if (error) throw error;
 
+      // Create audit log if there are changes
+      if (hasChanges) {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        await supabase
+          .from('audit_logs')
+          .insert({
+            establishment_id: establishmentId,
+            user_id: user?.id || null,
+            action: 'update_pix_key',
+            old_values: oldValues,
+            new_values: newValues,
+          });
+      }
+
       toast.success('Configurações PIX salvas com sucesso!');
       await loadAuditLogs();
+      // Call onSave callback if provided to reload establishment data
+      if (onSave) {
+        onSave();
+      }
     } catch (error) {
       console.error('Error saving PIX config:', error);
       toast.error('Erro ao salvar configurações PIX');
@@ -301,26 +351,41 @@ export const PixConfig = ({ establishmentId }: PixConfigProps) => {
                     <TableBody>
                       {auditLogs.map((log) => (
                         <TableRow key={log.id}>
-                          <TableCell>
+                          <TableCell className="whitespace-nowrap">
                             {format(new Date(log.created_at), 'dd/MM/yyyy HH:mm')}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm space-y-1">
                               {log.old_values?.pix_key_type && (
-                                <div>Tipo: {log.old_values.pix_key_type}</div>
+                                <div><strong>Tipo:</strong> {log.old_values.pix_key_type}</div>
                               )}
                               {log.old_values?.pix_key_value && (
-                                <div>Chave: {log.old_values.pix_key_value}</div>
+                                <div><strong>Chave:</strong> {log.old_values.pix_key_value}</div>
+                              )}
+                              {log.old_values?.pix_bank_name && (
+                                <div><strong>Banco:</strong> {log.old_values.pix_bank_name}</div>
+                              )}
+                              {log.old_values?.pix_holder_name && (
+                                <div><strong>Titular:</strong> {log.old_values.pix_holder_name}</div>
+                              )}
+                              {!log.old_values?.pix_key_type && !log.old_values?.pix_key_value && (
+                                <div className="text-muted-foreground italic">Sem dados anteriores</div>
                               )}
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="text-sm space-y-1">
                               {log.new_values?.pix_key_type && (
-                                <div>Tipo: {log.new_values.pix_key_type}</div>
+                                <div><strong>Tipo:</strong> {log.new_values.pix_key_type}</div>
                               )}
                               {log.new_values?.pix_key_value && (
-                                <div>Chave: {log.new_values.pix_key_value}</div>
+                                <div><strong>Chave:</strong> {log.new_values.pix_key_value}</div>
+                              )}
+                              {log.new_values?.pix_bank_name && (
+                                <div><strong>Banco:</strong> {log.new_values.pix_bank_name}</div>
+                              )}
+                              {log.new_values?.pix_holder_name && (
+                                <div><strong>Titular:</strong> {log.new_values.pix_holder_name}</div>
                               )}
                             </div>
                           </TableCell>

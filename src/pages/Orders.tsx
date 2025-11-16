@@ -2210,7 +2210,8 @@ interface Order {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1 ml-4 flex-wrap">
+                          <div className="flex flex-col items-end gap-2 ml-4">
+                            <div className="flex items-center gap-1 flex-wrap">
                             <TooltipProvider>
                               {/* Botão Editar no PDV - disponível para todos os pedidos */}
                               <Tooltip>
@@ -2321,24 +2322,18 @@ interface Order {
                                 <>
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button 
-                                            variant="destructive" 
-                                            size="icon"
-                                            onClick={() => {
-                                              setOrderToReject(order.id);
-                                              setRejectionReason("");
-                                            }}
-                                            className="h-8 w-8"
-                                          >
-                                            <XCircle className="h-4 w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p>Recusar Pedido</p>
-                                        </TooltipContent>
-                                      </Tooltip>
+                                      <Button 
+                                        variant="destructive" 
+                                        size="icon"
+                                        onClick={() => {
+                                          setOrderToReject(order.id);
+                                          setRejectionReason("");
+                                        }}
+                                        className="h-8 w-8"
+                                        title="Recusar Pedido"
+                                      >
+                                        <XCircle className="h-4 w-4" />
+                                      </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                       <AlertDialogHeader>
@@ -2756,16 +2751,14 @@ interface Order {
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="outline" size="icon" className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Excluir Pedido</p>
-                            </TooltipContent>
-                          </Tooltip>
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                            title="Excluir Pedido"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -2791,48 +2784,47 @@ interface Order {
                           
                           {/* Botão destacado para aceitar e imprimir - posicionado abaixo dos outros botões */}
                           {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
-                            <div className="mt-2 w-full">
-                              <Button 
-                                variant="default" 
-                                size="sm"
-                                onClick={async () => {
-                                  // Verificar se é pedido de entrega
-                                  const isDelivery = order.order_type === 'delivery';
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              onClick={async () => {
+                                // Verificar se é pedido de entrega
+                                const isDelivery = order.order_type === 'delivery';
+                                
+                                if (isDelivery && establishment) {
+                                  // Buscar motoboys ativos
+                                  const { data: boys, error } = await supabase
+                                    .from("delivery_boys")
+                                    .select("id, name")
+                                    .eq("establishment_id", establishment.id)
+                                    .eq("active", true)
+                                    .order("name");
                                   
-                                  if (isDelivery && establishment) {
-                                    // Buscar motoboys ativos
-                                    const { data: boys, error } = await supabase
-                                      .from("delivery_boys")
-                                      .select("id, name")
-                                      .eq("establishment_id", establishment.id)
-                                      .eq("active", true)
-                                      .order("name");
-                                    
-                                    if (!error && boys && boys.length > 1) {
-                                      // Se houver mais de um motoboy, mostrar diálogo de seleção
-                                      setDeliveryBoys(boys);
-                                      setPendingOrderForAccept(order);
-                                      setSelectedDeliveryBoyId("");
-                                      setShowDeliveryBoyDialog(true);
-                                      return;
-                                    } else if (!error && boys && boys.length === 1) {
-                                      // Se houver apenas um, usar automaticamente
-                                      await handleAcceptAndPrintOrder(order, boys[0].id);
-                                      return;
-                                    }
+                                  if (!error && boys && boys.length > 1) {
+                                    // Se houver mais de um motoboy, mostrar diálogo de seleção
+                                    setDeliveryBoys(boys);
+                                    setPendingOrderForAccept(order);
+                                    setSelectedDeliveryBoyId("");
+                                    setShowDeliveryBoyDialog(true);
+                                    return;
+                                  } else if (!error && boys && boys.length === 1) {
+                                    // Se houver apenas um, usar automaticamente
+                                    await handleAcceptAndPrintOrder(order, boys[0].id);
+                                    return;
                                   }
-                                  
-                                  // Se não for entrega ou não houver motoboys, aceitar normalmente
-                                  await handleAcceptAndPrintOrder(order);
-                                }}
-                                className="w-full h-9 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 border-2 border-green-400"
-                              >
-                                <Printer className="h-4 w-4 mr-1.5" />
-                                <span className="text-xs font-semibold">Aceitar e Imprimir</span>
-                              </Button>
-                            </div>
+                                }
+                                
+                                // Se não for entrega ou não houver motoboys, aceitar normalmente
+                                await handleAcceptAndPrintOrder(order);
+                              }}
+                              className="h-8 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white text-xs font-medium shadow-sm hover:shadow transition-all border border-green-400"
+                            >
+                              <Printer className="h-3.5 w-3.5 mr-1.5" />
+                              Aceitar e Imprimir
+                            </Button>
                           )}
                         </div>
+                      </div>
 
                         {order.notes && (
                           <div className="mt-4 p-3 bg-muted rounded-md">

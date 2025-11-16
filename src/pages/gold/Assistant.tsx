@@ -151,10 +151,22 @@ const Assistant = () => {
 
       // Verificar se há erro na resposta
       if (response.error) {
-        // Se for erro 403, a função provavelmente não está deployada
+        // Se a função não estiver disponível, usar fallback local
         const errorMsg = response.error.message || '';
-        if (errorMsg.includes('403') || errorMsg.includes('Forbidden') || errorMsg.includes('non-2xx')) {
-          throw new Error('⚠️ A Edge Function "business-assistant" não está deployada ou não está acessível.\n\nPara resolver:\n1. Acesse o Supabase Dashboard\n2. Vá em Edge Functions\n3. Faça o deploy da função "business-assistant"\n4. Configure a secret OPENAI_API_KEY\n\nOu use o CLI:\nsupabase functions deploy business-assistant');
+        if (errorMsg.includes('403') || errorMsg.includes('Forbidden') || errorMsg.includes('non-2xx') || errorMsg.includes('Function not found')) {
+          // Usar fallback local com dados do dashboard
+          const fallbackResponse = await getLocalFallbackResponse(userMessage.content, tenantId);
+          setMessages(prev => {
+            const filtered = prev.filter(m => m.id !== thinkingId);
+            return [...filtered, {
+              id: Date.now().toString(),
+              role: 'assistant',
+              content: fallbackResponse,
+              timestamp: new Date()
+            }];
+          });
+          setSending(false);
+          return;
         }
         
         const errorMessage = response.error.message || 
@@ -187,22 +199,180 @@ const Assistant = () => {
         }];
       });
     } catch (error: any) {
-      const errorMessage = error.message || 'Desculpe, ocorreu um erro. Tente novamente.';
-      
-      // Remove thinking message and add error
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== thinkingId);
-        return [...filtered, {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `❌ ${errorMessage}\n\nPor favor, verifique:\n- Se você tem Plano Gold ou Premium\n- Se a Edge Function está deployada\n- Se a chave OPENAI_API_KEY está configurada`,
-          timestamp: new Date()
-        }];
-      });
-      
-      toast.error(`Erro: ${errorMessage}`);
+      // Tentar fallback local antes de mostrar erro
+      try {
+        const fallbackResponse = await getLocalFallbackResponse(userMessage.content, tenantId);
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== thinkingId);
+          return [...filtered, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: fallbackResponse,
+            timestamp: new Date()
+          }];
+        });
+      } catch (fallbackError) {
+        // Se o fallback também falhar, mostrar mensagem amigável
+        const errorMessage = 'Desculpe, não consegui processar sua solicitação no momento. Por favor, tente novamente em alguns instantes.';
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== thinkingId);
+          return [...filtered, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: errorMessage,
+            timestamp: new Date()
+          }];
+        });
+        toast.error('Erro ao processar solicitação');
+      }
     } finally {
       setSending(false);
+    }
+  };
+
+  // Função de fallback local que usa dados do dashboard
+  const getLocalFallbackResponse = async (message: string, establishmentId: string): Promise<string> => {
+    const msgLower = message.toLowerCase();
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        return 'Por favor, faça login novamente para acessar seus dados.';
+      }
+
+      const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      
+      // Buscar dados básicos
+      const { data: todayOrders } = await supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', now.toISOString());
+
+      const { data: weekOrders } = await supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString());
+
+      const { data: monthOrders } = await supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString());
+
+      const todayOrdersArray = todayOrders || [];
+      const weekOrdersArray = weekOrders || [];
+      const monthOrdersArray = monthOrders || [];
+
+      // Calcular totais
+      const todayRevenue = todayOrdersArray.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const weekRevenue = weekOrdersArray.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const monthRevenue = monthOrdersArray.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      
+      const todayCount = todayOrdersArray.length;
+      const weekCount = weekOrdersArray.length;
+      const monthCount = monthOrdersArray.length;
+
+      const todayTicketAvg = todayCount > 0 ? todayRevenue / todayCount : 0;
+      const weekTicketAvg = weekCount > 0 ? weekRevenue / weekCount : 0;
+
+      // Análise de horários de pico (apenas horários que já passaram hoje)
+      const hourlySales = new Map<number, { orders: number; revenue: number }>();
+      const currentHourBrazil = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).getHours();
+      
+      todayOrdersArray.forEach(order => {
+        const orderDate = new Date(order.created_at);
+        const brazilHourStr = orderDate.toLocaleString('pt-BR', { 
+          timeZone: 'America/Sao_Paulo', 
+          hour: '2-digit', 
+          hour12: false 
+        });
+        const brazilHour = parseInt(brazilHourStr, 10);
+        
+        if (brazilHour <= currentHourBrazil) {
+          const current = hourlySales.get(brazilHour) || { orders: 0, revenue: 0 };
+          hourlySales.set(brazilHour, {
+            orders: current.orders + 1,
+            revenue: current.revenue + (Number(order.total_amount) || 0)
+          });
+        }
+      });
+
+      const topHours = Array.from(hourlySales.entries())
+        .map(([hour, data]) => ({ hour, hourFormatted: `${hour.toString().padStart(2, '0')}:00`, ...data }))
+        .filter(h => h.hour <= currentHourBrazil && h.orders > 0)
+        .sort((a, b) => b.orders - a.orders)
+        .slice(0, 5)
+        .map(h => h.hourFormatted);
+
+      // Respostas baseadas em palavras-chave
+      if (msgLower.includes('hoje') || msgLower.includes('vendas hoje')) {
+        return `📊 **Vendas de Hoje**\n\n` +
+               `💰 Faturamento: R$ ${todayRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+               `🛒 Pedidos: ${todayCount}\n` +
+               `📈 Ticket Médio: R$ ${todayTicketAvg.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n` +
+               (topHours.length > 0 
+                 ? `⏰ Horários de pico (até agora): ${topHours.join(', ')}\n\n` 
+                 : '⏰ Ainda não há dados suficientes de horários de pico hoje.\n\n') +
+               `💡 Dica: Compare com a semana passada para identificar tendências!`;
+      }
+
+      if (msgLower.includes('semana') || msgLower.includes('7 dias')) {
+        return `📊 **Vendas da Semana**\n\n` +
+               `💰 Faturamento: R$ ${weekRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+               `🛒 Pedidos: ${weekCount}\n` +
+               `📈 Ticket Médio: R$ ${weekTicketAvg.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n` +
+               `💡 Compare com o mês para ver a evolução!`;
+      }
+
+      if (msgLower.includes('mês') || msgLower.includes('30 dias')) {
+        return `📊 **Vendas do Mês**\n\n` +
+               `💰 Faturamento: R$ ${monthRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+               `🛒 Pedidos: ${monthCount}\n` +
+               `📈 Média diária: R$ ${(monthRevenue / 30).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n` +
+               `💡 Analise os produtos mais vendidos para otimizar seu cardápio!`;
+      }
+
+      if (msgLower.includes('pico') || msgLower.includes('horário')) {
+        if (topHours.length > 0) {
+          return `⏰ **Horários de Pico de Hoje**\n\n` +
+                 `Os horários com mais pedidos até agora são:\n${topHours.map((h, i) => `${i + 1}. ${h}`).join('\n')}\n\n` +
+                 `💡 Considere aumentar a equipe ou oferecer promoções durante esses períodos!`;
+        } else {
+          return `⏰ **Horários de Pico**\n\n` +
+                 `Ainda não há dados suficientes de hoje para identificar horários de pico.\n\n` +
+                 `💡 Os dados serão atualizados conforme os pedidos chegarem!`;
+        }
+      }
+
+      if (msgLower.includes('ticket') || msgLower.includes('médio')) {
+        return `📈 **Ticket Médio**\n\n` +
+               `Hoje: R$ ${todayTicketAvg.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+               `Semana: R$ ${weekTicketAvg.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n` +
+               `💡 Para aumentar o ticket médio, considere:\n` +
+               `• Sugerir combos e adicionais\n` +
+               `• Criar promoções para pedidos acima de determinado valor\n` +
+               `• Treinar a equipe para sugerir produtos complementares`;
+      }
+
+      // Resposta genérica
+      return `📊 **Resumo das Vendas**\n\n` +
+             `**Hoje:**\n` +
+             `💰 R$ ${todayRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 🛒 ${todayCount} pedidos\n\n` +
+             `**Semana:**\n` +
+             `💰 R$ ${weekRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 🛒 ${weekCount} pedidos\n\n` +
+             `**Mês:**\n` +
+             `💰 R$ ${monthRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 🛒 ${monthCount} pedidos\n\n` +
+             `💡 Faça perguntas específicas como:\n` +
+             `• "Como estão minhas vendas hoje?"\n` +
+             `• "Quais são meus horários de pico?"\n` +
+             `• "Qual é meu ticket médio?"`;
+    } catch (error) {
+      return 'Desculpe, não consegui acessar seus dados no momento. Por favor, tente novamente em alguns instantes.';
     }
   };
 

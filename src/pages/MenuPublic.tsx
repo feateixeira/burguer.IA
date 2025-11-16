@@ -76,6 +76,7 @@ interface Establishment {
       cardOpacity?: number;
       headerStyle?: "default" | "gradient" | "solid";
     };
+    delivery_fee?: number;
   };
 }
 
@@ -549,6 +550,12 @@ const MenuPublic = () => {
     return sum + itemPrice + (addonsPrice * item.quantity);
   }, 0);
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  
+  // Calcular taxa de entrega se for pedido de entrega
+  const deliveryFee = orderType === "delivery" && establishment?.settings?.delivery_fee 
+    ? Number(establishment.settings.delivery_fee) || 0 
+    : 0;
+  const finalTotal = cartTotal + deliveryFee;
 
   const handleCheckout = async () => {
     if (!establishment || cart.length === 0) return;
@@ -624,8 +631,8 @@ const MenuPublic = () => {
           order_type: orderType,
           delivery_type: orderType, // Salvar também em delivery_type
           subtotal: cartTotal,
-          delivery_fee: orderType === "delivery" ? 0 : 0, // Can be configured later
-          total_amount: cartTotal,
+          delivery_fee: deliveryFee,
+          total_amount: finalTotal,
           status: "pending",
           payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
           payment_method: paymentMethod,
@@ -1194,13 +1201,25 @@ const MenuPublic = () => {
                 className="p-4 rounded-lg"
                 style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
               >
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between items-center mb-2 text-sm">
+                    <span>Subtotal:</span>
+                    <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between items-center mb-2 text-sm">
+                    <span>Taxa de Entrega:</span>
+                    <span>R$ {deliveryFee.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center mb-2">
                   <span className="font-semibold text-base">Total do Pedido:</span>
                   <span 
                     className="text-2xl font-bold"
                     style={{ color: menuCustomization.primaryColor }}
                   >
-                    R$ {cartTotal.toFixed(2)}
+                    R$ {finalTotal.toFixed(2).replace('.', ',')}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -1404,13 +1423,25 @@ const MenuPublic = () => {
                 className="p-4 rounded-lg mb-4"
                 style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
               >
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between items-center mb-2 text-sm">
+                    <span>Subtotal:</span>
+                    <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between items-center mb-2 text-sm">
+                    <span>Taxa de Entrega:</span>
+                    <span>R$ {deliveryFee.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-base">Total do Pedido:</span>
                   <span 
                     className="text-2xl font-bold"
                     style={{ color: menuCustomization.primaryColor }}
                   >
-                    R$ {cartTotal.toFixed(2)}
+                    R$ {finalTotal.toFixed(2).replace('.', ',')}
                   </span>
                 </div>
               </div>

@@ -1,14 +1,12 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.55.0';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+}
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -269,7 +267,9 @@ serve(async (req) => {
         }
       }
 
-      // Check for "hoje" / "today"
+      // Check for "hoje" / "today" - PRIORIDADE MÁXIMA
+      // Se a mensagem mencionar "hoje" ou "today", sempre usar dados de hoje
+      // Mesmo que também mencione "últimos 30 dias" ou outros períodos
       if (msgLower.includes('hoje') || msgLower.includes('today')) {
         const start = new Date(now);
         start.setHours(0, 0, 0, 0);
@@ -346,6 +346,9 @@ serve(async (req) => {
 
     const { start: queryStart, end: queryEnd, period: initialQueryPeriod } = parseDateFromMessage(message);
     let queryPeriod = initialQueryPeriod;
+    
+    // Log para debug (remover em produção se necessário)
+    console.log('Query period detected:', queryPeriod, 'Message:', message);
     
     // Get current date ranges for general data
     const now = new Date();
@@ -610,26 +613,51 @@ serve(async (req) => {
     const lowMargin = productsWithProfit.filter(p => p.margin < 30 && p.margin > 0 && p.revenue > 0).slice(0, 10);
     
 
-    // Get hourly sales pattern (last 30 days) - usar TODOS os pedidos, não apenas completed
-    // Buscar pedidos dos últimos 30 dias
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    // Get hourly sales pattern - verificar se é sobre "hoje" ou período geral
+    const isTodayQuery = queryPeriod === 'hoje';
+    console.log('isTodayQuery:', isTodayQuery, 'queryPeriod:', queryPeriod);
     
-    let last30DaysQuery = supabase
-      .from('orders')
-      .select('id, total_amount, created_at, status, source_domain, channel, origin, accepted_and_printed_at')
-      .eq('establishment_id', tenantId)
-      .gte('created_at', thirtyDaysAgo.toISOString())
-      .lte('created_at', now.toISOString());
+    // Se for sobre "hoje", usar apenas pedidos de hoje
+    // Caso contrário, usar últimos 30 dias
+    let hourlyOrdersQuery;
+    if (isTodayQuery) {
+      // Usar pedidos apenas de hoje
+      hourlyOrdersQuery = supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status, source_domain, channel, origin, accepted_and_printed_at')
+        .eq('establishment_id', tenantId)
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', now.toISOString()); // Apenas até agora, não incluir futuro
+    } else {
+      // Usar últimos 30 dias para análise geral
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
+      
+      hourlyOrdersQuery = supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status, source_domain, channel, origin, accepted_and_printed_at')
+        .eq('establishment_id', tenantId)
+        .gte('created_at', thirtyDaysAgo.toISOString())
+        .lte('created_at', now.toISOString());
+    }
     
     // Para Na Brasa: aplicar mesmo filtro
     if (isNaBrasa) {
-      last30DaysQuery = last30DaysQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
+      hourlyOrdersQuery = hourlyOrdersQuery.or(`accepted_and_printed_at.not.is.null,source_domain.is.null,channel.neq.online,origin.neq.site`);
     }
     
-    const { data: last30DaysOrders } = await last30DaysQuery;
-    const last30DaysOrdersArray = last30DaysOrders || [];
+    const { data: hourlyOrders } = await hourlyOrdersQuery;
+    const hourlyOrdersArray = hourlyOrders || [];
+    
+    // Obter hora atual no timezone do Brasil para filtrar horários futuros
+    // Usar toLocaleString para garantir conversão correta do timezone
+    const nowBrazilStr = now.toLocaleString('en-US', { 
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      hour12: false
+    });
+    const currentHourBrazil = parseInt(nowBrazilStr.split(':')[0], 10);
     
     const hourlySales = new Map<number, { orders: number; revenue: number }>();
     for (let h = 0; h < 24; h++) {
@@ -639,7 +667,7 @@ serve(async (req) => {
     // Converter hora de UTC para horário local do Brasil (UTC-3)
     // O Supabase armazena created_at em UTC, então precisamos converter para o horário do Brasil
     // Usar toLocaleString com timezone 'America/Sao_Paulo' para garantir conversão correta
-    last30DaysOrdersArray.forEach(order => {
+    hourlyOrdersArray.forEach(order => {
       const orderDate = new Date(order.created_at);
       // Converter para horário local do Brasil usando toLocaleString
       // Isso garante que a conversão de timezone seja feita corretamente
@@ -650,6 +678,11 @@ serve(async (req) => {
       });
       const brazilHour = parseInt(brazilHourStr, 10);
       
+      // Se for consulta sobre "hoje", filtrar apenas horários que já passaram
+      if (isTodayQuery && brazilHour > currentHourBrazil) {
+        return; // Ignorar horários futuros
+      }
+      
       const current = hourlySales.get(brazilHour) || { orders: 0, revenue: 0 };
       hourlySales.set(brazilHour, {
         orders: current.orders + 1,
@@ -658,11 +691,44 @@ serve(async (req) => {
     });
 
     // Formatar horários como "HH:00" para melhor compreensão da IA
-    const topHours = Array.from(hourlySales.entries())
+    // Se for sobre "hoje", filtrar apenas horários que já passaram
+    let topHours = Array.from(hourlySales.entries())
       .map(([hour, data]) => ({ hour, hourFormatted: `${hour.toString().padStart(2, '0')}:00`, ...data }))
-      .sort((a, b) => b.revenue - a.revenue)
+      .filter(h => {
+        // Se for consulta sobre "hoje", excluir horários futuros E apenas horários com pedidos
+        if (isTodayQuery) {
+          // Excluir horários futuros
+          if (h.hour > currentHourBrazil) {
+            return false;
+          }
+          // Apenas horários com pedidos
+          return h.orders > 0;
+        }
+        // Para outros períodos, apenas verificar se tem pedidos
+        return h.orders > 0;
+      })
+      .sort((a, b) => {
+        // Se for sobre "hoje", priorizar por número de pedidos, depois receita
+        if (isTodayQuery) {
+          if (b.orders !== a.orders) {
+            return b.orders - a.orders;
+          }
+        }
+        return b.revenue - a.revenue;
+      })
       .slice(0, 5)
       .map(h => h.hourFormatted);
+    
+    // Se for sobre "hoje" e não houver horários (ainda muito cedo), retornar array vazio
+    // A IA deve informar que ainda não há dados suficientes
+    if (isTodayQuery && topHours.length === 0) {
+      topHours = [];
+    }
+    
+    // Log para debug
+    if (isTodayQuery) {
+      console.log('Today query - currentHourBrazil:', currentHourBrazil, 'topHours:', topHours);
+    }
 
     const weakHours = Array.from(hourlySales.entries())
       .map(([hour, data]) => ({ hour, hourFormatted: `${hour.toString().padStart(2, '0')}:00`, ...data }))
@@ -823,6 +889,8 @@ serve(async (req) => {
         },
         top_hours: topHours,
         weak_hours: weakHours,
+        is_today_query: isTodayQuery,
+        current_hour_brazil: isTodayQuery ? currentHourBrazil : null,
         top_days: topDays,
         margins: productsWithProfit.map(p => ({
           name: p.name,
@@ -853,6 +921,13 @@ REGRAS CRÍTICAS:
 - Se os dados de produtos estiverem vazios mas houver dados de vendas, foque em análises de vendas gerais, ticket médio e horários.
 - Se a pergunta for sobre um período específico, use APENAS os dados de "queried_period" e ignore os outros períodos (today, week, month) a menos que seja para comparação.
 - IMPORTANTE: Os horários em "top_hours" e "weak_hours" estão no formato "HH:00" (ex: "20:00", "21:00") e representam o horário local do Brasil. Use SEMPRE esses horários formatados ao responder sobre horários de pico.
+- CRÍTICO ABSOLUTO: Se "is_today_query" for true, significa que a pergunta é sobre "hoje". Nesse caso:
+  * Os horários em "top_hours" representam APENAS os horários que JÁ PASSARAM hoje (até a hora atual "current_hour_brazil")
+  * NUNCA mencione horários futuros quando "is_today_query" for true
+  * Se "is_today_query" for true e "top_hours" contiver horários maiores que "current_hour_brazil", isso é um ERRO - ignore completamente esses horários e use APENAS os que são menores ou iguais a "current_hour_brazil"
+  * Se a pergunta mencionar "hoje" mas você ver "is_today_query" como false, isso também é um ERRO - use apenas os horários de "top_hours" que são menores ou iguais a "current_hour_brazil" se fornecido
+- CRÍTICO: Quando "is_today_query" for true, você DEVE mencionar explicitamente que os horários são apenas dos horários que já passaram hoje (até a hora atual), e que ainda há tempo para mais pedidos no restante do dia.
+- CRÍTICO: Se a pergunta mencionar "hoje" mas "top_hours" contiver horários como "14:00", "15:00", etc. e a hora atual for menor (ex: 13:52), você DEVE informar que esses horários ainda não aconteceram hoje e listar apenas os horários que já passaram.
 - CRÍTICO: Se "top_hours" contiver horários como "00:00" ou "01:00" (madrugada), isso pode indicar um problema de conversão de timezone. Nesse caso, verifique se os horários fazem sentido para um estabelecimento de comida. Se não fizerem sentido, mencione que pode haver um problema nos dados e sugira verificar os horários de funcionamento.
 - Se os horários de pico estiverem em horários noturnos normais (ex: "19:00", "20:00", "21:00", "22:00", "23:00"), mencione-os normalmente.
 - NUNCA mencione horários de madrugada (00:00-06:00) como horários de pico a menos que realmente sejam os horários mais movimentados e isso faça sentido para o tipo de estabelecimento.

@@ -2234,7 +2234,6 @@ interface Order {
 
                             <div className="text-right">
                               <p className="text-2xl font-bold text-primary flex items-center justify-end">
-                                <DollarSign className="h-5 w-5" />
                                 {formatCurrencyBR(order.total_amount)}
                               </p>
                               <p className="text-sm text-muted-foreground">

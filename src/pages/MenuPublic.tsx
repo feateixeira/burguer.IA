@@ -87,6 +87,7 @@ const MenuPublic = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [combos, setCombos] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showCombosOnly, setShowCombosOnly] = useState(false);
@@ -188,6 +189,17 @@ const MenuPublic = () => {
       }
     };
 
+    const reloadPromotions = async () => {
+      const { data, error } = await supabase
+        .from("promotions")
+        .select("*, promotion_products(product_id, fixed_price)")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true);
+      if (!error && data) {
+        setPromotions(data);
+      }
+    };
+
     // Channel para produtos
     const productsChannel = supabase
       .channel(`menu-products-updates-${establishment.id}`)
@@ -239,10 +251,45 @@ const MenuPublic = () => {
       )
       .subscribe();
 
+    // Channel para promoções
+    const promotionsChannel = supabase
+      .channel(`menu-promotions-updates-${establishment.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'promotions',
+          filter: `establishment_id=eq.${establishment.id}`
+        },
+        () => {
+          reloadPromotions();
+        }
+      )
+      .subscribe();
+
+    // Channel para promotion_products
+    const promotionProductsChannel = supabase
+      .channel(`menu-promotion-products-updates-${establishment.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'promotion_products'
+        },
+        () => {
+          reloadPromotions();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(combosChannel);
+      supabase.removeChannel(promotionsChannel);
+      supabase.removeChannel(promotionProductsChannel);
     };
   }, [establishment?.id]);
   
@@ -317,7 +364,7 @@ const MenuPublic = () => {
         return;
       }
       
-      const [productsResult, categoriesResult, combosResult] = await Promise.all([
+      const [productsResult, categoriesResult, combosResult, promotionsResult] = await Promise.all([
         supabase
           .from("products")
           .select("*")
@@ -336,16 +383,23 @@ const MenuPublic = () => {
           .select("*, combo_items(product_id, quantity)")
           .eq("establishment_id", estabId)
           .eq("active", true)
-          .order("sort_order")
+          .order("sort_order"),
+        supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", estabId)
+          .eq("active", true)
       ]);
 
       if (productsResult.error) throw productsResult.error;
       if (categoriesResult.error) throw categoriesResult.error;
       if (combosResult.error) throw combosResult.error;
+      if (promotionsResult.error) throw promotionsResult.error;
 
       setProducts(productsResult.data || []);
       setCategories(categoriesResult.data || []);
       setCombos(combosResult.data || []);
+      setPromotions(promotionsResult.data || []);
 
       // Começar mostrando todos os produtos (null = todos)
       setSelectedCategory(null);
@@ -400,17 +454,97 @@ const MenuPublic = () => {
     }
   };
 
+  // Funções para aplicar promoções
+  const isPromotionActiveNow = (promotion: any) => {
+    if (!promotion?.active) return false;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const startOk = todayStr >= promotion.start_date;
+    const endOk = todayStr <= promotion.end_date;
+    if (!(startOk && endOk)) return false;
+
+    // Time window optional
+    if (promotion.start_time) {
+      const [sh, sm, ss] = promotion.start_time.split(":").map((v: string) => parseInt(v, 10) || 0);
+      const startMinutes = sh * 60 + sm;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (nowMinutes < startMinutes) return false;
+    }
+    if (promotion.end_time) {
+      const [eh, em, es] = promotion.end_time.split(":").map((v: string) => parseInt(v, 10) || 0);
+      const endMinutes = eh * 60 + em;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (nowMinutes > endMinutes) return false;
+    }
+    return true;
+  };
+
+  const computeDiscountedPrice = (basePrice: number, promotion: any) => {
+    if (!promotion) return basePrice;
+    if (promotion.discount_type === 'percentage') {
+      return Math.max(0, Number(basePrice) * (1 - Number(promotion.discount_value) / 100));
+    }
+    if (promotion.discount_type === 'fixed') {
+      return Math.max(0, Number(basePrice) - Number(promotion.discount_value));
+    }
+    return basePrice;
+  };
+
+  const getAppliedPromotionForProduct = (product: Product) => {
+    if (!promotions || promotions.length === 0) return null;
+    const applicable = promotions.filter(isPromotionActiveNow).find((p: any) => {
+      if (p.type === 'product') {
+        // Verificar se o produto está na lista de promotion_products
+        if (p.promotion_products && Array.isArray(p.promotion_products)) {
+          return p.promotion_products.some((pp: any) => pp.product_id === product.id);
+        }
+        // Fallback para compatibilidade com promoções antigas (target_id)
+        return p.target_id === product.id;
+      }
+      if (p.type === 'category') return p.target_id && product.category_id === p.target_id;
+      if (p.type === 'global') return true;
+      return false;
+    });
+    if (!applicable) return null;
+    
+    // Se for promoção do tipo produto com promotion_products, usar o valor fixo
+    if (applicable.type === 'product' && applicable.promotion_products && Array.isArray(applicable.promotion_products)) {
+      const productPromotion = applicable.promotion_products.find((pp: any) => pp.product_id === product.id);
+      if (productPromotion && productPromotion.fixed_price !== null && productPromotion.fixed_price !== undefined) {
+        return { 
+          price: Number(productPromotion.fixed_price), 
+          originalPrice: product.price, 
+          promotionId: applicable.id, 
+          promotionName: applicable.name 
+        };
+      }
+    }
+    
+    // Para outros tipos de promoção, calcular desconto normalmente
+    const discounted = computeDiscountedPrice(product.price, applicable);
+    return { price: discounted, originalPrice: product.price, promotionId: applicable.id, promotionName: applicable.name };
+  };
+
+  const applyPromotionIfAny = (product: Product) => {
+    const applied = getAppliedPromotionForProduct(product);
+    if (!applied) return product;
+    return { ...product, price: applied.price, originalPrice: applied.originalPrice, promotionId: applied.promotionId, promotionName: applied.promotionName } as Product & { originalPrice: number; promotionId: string; promotionName: string };
+  };
+
   const addToCart = async (product: Product, selectedAddons?: Addon[]) => {
+    // Aplicar promoção se houver
+    const productWithPromotion = applyPromotionIfAny(product);
+    
     // Se adicionais foram passados, adicionar com eles
     if (selectedAddons !== undefined) {
       const cartItem: CartItem = {
-        ...product,
+        ...productWithPromotion,
         quantity: 1,
         addons: selectedAddons.length > 0 ? selectedAddons : undefined,
       };
       
       setCart([...cart, cartItem]);
-      toast.success(`${product.name} adicionado ao carrinho`);
+      toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
       return;
     }
 
@@ -419,26 +553,26 @@ const MenuPublic = () => {
     
     if (hasAddons) {
       // Abrir modal de adicionais
-      setPendingProduct(product);
+      setPendingProduct(productWithPromotion);
       setShowAddonsModal(true);
     } else {
       // Adicionar diretamente ao carrinho
       const existingItem = cart.find(item => 
-        item.id === product.id && 
+        item.id === productWithPromotion.id && 
         !item.notes && 
         (!item.addons || item.addons.length === 0)
       );
       
       if (existingItem) {
         setCart(cart.map(item =>
-          item.id === product.id && !item.notes && (!item.addons || item.addons.length === 0)
+          item.id === productWithPromotion.id && !item.notes && (!item.addons || item.addons.length === 0)
             ? { ...item, quantity: item.quantity + 1 }
             : item
         ));
       } else {
-        setCart([...cart, { ...product, quantity: 1 }]);
+        setCart([...cart, { ...productWithPromotion, quantity: 1 }]);
       }
-      toast.success(`${product.name} adicionado ao carrinho`);
+      toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
     }
   };
 
@@ -1045,6 +1179,12 @@ const MenuPublic = () => {
                     </Badge>
                   )}
                 </div>
+                {(() => {
+                  const applied = getAppliedPromotionForProduct(product);
+                  return applied ? (
+                    <div className="text-xs text-green-700 dark:text-green-300 font-medium mb-2">Promoção: {applied.promotionName}</div>
+                  ) : null;
+                })()}
                 {product.description && (
                   <p className="text-sm text-muted-foreground mb-3 line-clamp-2 flex-shrink-0">
                     {product.description}
@@ -1052,7 +1192,20 @@ const MenuPublic = () => {
                 )}
                 <div className="flex items-center justify-between mt-auto">
                   <span className="text-xl font-bold" style={{ color: menuCustomization.primaryColor }}>
-                    R$ {Number(product.price).toFixed(2)}
+                    {(() => {
+                      const applied = getAppliedPromotionForProduct(product);
+                      if (applied) {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-primary text-lg">R$ {applied.price.toFixed(2)}</span>
+                            <span className="text-sm line-through text-muted-foreground">R$ {product.price.toFixed(2)}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <span className="font-bold text-primary text-lg">R$ {Number(product.price).toFixed(2)}</span>
+                      );
+                    })()}
                   </span>
                   <Button
                     size="sm"

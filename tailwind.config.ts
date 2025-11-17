@@ -18,6 +18,9 @@ export default {
 			}
 		},
 		extend: {
+			screens: {
+				'notebook': '1366px', // Breakpoint para notebooks com resolução 1366x768
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',

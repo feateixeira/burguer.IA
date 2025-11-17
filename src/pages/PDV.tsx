@@ -256,7 +256,7 @@ const PDV = () => {
     const reloadPromotions = async () => {
       const { data, error } = await supabase
         .from("promotions")
-        .select("*")
+        .select("*, promotion_products(product_id, fixed_price)")
         .eq("establishment_id", establishmentId)
         .eq("active", true);
       if (!error && data) {
@@ -334,11 +334,28 @@ const PDV = () => {
       )
       .subscribe();
 
+    // Channel para promotion_products
+    const promotionProductsChannel = supabase
+      .channel(`pdv-promotion-products-updates-${establishmentId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'promotion_products'
+        },
+        () => {
+          reloadPromotions();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(combosChannel);
       supabase.removeChannel(promotionsChannel);
+      supabase.removeChannel(promotionProductsChannel);
     };
   }, [establishmentId]);
 
@@ -389,7 +406,7 @@ const PDV = () => {
           .order("sort_order"),
         supabase
           .from("promotions")
-          .select("*")
+          .select("*, promotion_products(product_id, fixed_price)")
           .eq("establishment_id", profile.establishment_id)
           .eq("active", true)
       ]);
@@ -1616,12 +1633,34 @@ const PDV = () => {
   const getAppliedPromotionForProduct = (product: Product) => {
     if (!promotions || promotions.length === 0) return null;
     const applicable = promotions.filter(isPromotionActiveNow).find((p: any) => {
-      if (p.type === 'product') return p.target_id === product.id;
+      if (p.type === 'product') {
+        // Verificar se o produto está na lista de promotion_products
+        if (p.promotion_products && Array.isArray(p.promotion_products)) {
+          return p.promotion_products.some((pp: any) => pp.product_id === product.id);
+        }
+        // Fallback para compatibilidade com promoções antigas (target_id)
+        return p.target_id === product.id;
+      }
       if (p.type === 'category') return p.target_id && product.category_id === p.target_id;
       if (p.type === 'global') return true;
       return false;
     });
     if (!applicable) return null;
+    
+    // Se for promoção do tipo produto com promotion_products, usar o valor fixo
+    if (applicable.type === 'product' && applicable.promotion_products && Array.isArray(applicable.promotion_products)) {
+      const productPromotion = applicable.promotion_products.find((pp: any) => pp.product_id === product.id);
+      if (productPromotion && productPromotion.fixed_price !== null && productPromotion.fixed_price !== undefined) {
+        return { 
+          price: Number(productPromotion.fixed_price), 
+          originalPrice: product.price, 
+          promotionId: applicable.id, 
+          promotionName: applicable.name 
+        };
+      }
+    }
+    
+    // Para outros tipos de promoção, calcular desconto normalmente
     const discounted = computeDiscountedPrice(product.price, applicable);
     return { price: discounted, originalPrice: product.price, promotionId: applicable.id, promotionName: applicable.name };
   };

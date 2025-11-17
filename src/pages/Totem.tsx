@@ -62,6 +62,7 @@ export default function Totem() {
   const [products, setProducts] = useState<Product[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [promotions, setPromotions] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
@@ -126,6 +127,19 @@ export default function Totem() {
       }
     };
 
+    const reloadPromotions = async () => {
+      const { data, error } = await supabase
+        .from("promotions")
+        .select("*, promotion_products(product_id, fixed_price)")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true);
+      if (!error && data) {
+        setPromotions(data);
+      } else if (error) {
+        console.error("Error reloading promotions:", error);
+      }
+    };
+
     // Channel para produtos
     const productsChannel = supabase
       .channel(`totem-products-updates-${establishmentId}`)
@@ -177,10 +191,45 @@ export default function Totem() {
       )
       .subscribe();
 
+    // Channel para promoções
+    const promotionsChannel = supabase
+      .channel(`totem-promotions-updates-${establishmentId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'promotions',
+          filter: `establishment_id=eq.${establishmentId}`
+        },
+        () => {
+          reloadPromotions();
+        }
+      )
+      .subscribe();
+
+    // Channel para promotion_products
+    const promotionProductsChannel = supabase
+      .channel(`totem-promotion-products-updates-${establishmentId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'promotion_products'
+        },
+        () => {
+          reloadPromotions();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(combosChannel);
       supabase.removeChannel(categoriesChannel);
+      supabase.removeChannel(promotionsChannel);
+      supabase.removeChannel(promotionProductsChannel);
     };
   }, [establishmentId]);
 
@@ -257,8 +306,8 @@ export default function Totem() {
       // Garantir que iniciamos mostrando todos os produtos
       setSelectedCategory("all");
 
-      // Load products and combos - explicitamente selecionando todos os campos necessários incluindo image_url
-      const [productsResult, combosResult] = await Promise.all([
+      // Load products, combos and promotions - explicitamente selecionando todos os campos necessários incluindo image_url
+      const [productsResult, combosResult, promotionsResult] = await Promise.all([
         supabase
           .from("products")
           .select("id, name, price, image_url, description, category_id, active, sort_order, is_combo")
@@ -271,14 +320,21 @@ export default function Totem() {
           .select("id, name, price, image_url, description, active, sort_order")
           .eq("establishment_id", establishmentIdToUse)
           .eq("active", true)
-          .order("sort_order")
+          .order("sort_order"),
+        supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", establishmentIdToUse)
+          .eq("active", true)
       ]);
 
       if (productsResult.error) throw productsResult.error;
       if (combosResult.error) throw combosResult.error;
+      if (promotionsResult.error) throw promotionsResult.error;
       
       setProducts(productsResult.data || []);
       setCombos(combosResult.data || []);
+      setPromotions(promotionsResult.data || []);
     } catch (error) {
       console.error("Error loading data:", error);
       toast.error("Erro ao carregar produtos");
@@ -327,21 +383,101 @@ export default function Totem() {
     }
   };
 
+  // Funções para aplicar promoções
+  const isPromotionActiveNow = (promotion: any) => {
+    if (!promotion?.active) return false;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const startOk = todayStr >= promotion.start_date;
+    const endOk = todayStr <= promotion.end_date;
+    if (!(startOk && endOk)) return false;
+
+    // Time window optional
+    if (promotion.start_time) {
+      const [sh, sm, ss] = promotion.start_time.split(":").map((v: string) => parseInt(v, 10) || 0);
+      const startMinutes = sh * 60 + sm;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (nowMinutes < startMinutes) return false;
+    }
+    if (promotion.end_time) {
+      const [eh, em, es] = promotion.end_time.split(":").map((v: string) => parseInt(v, 10) || 0);
+      const endMinutes = eh * 60 + em;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (nowMinutes > endMinutes) return false;
+    }
+    return true;
+  };
+
+  const computeDiscountedPrice = (basePrice: number, promotion: any) => {
+    if (!promotion) return basePrice;
+    if (promotion.discount_type === 'percentage') {
+      return Math.max(0, Number(basePrice) * (1 - Number(promotion.discount_value) / 100));
+    }
+    if (promotion.discount_type === 'fixed') {
+      return Math.max(0, Number(basePrice) - Number(promotion.discount_value));
+    }
+    return basePrice;
+  };
+
+  const getAppliedPromotionForProduct = (product: DisplayItem) => {
+    if (!promotions || promotions.length === 0) return null;
+    const applicable = promotions.filter(isPromotionActiveNow).find((p: any) => {
+      if (p.type === 'product') {
+        // Verificar se o produto está na lista de promotion_products
+        if (p.promotion_products && Array.isArray(p.promotion_products)) {
+          return p.promotion_products.some((pp: any) => pp.product_id === product.id);
+        }
+        // Fallback para compatibilidade com promoções antigas (target_id)
+        return p.target_id === product.id;
+      }
+      if (p.type === 'category') return p.target_id && product.category_id === p.target_id;
+      if (p.type === 'global') return true;
+      return false;
+    });
+    if (!applicable) return null;
+    
+    // Se for promoção do tipo produto com promotion_products, usar o valor fixo
+    if (applicable.type === 'product' && applicable.promotion_products && Array.isArray(applicable.promotion_products)) {
+      const productPromotion = applicable.promotion_products.find((pp: any) => pp.product_id === product.id);
+      if (productPromotion && productPromotion.fixed_price !== null && productPromotion.fixed_price !== undefined) {
+        return { 
+          price: Number(productPromotion.fixed_price), 
+          originalPrice: product.price, 
+          promotionId: applicable.id, 
+          promotionName: applicable.name 
+        };
+      }
+    }
+    
+    // Para outros tipos de promoção, calcular desconto normalmente
+    const discounted = computeDiscountedPrice(product.price, applicable);
+    return { price: discounted, originalPrice: product.price, promotionId: applicable.id, promotionName: applicable.name };
+  };
+
+  const applyPromotionIfAny = (product: DisplayItem) => {
+    const applied = getAppliedPromotionForProduct(product);
+    if (!applied) return product;
+    return { ...product, price: applied.price, originalPrice: applied.originalPrice, promotionId: applied.promotionId, promotionName: applied.promotionName } as DisplayItem & { originalPrice: number; promotionId: string; promotionName: string };
+  };
+
   const addToCart = async (item: DisplayItem, selectedAddons?: Addon[]) => {
+    // Aplicar promoção se houver
+    const itemWithPromotion = applyPromotionIfAny(item);
+    
     // Se adicionais foram passados, adicionar com eles
     if (selectedAddons !== undefined) {
       const cartItem: CartItem = {
-        ...item,
+        ...itemWithPromotion,
         quantity: 1,
-        isCombo: item.isCombo,
-        category_id: item.category_id || null,
-        image_url: item.image_url || null,
-        description: item.description || null,
+        isCombo: itemWithPromotion.isCombo,
+        category_id: itemWithPromotion.category_id || null,
+        image_url: itemWithPromotion.image_url || null,
+        description: itemWithPromotion.description || null,
         addons: selectedAddons.length > 0 ? selectedAddons : undefined,
       };
       
       setCart([...cart, cartItem]);
-      toast.success(`${item.name} adicionado ao carrinho!`, {
+      toast.success(`${itemWithPromotion.name} adicionado ao carrinho!`, {
         position: "top-left",
         duration: 2000,
         style: {
@@ -356,31 +492,31 @@ export default function Totem() {
     
     if (hasAddons) {
       // Abrir modal de adicionais
-      setPendingProduct(item);
+      setPendingProduct(itemWithPromotion);
       setShowAddonsModal(true);
     } else {
       // Adicionar diretamente ao carrinho
       const existing = cart.find((cartItem) => 
-        cartItem.id === item.id && 
+        cartItem.id === itemWithPromotion.id && 
         (!cartItem.addons || cartItem.addons.length === 0)
       );
       
       if (existing) {
         setCart(
           cart.map((cartItem) =>
-            cartItem.id === item.id && (!cartItem.addons || cartItem.addons.length === 0)
+            cartItem.id === itemWithPromotion.id && (!cartItem.addons || cartItem.addons.length === 0)
               ? { ...cartItem, quantity: cartItem.quantity + 1 }
               : cartItem
           )
         );
       } else {
         setCart([...cart, { 
-          ...item, 
+          ...itemWithPromotion, 
           quantity: 1,
-          isCombo: item.isCombo,
-          category_id: item.category_id || null,
-          image_url: item.image_url || null,
-          description: item.description || null
+          isCombo: itemWithPromotion.isCombo,
+          category_id: itemWithPromotion.category_id || null,
+          image_url: itemWithPromotion.image_url || null,
+          description: itemWithPromotion.description || null
         }]);
       }
       toast.success("Adicionado ao carrinho!", {
@@ -924,10 +1060,33 @@ export default function Totem() {
                     <Badge variant="secondary" className="text-xs w-fit shrink-0">Combo</Badge>
                   )}
                 </div>
+                {(() => {
+                  const applied = getAppliedPromotionForProduct(item);
+                  return applied ? (
+                    <div className="text-xs text-green-700 dark:text-green-300 font-medium mb-1">Promoção: {applied.promotionName}</div>
+                  ) : null;
+                })()}
                 <div className="mt-auto pt-2">
-                  <p className="text-lg font-bold text-primary">
-                    R$ {item.price.toFixed(2)}
-                  </p>
+                  {(() => {
+                    const applied = getAppliedPromotionForProduct(item);
+                    if (applied) {
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <p className="text-lg font-bold text-primary">
+                            R$ {applied.price.toFixed(2)}
+                          </p>
+                          <p className="text-xs line-through text-muted-foreground">
+                            R$ {item.price.toFixed(2)}
+                          </p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p className="text-lg font-bold text-primary">
+                        R$ {item.price.toFixed(2)}
+                      </p>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>

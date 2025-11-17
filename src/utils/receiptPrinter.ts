@@ -341,7 +341,10 @@ export const printReceipt = async (r: ReceiptData) => {
           ${itemsHtml}
         </div>
 
-        ${r.generalInstructions ? `
+        ${r.generalInstructions && 
+          r.generalInstructions.trim().length > 0 && 
+          !r.generalInstructions.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+          r.generalInstructions.replace(/\s/g, '').length > 0 ? `
           <div class="sep"></div>
           <div class="general-instructions">
             <strong>Instruções do Pedido:</strong> ${r.generalInstructions}

@@ -1509,6 +1509,22 @@ interface Order {
         const instructionsMatch = textWithoutServiceType.match(/Instruções\s+do\s+Pedido:\s*([\s\S]*?)(?:\n\n|$)/i);
         if (instructionsMatch && instructionsMatch[1]) {
           let rawInstructions = instructionsMatch[1].trim();
+          
+          // Remove telefone das instruções (padrões brasileiros com ou sem formatação)
+          rawInstructions = rawInstructions
+            // Remove telefones formatados: (11) 99999-9999, (11)99999-9999, 11 99999-9999
+            .replace(/\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/g, '')
+            // Remove telefones sem formatação: 11999999999, 1199999999
+            .replace(/\b\d{10,11}\b/g, '')
+            // Remove padrões com "Tel:", "Telefone:", "Fone:", etc. (com ou sem número)
+            .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/gi, '')
+            .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\d{10,11}/gi, '')
+            // Remove "Telefone:" isolado (sem número após)
+            .replace(/^(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+            .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+            .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*\n/gmi, '\n')
+            .trim();
+          
           // Remove qualquer menção de trio das instruções
           rawInstructions = rawInstructions.replace(/Trio\s*:\s*[^\n]+/gi, '').trim();
           // Remove resumo de quantidades (ex: "Resumo: 4x hamburgueres, 6x acompanhamentos, 1x bebidas")
@@ -1536,8 +1552,15 @@ interface Order {
             .replace(/\n\s*\n+/g, '\n')
             .replace(/^\s+|\s+$/gm, '')
             .trim();
-          // Só adiciona se sobrar conteúdo relevante (mais de 3 caracteres)
-          if (rawInstructions && rawInstructions.length > 3) {
+          
+          // Verifica se há conteúdo real (não apenas espaços, quebras de linha ou marcadores vazios)
+          const hasRealContent = rawInstructions && 
+                                rawInstructions.length > 3 && 
+                                !rawInstructions.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+                                rawInstructions.replace(/\s/g, '').length > 0;
+          
+          // Só adiciona se sobrar conteúdo relevante
+          if (hasRealContent) {
             generalInstructions = removeDuplicateReceiptInfo(rawInstructions) || undefined;
           } else {
             // Se sobrou apenas espaços/vazio após remoção, não adiciona instruções
@@ -1547,6 +1570,18 @@ interface Order {
           // Remove tudo que está entre colchetes [ ] (itens do pedido) antes de processar
           // Também remove linhas que começam com "Pedido Na Brasa:" ou similar
           let cleanedText = textWithoutServiceType
+            // Remove telefone das instruções (padrões brasileiros com ou sem formatação)
+            // Remove telefones formatados: (11) 99999-9999, (11)99999-9999, 11 99999-9999
+            .replace(/\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/g, '')
+            // Remove telefones sem formatação: 11999999999, 1199999999
+            .replace(/\b\d{10,11}\b/g, '')
+            // Remove padrões com "Tel:", "Telefone:", "Fone:", etc. (com ou sem número)
+            .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/gi, '')
+            .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\d{10,11}/gi, '')
+            // Remove "Telefone:" isolado (sem número após)
+            .replace(/^(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+            .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+            .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*\n/gmi, '\n')
             // Remove itens entre colchetes (ex: [1x Na Brasa...])
             .replace(/\[[^\]]+\]/g, '')
             // Remove linhas que começam com "Pedido Na Brasa:" ou variações
@@ -1584,14 +1619,19 @@ interface Order {
           // Limpa espaços e quebras de linha extras
           cleanedText = cleanedText.replace(/\n\s*\n+/g, '\n').replace(/\s+/g, ' ').trim();
           
-          // Só usa se tiver conteúdo relevante (mais de 5 caracteres após limpeza)
-          // E que NÃO seja apenas "Trio:" ou serviceType
-          if (cleanedText && cleanedText.length > 5 && 
-              !cleanedText.match(/^Trio\s*:/i) && 
-              !cleanedText.match(/^(comer|embalar|para\s+levar|pra\s+levar)/i)) {
+          // Verifica se há conteúdo real (não apenas espaços, quebras de linha ou marcadores vazios)
+          const hasRealContent = cleanedText && 
+                                cleanedText.length > 5 && 
+                                !cleanedText.match(/^Trio\s*:/i) && 
+                                !cleanedText.match(/^(comer|embalar|para\s+levar|pra\s+levar)/i) &&
+                                !cleanedText.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+                                cleanedText.replace(/\s/g, '').length > 0;
+          
+          // Só usa se tiver conteúdo relevante
+          if (hasRealContent) {
             generalInstructions = removeDuplicateReceiptInfo(cleanedText) || undefined;
           } else {
-            // Se sobrou apenas serviceType ou vazio, não adiciona instruções
+            // Se sobrou apenas serviceType, telefone ou vazio, não adiciona instruções
             generalInstructions = undefined;
           }
         }

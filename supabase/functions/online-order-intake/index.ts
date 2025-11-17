@@ -345,6 +345,23 @@ serve(async (req) => {
       // Remove informações de serviceType das generalInstructions ANTES de adicionar ao notes
       // Isso garante que não apareça duplicado nas instruções
       let cleanedInstructions = generalInstructions;
+      
+      // Remove telefone das instruções (padrões brasileiros com ou sem formatação)
+      // Remove números que parecem telefones (10 ou 11 dígitos, com ou sem formatação)
+      cleanedInstructions = cleanedInstructions
+        // Remove telefones formatados: (11) 99999-9999, (11)99999-9999, 11 99999-9999
+        .replace(/\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/g, '')
+        // Remove telefones sem formatação: 11999999999, 1199999999
+        .replace(/\b\d{10,11}\b/g, '')
+        // Remove padrões com "Tel:", "Telefone:", "Fone:", etc. (com ou sem número)
+        .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}/gi, '')
+        .replace(/(Tel|Telefone|Fone|Phone)[:\s]*\d{10,11}/gi, '')
+        // Remove "Telefone:" isolado (sem número após)
+        .replace(/^(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+        .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*$/gmi, '')
+        .replace(/\n(Telefone|Tel|Fone|Phone)[:\s]*\n/gmi, '\n')
+        .trim();
+      
       if (serviceType) {
         cleanedInstructions = cleanedInstructions
           .replace(/comer\s+no\s+local/gi, '')
@@ -371,8 +388,20 @@ serve(async (req) => {
           .trim();
       }
       
-      // Só adiciona as instruções se sobrar conteúdo após limpeza
-      if (cleanedInstructions && cleanedInstructions.length > 3) {
+      // Remove linhas vazias e espaços extras após limpeza
+      cleanedInstructions = cleanedInstructions
+        .replace(/\n\s*\n+/g, '\n')
+        .replace(/^\s+|\s+$/gm, '')
+        .trim();
+      
+      // Só adiciona as instruções se sobrar conteúdo relevante após limpeza
+      // Verifica se há conteúdo real (não apenas espaços, quebras de linha ou marcadores vazios)
+      const hasRealContent = cleanedInstructions && 
+                            cleanedInstructions.length > 3 && 
+                            !cleanedInstructions.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+                            cleanedInstructions.replace(/\s/g, '').length > 0;
+      
+      if (hasRealContent) {
         // Se já houver notes, adicionar as instruções separadamente
         if (orderNotes) {
           orderNotes = `${orderNotes}\n\nInstruções do Pedido: ${cleanedInstructions}`;
@@ -384,12 +413,22 @@ serve(async (req) => {
 
     // Preparar nome do cliente com informação de serviceType se houver
     let customerName = order.customer?.name || 'Cliente Online';
+    const customerPhone = order.customer?.phone || null;
+    
+    // Verificar se é do site hamburguerianabrasa.com.br
+    const isNaBrasaSite = source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+    
     // Se for pedido retirar no local (pickup) ou "Cliente Balcão", e tiver serviceType, adiciona ao nome
     const isPickup = order.meta?.deliveryType === 'pickup' || order.deliveryType === 'pickup' || 
                      customerName.toLowerCase().includes('balcão') || customerName.toLowerCase().includes('balcao');
     
     if (isPickup && serviceType) {
-      customerName = `${customerName} - ${serviceType}`;
+      // Para pedidos do site Na Brasa com "embalar pra levar" e telefone, incluir telefone no nome
+      if (isNaBrasaSite && serviceType === 'embalar pra levar' && customerPhone) {
+        customerName = `${customerName} - embalar pra levar ${customerPhone}`;
+      } else {
+        customerName = `${customerName} - ${serviceType}`;
+      }
     }
     
     // Normalizar método de pagamento para valores aceitos pelo banco

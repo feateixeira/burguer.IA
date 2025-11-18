@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type TeamRole = 'master' | 'admin' | 'atendente' | 'cozinha';
@@ -623,18 +624,21 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             className="z-[101]"
             style={{ zIndex: 101 }}
           >
-          {/* Remove botão X de fechar apenas se há master (obriga selecionar) */}
+          {/* Remove botão X de fechar completamente */}
           <style dangerouslySetInnerHTML={{__html: `
-            [data-radix-dialog-content] button,
+            [data-radix-dialog-content] button[data-radix-dialog-close],
             [data-radix-dialog-content] button[aria-label="Close"],
-            [data-radix-dialog-content] > button:last-child,
-            button:has(svg[aria-label="Close"]) {
+            [data-radix-dialog-content] > button:last-child:has(svg),
+            [data-radix-dialog-content] button:has(svg[aria-label="Close"]),
+            [data-radix-dialog-content] button:has(svg[class*="lucide"]):not([class*="mr-2"]):not([class*="ml-2"]) {
               display: none !important;
               visibility: hidden !important;
               pointer-events: none !important;
               opacity: 0 !important;
               width: 0 !important;
               height: 0 !important;
+              position: absolute !important;
+              left: -9999px !important;
             }
           `}} />
           
@@ -707,9 +711,9 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             </div>
           )}
           
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 mt-4">
             <Button 
-              className="w-full mt-2" 
+              className="w-full" 
               disabled={
                 !selectedId || 
                 (teamList.find(m => m.id === selectedId)?.role && 
@@ -719,6 +723,23 @@ export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               onClick={handleSelectAndProceed}
             >
               Entrar
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full text-muted-foreground hover:text-destructive"
+              onClick={async () => {
+                // Limpar sessão
+                sessionStorage.clear();
+                localStorage.removeItem(TEAM_USER_KEY);
+                // Fazer logout
+                await supabase.auth.signOut();
+                // Redirecionar para login
+                window.location.href = '/auth';
+              }}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Voltar para Login
             </Button>
           </DialogFooter>
         </DialogContent>

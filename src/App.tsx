@@ -32,11 +32,16 @@ import WhatsApp from "./pages/gold/WhatsApp";
 import { TeamUserProvider } from "@/components/TeamUserProvider";
 import { ConfirmProvider } from "@/hooks/useConfirm";
 import { SessionGuard } from "@/components/SessionGuard";
+import { useSessionCleanup } from "@/hooks/useSessionCleanup";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
+// Componente interno para usar hooks
+const AppContent = () => {
+  // Limpar sessão ao fechar aba/navegador
+  useSessionCleanup();
+
+  return (
     <ThemeProvider>
       <TooltipProvider>
         <Toaster />
@@ -82,6 +87,12 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
+  );
+};
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AppContent />
   </QueryClientProvider>
 );
 

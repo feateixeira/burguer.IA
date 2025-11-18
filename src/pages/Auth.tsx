@@ -593,6 +593,9 @@ const Auth = () => {
                         type={showPassword ? "text" : "password"}
                         placeholder="Sua senha"
                         required 
+                        autoComplete="off"
+                        autoSave="off"
+                        data-form-type="other"
                         className="h-12 pr-12 transition-all duration-300 focus:ring-2 focus:ring-primary/50 focus:border-primary group-hover:border-primary/50 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !loading) {
@@ -690,6 +693,9 @@ const Auth = () => {
                         type={showPassword ? "text" : "password"}
                         placeholder="Senha do administrador"
                         required 
+                        autoComplete="off"
+                        autoSave="off"
+                        data-form-type="other"
                         className="h-12 pr-12 transition-all duration-300 focus:ring-2 focus:ring-primary/50 focus:border-primary group-hover:border-primary/50 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !loading) {

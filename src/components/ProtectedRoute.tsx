@@ -50,6 +50,7 @@ export const ProtectedRoute = ({ pageName, children, fallbackRoute = '/dashboard
         onAuthenticate={authenticateAdmin}
         title="Acesso Restrito"
         description={`Esta página requer autenticação administrativa: ${pageName}`}
+        logoutOnClose={true}
       />
     );
   }

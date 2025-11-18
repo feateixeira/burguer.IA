@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -8,8 +9,9 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Lock } from 'lucide-react';
+import { Lock, X, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AdminPasswordModalProps {
   open: boolean;
@@ -18,6 +20,7 @@ interface AdminPasswordModalProps {
   onAuthenticate: (password: string) => Promise<boolean>;
   title?: string;
   description?: string;
+  logoutOnClose?: boolean;
 }
 
 export const AdminPasswordModal = ({
@@ -27,9 +30,27 @@ export const AdminPasswordModal = ({
   onAuthenticate,
   title = 'Senha de Administrador',
   description = 'Digite a senha de 4 dígitos para continuar',
+  logoutOnClose = false,
 }: AdminPasswordModalProps) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  // Função para fazer logout - FORÇA redirecionamento imediato
+  const performLogout = useCallback(() => {
+    // Limpar sessão admin local IMEDIATAMENTE
+    sessionStorage.removeItem('admin_auth');
+    sessionStorage.removeItem('admin_expiry');
+    
+    // Fazer logout do Supabase (não aguardar)
+    supabase.auth.signOut().catch(() => {
+      // Ignorar erros
+    });
+    
+    // FORÇAR redirecionamento usando window.location (mais confiável que navigate)
+    window.location.href = '/auth';
+  }, []);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,9 +81,91 @@ export const AdminPasswordModal = ({
     }
   };
 
+  // Debug: verificar se logoutOnClose está ativo
+  useEffect(() => {
+    if (open && logoutOnClose) {
+      console.log('AdminPasswordModal aberto com logoutOnClose=true');
+    }
+  }, [open, logoutOnClose]);
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog 
+      open={open} 
+      onOpenChange={(isOpen) => {
+        // Se está tentando fechar
+        if (!isOpen) {
+          if (logoutOnClose) {
+            // Fazer logout e redirecionar IMEDIATAMENTE
+            performLogout();
+            // Não chamar onClose para evitar conflito
+            return;
+          } else {
+            // Fechamento normal
+            onClose();
+          }
+        }
+      }}
+      modal={true}
+    >
+      <DialogContent 
+        className="sm:max-w-md"
+        onEscapeKeyDown={(e) => {
+          if (logoutOnClose) {
+            e.preventDefault();
+            performLogout();
+          }
+        }}
+        onInteractOutside={(e) => {
+          if (logoutOnClose) {
+            e.preventDefault();
+            performLogout();
+          }
+        }}
+        onPointerDownOutside={(e) => {
+          if (logoutOnClose) {
+            e.preventDefault();
+            performLogout();
+          }
+        }}
+      >
+        {/* Esconder botão X padrão quando logoutOnClose está ativo */}
+        {logoutOnClose && (
+          <style dangerouslySetInnerHTML={{__html: `
+            [data-radix-dialog-content] button[data-radix-dialog-close],
+            [data-radix-dialog-content] button[aria-label="Close"],
+            [data-radix-dialog-content] > button:last-child:has(svg) {
+              display: none !important;
+              visibility: hidden !important;
+              pointer-events: none !important;
+              opacity: 0 !important;
+              width: 0 !important;
+              height: 0 !important;
+            }
+          `}} />
+        )}
+        
+        {/* Botão X customizado que funciona - SEMPRE visível quando logoutOnClose */}
+        {logoutOnClose && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              performLogout();
+            }}
+            className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-[9999] cursor-pointer bg-background"
+            style={{ 
+              pointerEvents: 'auto',
+              zIndex: 9999
+            }}
+            aria-label="Fechar e voltar para login"
+            title="Fechar e voltar para login"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Fechar e voltar para login</span>
+          </button>
+        )}
+        
         <DialogHeader>
           <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4 mx-auto">
             <Lock className="h-6 w-6 text-primary" />
@@ -84,6 +187,9 @@ export const AdminPasswordModal = ({
             placeholder="••••"
             className="text-center text-2xl tracking-widest"
             autoFocus
+            autoComplete="off"
+            autoSave="off"
+            data-form-type="other"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !loading && password.length === 4) {
                 e.preventDefault();
@@ -96,7 +202,13 @@ export const AdminPasswordModal = ({
             <Button
               type="button"
               variant="outline"
-              onClick={onClose}
+              onClick={() => {
+                if (logoutOnClose) {
+                  performLogout();
+                } else {
+                  onClose();
+                }
+              }}
               className="flex-1"
               disabled={loading}
             >
@@ -110,6 +222,22 @@ export const AdminPasswordModal = ({
               {loading ? 'Verificando...' : 'Confirmar'}
             </Button>
           </div>
+          
+          {/* Botão "Voltar para Login" quando logoutOnClose está ativo */}
+          {logoutOnClose && (
+            <div className="pt-2 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={performLogout}
+                className="w-full text-muted-foreground hover:text-destructive"
+                disabled={loading}
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Voltar para Login
+              </Button>
+            </div>
+          )}
         </form>
       </DialogContent>
     </Dialog>

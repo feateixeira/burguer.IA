@@ -20,9 +20,26 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// Usar sessionStorage para não persistir sessão após fechar aba/navegador
+// Isso garante que ao fechar a aba, o usuário precise fazer login novamente
+const sessionStorageAdapter = {
+  getItem: (key: string) => {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(key);
+  },
+  setItem: (key: string, value: string) => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem(key, value);
+  },
+  removeItem: (key: string) => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.removeItem(key);
+  },
+};
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage, // Usa localStorage para persistir sessão após suspensão de notebook
+    storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false, // Evitar detecção automática de sessão na URL

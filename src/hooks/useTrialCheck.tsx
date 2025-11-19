@@ -18,6 +18,7 @@ interface TrialStatus {
  * - Calcula dias restantes do trial
  * - Bloqueia automaticamente quando trial expira
  * - Retorna status do trial para exibição
+ * - Retorna estado para mostrar modal quando trial expira
  */
 export function useTrialCheck() {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ export function useTrialCheck() {
     isBlocked: false,
   });
   const [loading, setLoading] = useState(true);
+  const [showTrialExpiredModal, setShowTrialExpiredModal] = useState(false);
 
   useEffect(() => {
     const checkTrialStatus = async () => {
@@ -60,16 +62,8 @@ export function useTrialCheck() {
         const subscriptionType = profile.subscription_type as 'trial' | 'monthly' | null;
         const isBlocked = profile.status === 'blocked';
 
-        // Se usuário está bloqueado, deslogar e redirecionar
-        if (isBlocked) {
-          await supabase.auth.signOut();
-          toast.error('Acesso negado. Sua conta está bloqueada.');
-          navigate('/auth');
-          setLoading(false);
-          return;
-        }
-
-        // Verificar trial
+        // Verificar trial PRIMEIRO (antes de verificar bloqueio)
+        // Se for trial expirado, mostrar modal mesmo se estiver bloqueado
         if (subscriptionType === 'trial' && profile.trial_end_date) {
           const trialEnd = new Date(profile.trial_end_date);
           const now = new Date();
@@ -89,15 +83,19 @@ export function useTrialCheck() {
           // Considerar expirado apenas se passou do dia (não no mesmo dia)
           const isExpired = nowDateOnly > trialEndDateOnly;
 
-          // Se trial expirou e usuário ainda está ativo, bloquear
-          if (isExpired && profile.status === 'active') {
-            // Bloquear usuário automaticamente
-            await supabase
-              .from('profiles')
-              .update({ status: 'blocked' })
-              .eq('user_id', session.user.id);
+          // Se trial expirou, fazer logout imediatamente e redirecionar para auth
+          // O modal será mostrado na página de autenticação
+          if (isExpired) {
+            // Se ainda não está bloqueado, bloquear automaticamente
+            if (profile.status === 'active') {
+              await supabase
+                .from('profiles')
+                .update({ status: 'blocked' })
+                .eq('user_id', session.user.id);
+            }
             
-            toast.error('Seu período de teste expirou. Entre em contato para converter para assinatura mensal.');
+            // Fazer logout imediatamente e redirecionar para página de autenticação
+            // O modal será mostrado lá quando o usuário tentar fazer login novamente
             await supabase.auth.signOut();
             navigate('/auth');
             setLoading(false);
@@ -110,7 +108,7 @@ export function useTrialCheck() {
             trialDaysLeft: daysLeft,
             trialEndDate: profile.trial_end_date,
             isExpired,
-            isBlocked: false,
+            isBlocked: isBlocked,
           });
         } else if (subscriptionType === 'trial' && !profile.trial_end_date) {
           // É trial mas não tem trial_end_date - mostrar como trial sem data
@@ -119,10 +117,20 @@ export function useTrialCheck() {
             trialDaysLeft: null,
             trialEndDate: null,
             isExpired: false,
-            isBlocked: false,
+            isBlocked: isBlocked,
           });
         } else {
-          // Não é trial
+          // Não é trial - verificar se está bloqueado manualmente
+          if (isBlocked) {
+            // Se usuário está bloqueado manualmente (não é trial expirado), deslogar e redirecionar
+            await supabase.auth.signOut();
+            toast.error('Acesso negado. Sua conta está bloqueada.');
+            navigate('/auth');
+            setLoading(false);
+            return;
+          }
+          
+          // Não é trial e não está bloqueado
           setTrialStatus({
             subscriptionType: subscriptionType || null,
             trialDaysLeft: null,
@@ -146,6 +154,6 @@ export function useTrialCheck() {
     return () => clearInterval(interval);
   }, [navigate]);
 
-  return { trialStatus, loading };
+  return { trialStatus, loading, showTrialExpiredModal, setShowTrialExpiredModal };
 }
 

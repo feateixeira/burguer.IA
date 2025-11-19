@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useTrialCheck } from '@/hooks/useTrialCheck';
+import { TrialExpiredModal } from '@/components/TrialExpiredModal';
 
 /**
  * Componente que garante apenas uma sessão ativa por usuário
@@ -30,7 +31,7 @@ export function SessionGuard({ children }: { children: React.ReactNode }) {
   
   // Verificar status do trial (bloqueia automaticamente se expirado)
   // O hook já faz o bloqueio automaticamente quando detecta que o trial expirou
-  useTrialCheck();
+  const { showTrialExpiredModal, setShowTrialExpiredModal } = useTrialCheck();
 
   // Rotas públicas que não precisam validação
   const publicRoutes = ['/', '/auth', '/landing', '/password-display', '/password-panel'];
@@ -135,6 +136,14 @@ export function SessionGuard({ children }: { children: React.ReactNode }) {
     };
   }, [navigate, isPublicRoute]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <TrialExpiredModal 
+        open={showTrialExpiredModal} 
+        onOpenChange={setShowTrialExpiredModal} 
+      />
+    </>
+  );
 }
 

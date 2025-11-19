@@ -10,11 +10,13 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Eye, EyeOff, Store, TrendingUp, Users, Shield, Sparkles, ArrowRight, Brain, Zap, Cpu, Network } from "lucide-react";
 import AuthHeader from "@/components/AuthHeader";
+import { TrialExpiredModal } from "@/components/TrialExpiredModal";
 
 const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [showTrialExpiredModal, setShowTrialExpiredModal] = useState(false);
   const navigate = useNavigate();
   const signinFormRef = useRef<HTMLFormElement>(null);
   const adminFormRef = useRef<HTMLFormElement>(null);
@@ -144,29 +146,39 @@ const Auth = () => {
         return;
       }
 
-      // Block blocked users
-      if (profile?.status === 'blocked') {
-        await supabase.auth.signOut();
-        toast.error('Acesso negado. Sua conta está bloqueada.');
-        return;
-      }
-
-      // Verificar se trial expirou (apenas para usuários não-admin)
+      // Verificar se trial expirou PRIMEIRO (antes de verificar bloqueio manual)
+      // Se for trial expirado, BLOQUEAR login e mostrar modal na página de autenticação
       if (profile && !profile.is_admin && profile.subscription_type === 'trial' && profile.trial_end_date) {
         const trialEnd = new Date(profile.trial_end_date);
         const now = new Date();
         
-        if (now > trialEnd && profile.status === 'active') {
-          // Bloquear usuário automaticamente
-          await supabase
-            .from('profiles')
-            .update({ status: 'blocked' })
-            .eq('user_id', authData.user.id);
+        // Normalizar datas para comparar apenas dias
+        const trialEndDateOnly = new Date(trialEnd.getFullYear(), trialEnd.getMonth(), trialEnd.getDate());
+        const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        
+        if (nowDateOnly > trialEndDateOnly) {
+          // Trial expirado - bloquear se ainda não estiver bloqueado
+          if (profile.status === 'active') {
+            await supabase
+              .from('profiles')
+              .update({ status: 'blocked' })
+              .eq('user_id', authData.user.id);
+          }
           
+          // Fazer logout e mostrar modal na página de autenticação
           await supabase.auth.signOut();
-          toast.error('Seu período de teste expirou. Entre em contato para converter para assinatura mensal.');
+          setShowTrialExpiredModal(true);
+          setLoading(false);
           return;
         }
+      }
+
+      // Block blocked users (apenas se NÃO for trial expirado)
+      // Se for trial expirado, já foi tratado acima
+      if (profile?.status === 'blocked' && profile?.subscription_type !== 'trial') {
+        await supabase.auth.signOut();
+        toast.error('Acesso negado. Sua conta está bloqueada.');
+        return;
       }
 
       // Criar/invalidar sessão (garantir apenas 1 dispositivo ativo)
@@ -750,6 +762,10 @@ const Auth = () => {
         </div>
       </div>
       </div>
+      <TrialExpiredModal 
+        open={showTrialExpiredModal} 
+        onOpenChange={setShowTrialExpiredModal} 
+      />
     </div>
   );
 };

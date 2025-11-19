@@ -270,7 +270,7 @@ export const printReceipt = async (r: ReceiptData) => {
         #ticket{
           width: var(--printable);
           min-height: 110mm;         /* mínimo ~11 cm */
-          padding: 20mm 0 0 0;       /* espaço superior para costura/grampeio */
+          padding: 10mm 0 0 0;       /* espaço superior para costura/grampeio (reduzido pela metade) */
           margin: 0 var(--margin);   /* margens iguais esq/dir */
         }
 
@@ -639,7 +639,7 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         }
         .header {
           text-align: center;
-          margin-bottom: 12px;
+          margin-bottom: 6px;
         }
         .header-title {
           font-size: ${Math.round(fontSize * 1.1)}px;

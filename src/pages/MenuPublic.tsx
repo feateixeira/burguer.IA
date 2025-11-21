@@ -532,47 +532,52 @@ const MenuPublic = () => {
   };
 
   const addToCart = async (product: Product, selectedAddons?: Addon[]) => {
-    // Aplicar promoção se houver
-    const productWithPromotion = applyPromotionIfAny(product);
-    
-    // Se adicionais foram passados, adicionar com eles
-    if (selectedAddons !== undefined) {
-      const cartItem: CartItem = {
-        ...productWithPromotion,
-        quantity: 1,
-        addons: selectedAddons.length > 0 ? selectedAddons : undefined,
-      };
+    try {
+      // Aplicar promoção se houver
+      const productWithPromotion = applyPromotionIfAny(product);
       
-      setCart([...cart, cartItem]);
-      toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
-      return;
-    }
-
-    // Verificar se produto tem adicionais antes de adicionar
-    const hasAddons = await checkProductHasAddons(product);
-    
-    if (hasAddons) {
-      // Abrir modal de adicionais
-      setPendingProduct(productWithPromotion);
-      setShowAddonsModal(true);
-    } else {
-      // Adicionar diretamente ao carrinho
-      const existingItem = cart.find(item => 
-        item.id === productWithPromotion.id && 
-        !item.notes && 
-        (!item.addons || item.addons.length === 0)
-      );
-      
-      if (existingItem) {
-        setCart(cart.map(item =>
-          item.id === productWithPromotion.id && !item.notes && (!item.addons || item.addons.length === 0)
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        ));
-      } else {
-        setCart([...cart, { ...productWithPromotion, quantity: 1 }]);
+      // Se adicionais foram passados, adicionar com eles
+      if (selectedAddons !== undefined) {
+        const cartItem: CartItem = {
+          ...productWithPromotion,
+          quantity: 1,
+          addons: selectedAddons.length > 0 ? selectedAddons : undefined,
+        };
+        
+        setCart([...cart, cartItem]);
+        toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
+        return;
       }
-      toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
+
+      // Verificar se produto tem adicionais antes de adicionar
+      const hasAddons = await checkProductHasAddons(product);
+      
+      if (hasAddons) {
+        // Abrir modal de adicionais
+        setPendingProduct(productWithPromotion);
+        setShowAddonsModal(true);
+      } else {
+        // Adicionar diretamente ao carrinho
+        const existingItem = cart.find(item => 
+          item.id === productWithPromotion.id && 
+          !item.notes && 
+          (!item.addons || item.addons.length === 0)
+        );
+        
+        if (existingItem) {
+          setCart(cart.map(item =>
+            item.id === productWithPromotion.id && !item.notes && (!item.addons || item.addons.length === 0)
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          ));
+        } else {
+          setCart([...cart, { ...productWithPromotion, quantity: 1 }]);
+        }
+        toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
+      }
+    } catch (error) {
+      console.error('Erro ao adicionar produto ao carrinho:', error);
+      toast.error('Erro ao adicionar produto. Por favor, tente novamente.');
     }
   };
 

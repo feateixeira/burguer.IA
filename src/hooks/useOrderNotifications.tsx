@@ -149,10 +149,10 @@ export function useOrderNotifications(establishmentId: string | null) {
             try {
               new Notification('🔔 Novo Pedido do Site!', {
                 body: notificationBody,
-                icon: '/favicon.ico',
+                icon: '/logo.ico',
                 tag: `order-${order.id}`,
                 requireInteraction: false,
-                badge: '/favicon.ico'
+                badge: '/logo.ico'
               });
             } catch (error) {
               // Ignorar erros de notificação
@@ -244,10 +244,10 @@ export function useOrderNotifications(establishmentId: string | null) {
               try {
                 new Notification('🔔 Novo Pedido do Site!', {
                   body: notificationBody,
-                  icon: '/favicon.ico',
+                  icon: '/logo.ico',
                   tag: `order-${newestOrder.id}`,
                   requireInteraction: false,
-                  badge: '/favicon.ico'
+                  badge: '/logo.ico'
                 });
               } catch (error) {
                 // Ignorar erros de notificação

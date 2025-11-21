@@ -33,8 +33,20 @@ import { TeamUserProvider } from "@/components/TeamUserProvider";
 import { ConfirmProvider } from "@/hooks/useConfirm";
 import { SessionGuard } from "@/components/SessionGuard";
 import { useSessionCleanup } from "@/hooks/useSessionCleanup";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Retry automático em caso de erro de rede
+      retry: 2,
+      // Refetch automático quando a janela ganha foco (recupera de problemas de conexão)
+      refetchOnWindowFocus: true,
+      // Timeout para queries
+      staleTime: 30000,
+    },
+  },
+});
 
 // Componente interno para usar hooks
 const AppContent = () => {
@@ -91,9 +103,11 @@ const AppContent = () => {
 };
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AppContent />
-  </QueryClientProvider>
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

@@ -16,10 +16,15 @@ interface AdminNotification {
 export function AdminNotificationDisplay() {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const channelRef = useRef<any>(null);
+  const timeoutIdsRef = useRef<NodeJS.Timeout[]>([]);
 
   useEffect(() => {
     const loadNotifications = async () => {
       try {
+        // Limpar timeouts anteriores antes de criar novos
+        timeoutIdsRef.current.forEach(id => clearTimeout(id));
+        timeoutIdsRef.current = [];
+
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
 
@@ -73,19 +78,21 @@ export function AdminNotificationDisplay() {
           setNotifications(recentNotifications);
 
           // Marcar como lida após 10 minutos
+          // CRÍTICO: Armazenar timeouts em ref para limpeza adequada
           recentNotifications.forEach((notif) => {
             const createdAt = new Date(notif.created_at);
             const tenMinutesFromCreation = createdAt.getTime() + 10 * 60 * 1000;
             const timeUntilDismiss = tenMinutesFromCreation - Date.now();
 
             if (timeUntilDismiss > 0) {
-              setTimeout(async () => {
+              const timeoutId = setTimeout(async () => {
                 // Marcar como lida após 10 minutos
                 await supabase
                   .from("user_notifications")
                   .update({ read: true })
                   .eq("id", notif.id);
               }, timeUntilDismiss);
+              timeoutIdsRef.current.push(timeoutId);
             }
           });
         }
@@ -125,6 +132,9 @@ export function AdminNotificationDisplay() {
 
     return () => {
       clearInterval(interval);
+      // Limpar todos os timeouts pendentes
+      timeoutIdsRef.current.forEach(id => clearTimeout(id));
+      timeoutIdsRef.current = [];
       if (channelRef.current) {
         channelRef.current.unsubscribe();
       }

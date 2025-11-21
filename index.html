@@ -8,8 +8,8 @@
     <meta name="keywords" content="sistema pdv, gestão restaurante, dashboard vendas, pdv hamburgueria, sistema pizzaria, gestão multiestabelecimento">
     <meta name="author" content="burguer.IA" />
 
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" href="/src/assets/logo.png" />
+    <link rel="icon" type="image/x-icon" href="/logo.ico" />
+    <link rel="apple-touch-icon" href="/logo.ico" />
 
     
     
@@ -159,6 +159,7 @@
         window.openFilterModal = openModal;
         
         // Re-expor a função periodicamente para garantir que não seja sobrescrita
+        // IMPORTANTE: Armazenar referência para poder limpar depois
         const ensureFunctionExists = () => {
           if (typeof window.openFilterModal !== 'function') {
             window.openFilterModal = openModal;
@@ -166,7 +167,15 @@
         };
         
         // Verificar periodicamente (a cada 1 segundo)
-        setInterval(ensureFunctionExists, 1000);
+        // CRÍTICO: Armazenar ID do intervalo para limpeza
+        const intervalId = setInterval(ensureFunctionExists, 1000);
+        
+        // Limpar intervalo quando a página for descarregada (previne memory leak)
+        window.addEventListener('beforeunload', () => {
+          if (intervalId) {
+            clearInterval(intervalId);
+          }
+        });
         if (btnFechar) btnFechar.addEventListener('click', closeModal);
         if (btnCancelar) btnCancelar.addEventListener('click', closeModal);
         // fecha ao clicar no overlay

@@ -36,6 +36,7 @@ interface Product {
   id: string;
   name: string;
   category_id?: string;
+  is_combo?: boolean;
 }
 
 interface AddonsManagerProps {
@@ -46,6 +47,7 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [addonsCategoryId, setAddonsCategoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAddon, setEditingAddon] = useState<Addon | null>(null);
@@ -56,9 +58,29 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
   const [associationType, setAssociationType] = useState<"category" | "product" | "both">("category");
 
   useEffect(() => {
-    if (establishmentId) {
-      loadData();
-    }
+    if (!establishmentId) return;
+    
+    let isMounted = true;
+    let isLoading = false;
+
+    const loadDataSafely = async () => {
+      if (isLoading || !isMounted) return;
+      isLoading = true;
+      
+      try {
+        await loadData();
+      } finally {
+        if (isMounted) {
+          isLoading = false;
+        }
+      }
+    };
+
+    loadDataSafely();
+
+    return () => {
+      isMounted = false;
+    };
   }, [establishmentId]);
 
   const loadData = async () => {
@@ -84,19 +106,40 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
 
       if (categoriesError) throw categoriesError;
 
-      // Load products
+      // Load products (excluir combos e adicionais)
       const { data: productsData, error: productsError } = await supabase
         .from("products")
-        .select("id, name, category_id")
+        .select("id, name, category_id, is_combo")
         .eq("establishment_id", establishmentId)
         .eq("active", true)
         .order("name");
 
       if (productsError) throw productsError;
 
+      // Buscar ID da categoria "Adicionais" para filtrar
+      const { data: addonsCategory } = await supabase
+        .from("categories")
+        .select("id")
+        .eq("establishment_id", establishmentId)
+        .eq("name", "Adicionais")
+        .eq("active", true)
+        .maybeSingle();
+
+      const addonsCategoryIdValue = addonsCategory?.id || null;
+      setAddonsCategoryId(addonsCategoryIdValue);
+
+      // Filtrar produtos: excluir combos (is_combo: true) e produtos da categoria "Adicionais"
+      const filteredProducts = (productsData || []).filter((product: any) => {
+        // Excluir produtos que são combos
+        if (product.is_combo) return false;
+        // Excluir produtos da categoria "Adicionais"
+        if (addonsCategoryIdValue && product.category_id === addonsCategoryIdValue) return false;
+        return true;
+      });
+
       setAddons(addonsData || []);
       setCategories(categoriesData || []);
-      setProducts(productsData || []);
+      setProducts(filteredProducts);
     } catch (error: any) {
       toast.error("Erro ao carregar dados");
     } finally {
@@ -508,12 +551,25 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
               <div className="space-y-2">
                 <Label>Produtos Individuais</Label>
                 <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
-                  {products.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhum produto disponível
-                    </p>
-                  ) : (
-                    products.map((product) => (
+                  {(() => {
+                    // Filtrar produtos novamente na renderização para garantir que combos e adicionais não apareçam
+                    const validProducts = products.filter((product) => {
+                      // Excluir produtos que são combos
+                      if (product.is_combo) return false;
+                      // Excluir produtos da categoria "Adicionais"
+                      if (addonsCategoryId && product.category_id === addonsCategoryId) return false;
+                      return true;
+                    });
+
+                    if (validProducts.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Nenhum produto disponível
+                        </p>
+                      );
+                    }
+
+                    return validProducts.map((product) => (
                       <div key={product.id} className="flex items-center space-x-2 py-2">
                         <Checkbox
                           id={`prod-${product.id}`}
@@ -535,8 +591,8 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
                           {product.name}
                         </label>
                       </div>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </div>
               </div>
             )}

@@ -147,8 +147,20 @@ const PDV = () => {
   const sauceOptions = ["Mostarda e Mel", "Bacon", "Alho", "Ervas"];
 
   useEffect(() => {
-    loadProducts();
-    loadCustomers();
+    let isMounted = true;
+    let hasLoaded = false;
+
+    const initializeData = async () => {
+      if (hasLoaded || !isMounted) return;
+      hasLoaded = true;
+      
+      await Promise.all([
+        loadProducts(),
+        loadCustomers()
+      ]);
+    };
+
+    initializeData();
 
     // F9 key listener for WhatsApp order modal
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -159,7 +171,10 @@ const PDV = () => {
     };
 
     window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("keydown", handleKeyPress);
+    };
   }, []);
 
   // Detectar parâmetro editOrder na URL e carregar pedido
@@ -167,6 +182,7 @@ const PDV = () => {
     const editOrderId = searchParams.get('editOrder');
     if (editOrderId && establishmentId && !loading && !orderLoaded && editOrderId !== editingOrderId) {
       setOrderLoaded(true);
+      setEditingOrderId(editOrderId);
       loadOrderForEditing(editOrderId);
     } else if (!editOrderId && orderLoaded) {
       // Reset quando sair do modo de edição
@@ -174,7 +190,7 @@ const PDV = () => {
       setEditingOrderId(null);
       setEditingOrderNumber(null);
     }
-  }, [searchParams, establishmentId, loading]);
+  }, [searchParams, establishmentId, loading, orderLoaded, editingOrderId]);
 
   // Atalhos com Enter: Enter no campo de busca adiciona primeiro produto; Ctrl+Enter finaliza venda
   useEffect(() => {
@@ -211,58 +227,129 @@ const PDV = () => {
   useEffect(() => {
     if (!establishmentId) return;
 
+    // Flags para evitar loops infinitos
+    let isMounted = true;
+    let reloadTimeouts: { [key: string]: NodeJS.Timeout | null } = {
+      products: null,
+      categories: null,
+      combos: null,
+      promotions: null,
+    };
+
+    // Função auxiliar para throttle - evita chamadas muito frequentes
+    const throttleReload = (key: string, fn: () => Promise<void>, delay: number = 1000) => {
+      if (reloadTimeouts[key]) {
+        clearTimeout(reloadTimeouts[key]!);
+      }
+      reloadTimeouts[key] = setTimeout(async () => {
+        if (isMounted) {
+          await fn();
+        }
+      }, delay);
+    };
+
     const reloadProducts = async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("name");
-      if (!error && data) {
-        setProducts(data);
-      } else if (error) {
-        console.error("Error reloading products:", error);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("name");
+        if (!error && data && isMounted) {
+          // Só atualiza se os dados realmente mudaram
+          setProducts(prev => {
+            const prevIds = new Set(prev.map(p => p.id));
+            const newIds = new Set(data.map(p => p.id));
+            if (prevIds.size !== newIds.size || 
+                ![...prevIds].every(id => newIds.has(id)) ||
+                ![...newIds].every(id => prevIds.has(id))) {
+              return data;
+            }
+            // Verificar se algum produto mudou
+            const hasChanges = data.some(newProd => {
+              const oldProd = prev.find(p => p.id === newProd.id);
+              return !oldProd || JSON.stringify(oldProd) !== JSON.stringify(newProd);
+            });
+            return hasChanges ? data : prev;
+          });
+        } else if (error) {
+          console.error("Error reloading products:", error);
+        }
+      } catch (error) {
+        console.error("Error in reloadProducts:", error);
       }
     };
 
     const reloadCategories = async () => {
-      const { data, error } = await supabase
-        .from("categories")
-        .select("*")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("sort_order");
-      if (!error && data) {
-        setCategories(data);
-      } else if (error) {
-        console.error("Error reloading categories:", error);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("categories")
+          .select("*")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("sort_order");
+        if (!error && data && isMounted) {
+          setCategories(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        } else if (error) {
+          console.error("Error reloading categories:", error);
+        }
+      } catch (error) {
+        console.error("Error in reloadCategories:", error);
       }
     };
 
     const reloadCombos = async () => {
-      const { data, error } = await supabase
-        .from("combos")
-        .select("*, combo_items(product_id, quantity)")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("sort_order");
-      if (!error && data) {
-        setCombos(data);
-      } else if (error) {
-        console.error("Error reloading combos:", error);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("combos")
+          .select("*, combo_items(product_id, quantity)")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("sort_order");
+        if (!error && data && isMounted) {
+          setCombos(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        } else if (error) {
+          console.error("Error reloading combos:", error);
+        }
+      } catch (error) {
+        console.error("Error in reloadCombos:", error);
       }
     };
 
     const reloadPromotions = async () => {
-      const { data, error } = await supabase
-        .from("promotions")
-        .select("*, promotion_products(product_id, fixed_price)")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true);
-      if (!error && data) {
-        setPromotions(data);
-      } else if (error) {
-        console.error("Error reloading promotions:", error);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true);
+        if (!error && data && isMounted) {
+          setPromotions(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        } else if (error) {
+          console.error("Error reloading promotions:", error);
+        }
+      } catch (error) {
+        console.error("Error in reloadPromotions:", error);
       }
     };
 
@@ -278,7 +365,7 @@ const PDV = () => {
           filter: `establishment_id=eq.${establishmentId}`
         },
         () => {
-          reloadProducts();
+          throttleReload('products', reloadProducts, 1000);
         }
       )
       .subscribe();
@@ -295,7 +382,7 @@ const PDV = () => {
           filter: `establishment_id=eq.${establishmentId}`
         },
         () => {
-          reloadCategories();
+          throttleReload('categories', reloadCategories, 1000);
         }
       )
       .subscribe();
@@ -312,7 +399,7 @@ const PDV = () => {
           filter: `establishment_id=eq.${establishmentId}`
         },
         () => {
-          reloadCombos();
+          throttleReload('combos', reloadCombos, 1000);
         }
       )
       .subscribe();
@@ -329,7 +416,7 @@ const PDV = () => {
           filter: `establishment_id=eq.${establishmentId}`
         },
         () => {
-          reloadPromotions();
+          throttleReload('promotions', reloadPromotions, 1000);
         }
       )
       .subscribe();
@@ -345,12 +432,18 @@ const PDV = () => {
           table: 'promotion_products'
         },
         () => {
-          reloadPromotions();
+          throttleReload('promotions', reloadPromotions, 1000);
         }
       )
       .subscribe();
 
     return () => {
+      isMounted = false;
+      // Limpar todos os timeouts
+      Object.values(reloadTimeouts).forEach(timeout => {
+        if (timeout) clearTimeout(timeout);
+      });
+      // Remover channels
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(combosChannel);
@@ -378,7 +471,13 @@ const PDV = () => {
 
       if (!profile?.establishment_id) return;
 
-      setEstablishmentId(profile.establishment_id);
+      // Só atualiza establishmentId se for diferente (evita loops)
+      setEstablishmentId(prev => {
+        if (prev === profile.establishment_id) {
+          return prev;
+        }
+        return profile.establishment_id;
+      });
 
       const [productsResult, categoriesResult, establishmentResult, combosResult, promotionsResult] = await Promise.all([
         supabase
@@ -1478,8 +1577,10 @@ const PDV = () => {
   };
 
   const getProductsByCategory = () => {
+    // Filtrar produtos que são combos (is_combo: true) - eles aparecem na seção de combos
     const filteredProducts = products.filter(product =>
-      product?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      product?.name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !(product as any)?.is_combo // Excluir produtos que são combos
     );
 
     const normalize = (s: string) =>

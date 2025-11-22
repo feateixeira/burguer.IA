@@ -219,17 +219,33 @@ const AddonsManager = ({ establishmentId }: AddonsManagerProps) => {
             .maybeSingle();
 
           if (existingProduct) {
-            // Atualizar produto existente
-            await supabase
+            // Buscar dados atuais do produto para comparar
+            const { data: currentProduct } = await supabase
               .from("products")
-              .update({
-                name: addonData.name,
-                description: addonData.description || null,
-                price: addonData.price,
-                category_id: addonsCategoryId,
-                active: addonData.active,
-              })
-              .eq("id", existingProduct.id);
+              .select("name, description, price, category_id, active")
+              .eq("id", existingProduct.id)
+              .single();
+            
+            // Só atualizar se os dados realmente mudaram (evita loops infinitos)
+            const hasChanges = !currentProduct || 
+              currentProduct.name !== addonData.name ||
+              currentProduct.description !== (addonData.description || null) ||
+              Number(currentProduct.price) !== addonData.price ||
+              currentProduct.category_id !== addonsCategoryId ||
+              currentProduct.active !== addonData.active;
+            
+            if (hasChanges) {
+              await supabase
+                .from("products")
+                .update({
+                  name: addonData.name,
+                  description: addonData.description || null,
+                  price: addonData.price,
+                  category_id: addonsCategoryId,
+                  active: addonData.active,
+                })
+                .eq("id", existingProduct.id);
+            }
           } else {
             // Criar novo produto
             await supabase

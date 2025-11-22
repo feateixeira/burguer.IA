@@ -201,18 +201,35 @@ export default function CombosManager({ establishmentId }: CombosManagerProps) {
             .maybeSingle();
 
           if (existingProduct) {
-            // Atualizar produto existente
-            await supabase
+            // Buscar dados atuais do produto para comparar
+            const { data: currentProduct } = await supabase
               .from("products")
-              .update({
-                name: formData.name,
-                description: formData.description || null,
-                price: formData.price,
-                image_url: normalizedImageUrl,
-                category_id: combosCategoryId,
-                active: formData.active,
-              })
-              .eq("id", existingProduct.id);
+              .select("name, description, price, image_url, category_id, active")
+              .eq("id", existingProduct.id)
+              .single();
+            
+            // Só atualizar se os dados realmente mudaram (evita loops infinitos)
+            const hasChanges = !currentProduct || 
+              currentProduct.name !== formData.name ||
+              currentProduct.description !== (formData.description || null) ||
+              Number(currentProduct.price) !== formData.price ||
+              currentProduct.image_url !== normalizedImageUrl ||
+              currentProduct.category_id !== combosCategoryId ||
+              currentProduct.active !== formData.active;
+            
+            if (hasChanges) {
+              await supabase
+                .from("products")
+                .update({
+                  name: formData.name,
+                  description: formData.description || null,
+                  price: formData.price,
+                  image_url: normalizedImageUrl,
+                  category_id: combosCategoryId,
+                  active: formData.active,
+                })
+                .eq("id", existingProduct.id);
+            }
           } else {
             // Criar novo produto
             await supabase

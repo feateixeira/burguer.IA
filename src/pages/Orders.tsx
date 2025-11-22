@@ -366,6 +366,10 @@ interface Order {
             }
             
             // Verificar se é pedido do PDV pendente (pagamento OU entrega)
+            // EXCLUIR pedidos do totem
+            if (order.channel === "totem" || order.origin === "totem") {
+              return false;
+            }
             const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
             const isNotOnline = order.channel !== "online" && order.origin !== "site";
             const isPDV = hasNoSourceDomain && isNotOnline;
@@ -377,6 +381,10 @@ interface Order {
           // Para outros usuários: APENAS pedidos do PDV que estão PENDENTES (pagamento OU entrega)
           // Pedido do PDV pendente = status="pending" OU payment_status="pending"
           filtered = filtered.filter(order => {
+            // EXCLUIR pedidos do totem
+            if (order.channel === "totem" || order.origin === "totem") {
+              return false;
+            }
             // Verificação direta e explícita para pedidos do PDV
             const hasNoSourceDomain = !order.source_domain || String(order.source_domain).trim() === '';
             const isNotNaBrasa = !order.source_domain?.toLowerCase().includes('hamburguerianabrasa');
@@ -2446,17 +2454,17 @@ interface Order {
                                 </>
                               )}
 
-                              {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" */}
-                              {order.status === "preparing" && (
+                              {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" ou na aba Totem com status "pending" */}
+                              {(order.status === "preparing" || (activeTab === "totem" && order.status === "pending" && isFromTotem)) && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button 
-                                      variant="default" 
+                                      variant="outline" 
                                       size="icon"
                                       onClick={() => handleMarkAsReady(order.id)}
-                                      className="h-8 w-8 bg-blue-600 hover:bg-blue-700"
+                                      className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                                     >
-                                      <ArrowRight className="h-4 w-4" />
+                                      <Truck className="h-4 w-4" />
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>

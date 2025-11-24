@@ -4,8 +4,16 @@ import type { Database } from './types';
 
 // Obter variáveis de ambiente de forma mais robusta
 // Em produção, o Vite injeta essas variáveis no build
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// IMPORTANTE: No Vercel, essas variáveis DEVEM estar configuradas como Environment Variables
+// e devem estar disponíveis durante o build (não apenas em runtime)
+let SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+let SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+// Tentar obter de window.__ENV__ se disponível (fallback para casos especiais)
+if (typeof window !== 'undefined' && (window as any).__ENV__) {
+  SUPABASE_URL = (window as any).__ENV__.VITE_SUPABASE_URL || SUPABASE_URL;
+  SUPABASE_PUBLISHABLE_KEY = (window as any).__ENV__.VITE_SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY;
+}
 
 // Em desenvolvimento, lançar erro se variáveis não estiverem configuradas
 if (import.meta.env.DEV && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {

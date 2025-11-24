@@ -152,51 +152,111 @@ const MenuPublic = () => {
   useEffect(() => {
     if (!establishment?.id) return;
 
+    let isMounted = true;
+    let reloadTimeouts: { [key: string]: NodeJS.Timeout | null } = {
+      products: null,
+      categories: null,
+      combos: null,
+      promotions: null,
+    };
+
+    // Função auxiliar para throttle - evita chamadas muito frequentes
+    const throttleReload = (key: string, fn: () => Promise<void>, delay: number = 1000) => {
+      if (reloadTimeouts[key]) {
+        clearTimeout(reloadTimeouts[key]!);
+      }
+      reloadTimeouts[key] = setTimeout(async () => {
+        if (isMounted) {
+          await fn();
+        }
+      }, delay);
+    };
+
     const reloadProducts = async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("establishment_id", establishment.id)
-        .eq("active", true)
-        .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
-        .order("sort_order");
-      if (!error && data) {
-        setProducts(data);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("establishment_id", establishment.id)
+          .eq("active", true)
+          .or("is_combo.is.null,is_combo.eq.false")
+          .order("sort_order");
+        if (!error && data && isMounted) {
+          setProducts(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (error) {
+        // Error reloading products
       }
     };
 
     const reloadCategories = async () => {
-      const { data, error } = await supabase
-        .from("categories")
-        .select("*")
-        .eq("establishment_id", establishment.id)
-        .eq("active", true)
-        .order("sort_order");
-      if (!error && data) {
-        setCategories(data);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("categories")
+          .select("*")
+          .eq("establishment_id", establishment.id)
+          .eq("active", true)
+          .order("sort_order");
+        if (!error && data && isMounted) {
+          setCategories(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (error) {
+        // Error reloading categories
       }
     };
 
     const reloadCombos = async () => {
-      const { data, error } = await supabase
-        .from("combos")
-        .select("*, combo_items(product_id, quantity)")
-        .eq("establishment_id", establishment.id)
-        .eq("active", true)
-        .order("sort_order");
-      if (!error && data) {
-        setCombos(data);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("combos")
+          .select("*, combo_items(product_id, quantity)")
+          .eq("establishment_id", establishment.id)
+          .eq("active", true)
+          .order("sort_order");
+        if (!error && data && isMounted) {
+          setCombos(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (error) {
+        // Error reloading combos
       }
     };
 
     const reloadPromotions = async () => {
-      const { data, error } = await supabase
-        .from("promotions")
-        .select("*, promotion_products(product_id, fixed_price)")
-        .eq("establishment_id", establishment.id)
-        .eq("active", true);
-      if (!error && data) {
-        setPromotions(data);
+      if (!isMounted) return;
+      try {
+        const { data, error } = await supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", establishment.id)
+          .eq("active", true);
+        if (!error && data && isMounted) {
+          setPromotions(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (error) {
+        // Error reloading promotions
       }
     };
 
@@ -212,7 +272,7 @@ const MenuPublic = () => {
           filter: `establishment_id=eq.${establishment.id}`
         },
         () => {
-          reloadProducts();
+          throttleReload('products', reloadProducts, 1000);
         }
       )
       .subscribe();
@@ -229,7 +289,7 @@ const MenuPublic = () => {
           filter: `establishment_id=eq.${establishment.id}`
         },
         () => {
-          reloadCategories();
+          throttleReload('categories', reloadCategories, 1000);
         }
       )
       .subscribe();
@@ -246,7 +306,7 @@ const MenuPublic = () => {
           filter: `establishment_id=eq.${establishment.id}`
         },
         () => {
-          reloadCombos();
+          throttleReload('combos', reloadCombos, 1000);
         }
       )
       .subscribe();
@@ -263,7 +323,7 @@ const MenuPublic = () => {
           filter: `establishment_id=eq.${establishment.id}`
         },
         () => {
-          reloadPromotions();
+          throttleReload('promotions', reloadPromotions, 1000);
         }
       )
       .subscribe();
@@ -279,12 +339,18 @@ const MenuPublic = () => {
           table: 'promotion_products'
         },
         () => {
-          reloadPromotions();
+          throttleReload('promotions', reloadPromotions, 1000);
         }
       )
       .subscribe();
 
     return () => {
+      isMounted = false;
+      // Limpar todos os timeouts
+      Object.values(reloadTimeouts).forEach(timeout => {
+        if (timeout) clearTimeout(timeout);
+      });
+      // Remover channels
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(combosChannel);
@@ -449,7 +515,6 @@ const MenuPublic = () => {
 
       return false;
     } catch (error) {
-      console.error("Error checking addons:", error);
       return false;
     }
   };
@@ -576,7 +641,6 @@ const MenuPublic = () => {
         toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
       }
     } catch (error) {
-      console.error('Erro ao adicionar produto ao carrinho:', error);
       toast.error('Erro ao adicionar produto. Por favor, tente novamente.');
     }
   };
@@ -738,10 +802,8 @@ const MenuPublic = () => {
       );
 
       if (orderNumberError || !orderNumber) {
-        console.error("Error generating order number:", orderNumberError);
         // Fallback para número com timestamp se houver erro
         const fallbackNumber = `ONLINE-${Date.now()}`;
-        console.warn("Using fallback order number:", fallbackNumber);
       }
 
       const finalOrderNumber = orderNumber || `ONLINE-${Date.now()}`;
@@ -827,15 +889,12 @@ const MenuPublic = () => {
         );
 
         if (stockError) {
-          // Log do erro mas não interrompe o pedido
-          console.error('Erro ao abater estoque:', stockError);
+          // Erro ao abater estoque mas não interrompe o pedido
         } else if (stockResult && !stockResult.success) {
-          // Avisar sobre problemas no estoque mas não bloquear o pedido
-          console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+          // Avisos no abatimento de estoque mas não bloqueia o pedido
         }
       } catch (stockErr) {
         // Não bloquear o pedido se houver erro no estoque
-        console.error('Erro ao processar estoque:', stockErr);
       }
 
       // Success

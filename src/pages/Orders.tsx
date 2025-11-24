@@ -1,4 +1,4 @@
-  import { useState, useEffect, useRef } from "react";
+  import { useState, useEffect, useRef, useMemo, useCallback } from "react";
   import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
   import { Button } from "@/components/ui/button";
   import { Badge } from "@/components/ui/badge";
@@ -117,7 +117,6 @@ interface Order {
 
   const Orders = () => {
     const [orders, setOrders] = useState<Order[]>([]);
-    const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const firstLoadRef = useRef(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -224,73 +223,43 @@ interface Order {
        }
      }, [establishment]);
 
-    useEffect(() => {
-      filterOrdersByTab();
-    }, [searchTerm, orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite, selectedDate, selectedPaymentMethod]);
+    // Memoizar função helper para evitar recriação
+    const isFromNaBrasaSite = useCallback((order: Order) => {
+      return order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
+    }, []);
 
-    const filterOrdersByTab = () => {
-      let filtered = orders;
-
-      // Helper function to check if order is from hamburguerianabrasa.com.br
-      const isFromNaBrasaSite = (order: Order) => {
-        return order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
-      };
-
-      // Helper function to check if order is from online menu (cardápio online)
-      // Pedidos do cardápio online têm:
-      // - channel="online" OU origin="site" OU source_domain preenchido
-      // - E NÃO são do site hamburguerianabrasa.com.br
-      const isFromOnlineMenu = (order: Order) => {
-        // Se é do site Na Brasa, não é cardápio online
-        if (isFromNaBrasaSite(order)) {
-          return false;
-        }
-        // Se tem channel="online" ou origin="site", é cardápio online
-        if (order.channel === "online" || order.origin === "site") {
-          return true;
-        }
-        // Se tem source_domain preenchido e não é Na Brasa, é cardápio online
-        if (order.source_domain && String(order.source_domain).trim() !== '') {
-          return true;
-        }
+    const isFromOnlineMenu = useCallback((order: Order) => {
+      if (isFromNaBrasaSite(order)) {
         return false;
-      };
-
-      // Helper function to check if order is from PDV
-      const isPDVOrder = (order: Order) => {
-        // Um pedido é do PDV se:
-        // 1. NÃO tem source_domain (null, undefined, ou string vazia)
-        // 2. E NÃO é do site hamburguerianabrasa.com.br
-        // 3. E NÃO tem channel="online" nem origin="site"
-        // 4. E NÃO é do totem (channel="totem" ou origin="totem")
-        
-        // Verificação 1: Se tem source_domain preenchido, não é PDV
-        if (order.source_domain && String(order.source_domain).trim() !== '') {
-          return false;
-        }
-        
-        // Verificação 2: Se é do site hamburguerianabrasa, não é PDV
-        const isNaBrasa = isFromNaBrasaSite(order);
-        if (isNaBrasa) {
-          return false;
-        }
-        
-        // Verificação 3: Se tem channel="online" ou origin="site", não é PDV (é pedido online)
-        if (order.channel === "online" || order.origin === "site") {
-          return false;
-        }
-        
-        // Verificação 4: Se é do totem, não é PDV
-        if (order.channel === "totem" || order.origin === "totem") {
-          return false;
-        }
-        
-        // Se chegou aqui, é um pedido do PDV
-        // Aceita channel="pdv", origin="balcao", null, undefined, ou qualquer outro valor que não seja "online"/"site"/"totem"
-        // O importante é que não tem source_domain e não é identificado como online ou totem
+      }
+      if (order.channel === "online" || order.origin === "site") {
         return true;
-      };
-      
+      }
+      if (order.source_domain && String(order.source_domain).trim() !== '') {
+        return true;
+      }
+      return false;
+    }, [isFromNaBrasaSite]);
+
+    const isPDVOrder = useCallback((order: Order) => {
+      if (order.source_domain && String(order.source_domain).trim() !== '') {
+        return false;
+      }
+      if (isFromNaBrasaSite(order)) {
+        return false;
+      }
+      if (order.channel === "online" || order.origin === "site") {
+        return false;
+      }
+      if (order.channel === "totem" || order.origin === "totem") {
+        return false;
+      }
+      return true;
+    }, [isFromNaBrasaSite]);
+
+    // Usar useMemo ao invés de useEffect para evitar loops infinitos
+    const filteredOrders = useMemo(() => {
+      let filtered = orders;
 
       // Filter by tab
       if (activeTab === "pending") {
@@ -508,8 +477,8 @@ interface Order {
         );
       }
 
-      setFilteredOrders(filtered);
-    };
+      return filtered;
+    }, [orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite, selectedDate, selectedPaymentMethod, searchTerm, isFromNaBrasaSite, isFromOnlineMenu, isPDVOrder]);
 
 
     const checkAuth = async () => {
@@ -1857,15 +1826,12 @@ interface Order {
             );
 
             if (stockError) {
-              // Log do erro mas não interrompe a aceitação do pedido
-              console.error('Erro ao abater estoque:', stockError);
+              // Erro ao abater estoque mas não interrompe a aceitação do pedido
             } else if (stockResult && !stockResult.success) {
-              // Avisar sobre problemas no estoque mas não bloquear a aceitação
-              console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+              // Avisos no abatimento de estoque mas não bloqueia a aceitação
             }
           } catch (stockErr) {
             // Não bloquear a aceitação se houver erro no estoque
-            console.error('Erro ao processar estoque:', stockErr);
           }
         }
         

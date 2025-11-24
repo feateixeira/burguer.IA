@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -192,15 +192,37 @@ const PDV = () => {
     }
   }, [searchParams, establishmentId, loading, orderLoaded, editingOrderId]);
 
+  // Refs para acessar valores mais recentes sem causar re-renderizações
+  const showSauceDialogRef = useRef(showSauceDialog);
+  const showPixModalRef = useRef(showPixModal);
+  const showCashModalRef = useRef(showCashModal);
+  const selectedCustomerRef = useRef(selectedCustomer);
+  const paymentMethodRef = useRef(paymentMethod);
+  const searchTermRef = useRef(searchTerm);
+  const productsRef = useRef(products);
+  const categoriesRef = useRef(categories);
+
+  // Atualizar refs quando valores mudam
+  useEffect(() => {
+    showSauceDialogRef.current = showSauceDialog;
+    showPixModalRef.current = showPixModal;
+    showCashModalRef.current = showCashModal;
+    selectedCustomerRef.current = selectedCustomer;
+    paymentMethodRef.current = paymentMethod;
+    searchTermRef.current = searchTerm;
+    productsRef.current = products;
+    categoriesRef.current = categories;
+  }, [showSauceDialog, showPixModal, showCashModal, selectedCustomer, paymentMethod, searchTerm, products, categories]);
+
   // Atalhos com Enter: Enter no campo de busca adiciona primeiro produto; Ctrl+Enter finaliza venda
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault();
-        if (!showSauceDialog && !showPixModal && !showCashModal) {
-          const total = selectedCustomer && selectedCustomer.groups.length > 0 ? 
+        if (!showSauceDialogRef.current && !showPixModalRef.current && !showCashModalRef.current) {
+          const total = selectedCustomerRef.current && selectedCustomerRef.current.groups.length > 0 ? 
             calculateDiscountedTotal() : calculateTotal();
-          if (paymentMethod === 'dinheiro') {
+          if (paymentMethodRef.current === 'dinheiro') {
             setCashGiven(Number(total));
             setCashChange(0);
             setShowCashModal(true);
@@ -221,7 +243,7 @@ const PDV = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [searchTerm, products, categories, selectedCustomer, paymentMethod, showSauceDialog, showPixModal, showCashModal]);
+  }, []); // Sem dependências - usa refs para valores atualizados
 
   // Real-time subscriptions para atualizar produtos, categorias, combos e promoções automaticamente
   useEffect(() => {
@@ -274,11 +296,9 @@ const PDV = () => {
             });
             return hasChanges ? data : prev;
           });
-        } else if (error) {
-          console.error("Error reloading products:", error);
         }
       } catch (error) {
-        console.error("Error in reloadProducts:", error);
+        // Error reloading products
       }
     };
 
@@ -298,11 +318,9 @@ const PDV = () => {
             }
             return data;
           });
-        } else if (error) {
-          console.error("Error reloading categories:", error);
         }
       } catch (error) {
-        console.error("Error in reloadCategories:", error);
+        // Error reloading categories
       }
     };
 
@@ -322,11 +340,9 @@ const PDV = () => {
             }
             return data;
           });
-        } else if (error) {
-          console.error("Error reloading combos:", error);
         }
       } catch (error) {
-        console.error("Error in reloadCombos:", error);
+        // Error reloading combos
       }
     };
 
@@ -345,11 +361,9 @@ const PDV = () => {
             }
             return data;
           });
-        } else if (error) {
-          console.error("Error reloading promotions:", error);
         }
       } catch (error) {
-        console.error("Error in reloadPromotions:", error);
+        // Error reloading promotions
       }
     };
 
@@ -531,7 +545,6 @@ const PDV = () => {
       const settings = establishmentResult.data?.settings as any;
       setDeliveryFee(settings?.delivery_fee || 0);
     } catch (error) {
-      console.error("Error loading products:", error);
       toast.error("Erro ao carregar produtos");
     } finally {
       setLoading(false);
@@ -561,7 +574,7 @@ const PDV = () => {
       if (error) throw error;
       setDeliveryBoys(data || []);
     } catch (error) {
-      console.error("Error loading delivery boys:", error);
+      // Error loading delivery boys
     }
   };
 
@@ -598,7 +611,7 @@ const PDV = () => {
 
       setCustomers(formattedCustomers);
     } catch (error) {
-      console.error("Error loading customers:", error);
+      // Error loading customers
     }
   };
 
@@ -751,7 +764,6 @@ const PDV = () => {
       setCart(cartItems);
       toast.success(`Pedido #${order.order_number} carregado para edição`);
     } catch (error) {
-      console.error("Error loading order for editing:", error);
       toast.error("Erro ao carregar pedido para edição");
     } finally {
       setLoading(false);
@@ -913,7 +925,6 @@ const PDV = () => {
 
       return false;
     } catch (error) {
-      console.error("Error checking addons:", error);
       return false;
     }
   };
@@ -1228,7 +1239,6 @@ const PDV = () => {
         .single();
 
       if (profileError || !profile?.establishment_id) {
-        console.error("Profile error:", profileError);
         toast.error("Estabelecimento não encontrado");
         return;
       }
@@ -1301,7 +1311,6 @@ const PDV = () => {
         );
 
         if (orderNumberError || !newOrderNumber) {
-          console.error("Error generating order number:", orderNumberError);
           toast.error("Erro ao gerar número do pedido");
           return;
         }
@@ -1424,15 +1433,12 @@ const PDV = () => {
         );
 
         if (stockError) {
-          // Log do erro mas não interrompe a venda
-          console.error('Erro ao abater estoque:', stockError);
+          // Erro ao abater estoque mas não interrompe a venda
         } else if (stockResult && !stockResult.success) {
-          // Avisar sobre problemas no estoque mas não bloquear a venda
-          console.warn('Avisos no abatimento de estoque:', stockResult.errors);
+          // Avisos no abatimento de estoque mas não bloqueia a venda
         }
       } catch (stockErr) {
         // Não bloquear a venda se houver erro no estoque
-        console.error('Erro ao processar estoque:', stockErr);
       }
 
       // Se for PIX, buscar dados do PIX e gerar QR code
@@ -1457,7 +1463,6 @@ const PDV = () => {
             toast.error('Chave PIX não configurada. Configure em Configurações > PIX');
           }
         } catch (error: any) {
-          console.error('Error generating PIX QR code:', error);
           toast.error('Erro ao gerar QR code PIX');
         }
       }
@@ -1535,7 +1540,6 @@ const PDV = () => {
         toast.success(`Venda finalizada! Pedido: ${orderNumber}`);
       }
     } catch (error) {
-      console.error("Checkout error:", error);
       toast.error("Erro ao finalizar venda");
     }
   };
@@ -1906,7 +1910,6 @@ const PDV = () => {
       setWhatsappSelectedCustomer(null);
       setWhatsappCustomerSearch("");
     } catch (error) {
-      console.error("Error processing WhatsApp order:", error);
       toast.error("Erro ao processar pedido. Verifique o formato e tente novamente");
     }
   };

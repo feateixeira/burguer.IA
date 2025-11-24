@@ -24,8 +24,12 @@ export default function PasswordPanel() {
 
   useEffect(() => {
     loadEstablishmentAndPasswords();
+  }, []); // Executar apenas uma vez na montagem
+
+  useEffect(() => {
+    if (!establishmentId) return;
     
-    // Subscribe to real-time updates
+    // Subscribe to real-time updates apenas quando establishmentId estiver disponível
     const channel = supabase
       .channel('password-changes')
       .on(
@@ -62,7 +66,6 @@ export default function PasswordPanel() {
       setEstablishmentId(profile.establishment_id);
       await loadPasswords(profile.establishment_id);
     } catch (error) {
-      console.error("Error loading data:", error);
       toast.error("Erro ao carregar dados");
     } finally {
       setLoading(false);
@@ -83,7 +86,7 @@ export default function PasswordPanel() {
       if (error) throw error;
       setPasswords(data || []);
     } catch (error) {
-      console.error("Error loading passwords:", error);
+      // Error loading passwords
     }
   };
 
@@ -100,7 +103,6 @@ export default function PasswordPanel() {
       if (error) throw error;
       toast.success("Senha chamada!");
     } catch (error) {
-      console.error("Error calling password:", error);
       toast.error("Erro ao chamar senha");
     }
   };
@@ -118,7 +120,6 @@ export default function PasswordPanel() {
       if (error) throw error;
       toast.success("Atendimento concluído!");
     } catch (error) {
-      console.error("Error completing password:", error);
       toast.error("Erro ao concluir atendimento");
     }
   };
@@ -136,7 +137,6 @@ export default function PasswordPanel() {
       if (error) throw error;
       toast.success("Senha cancelada!");
     } catch (error) {
-      console.error("Error cancelling password:", error);
       toast.error("Erro ao cancelar senha");
     }
   };

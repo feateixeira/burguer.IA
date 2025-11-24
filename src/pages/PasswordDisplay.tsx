@@ -24,8 +24,7 @@ export default function PasswordDisplay() {
           schema: 'public',
           table: 'password_queue',
         },
-        (payload) => {
-          console.log('Change received!', payload);
+        () => {
           loadCallingPasswords();
         }
       )
@@ -54,15 +53,15 @@ export default function PasswordDisplay() {
         // Play sound notification
         try {
           const audio = new Audio('/notification.mp3');
-          audio.play().catch(e => console.log('Audio play failed:', e));
+          audio.play().catch(() => {});
         } catch (e) {
-          console.log('Audio not available:', e);
+          // Audio not available
         }
       } else {
         setCallingPasswords([]);
       }
     } catch (error) {
-      console.error("Error loading passwords:", error);
+      // Error loading passwords
     }
   };
 

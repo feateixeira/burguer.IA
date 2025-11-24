@@ -378,10 +378,16 @@ const MenuPublic = () => {
       }
 
       // Verificar se Supabase está configurado corretamente
+      // Em produção, tentar mesmo sem variáveis para ver o erro real
       if (!isSupabaseConfigured()) {
-        toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
-        setLoading(false);
-        return;
+        if (import.meta.env.PROD) {
+          // Em produção, continuar para ver o erro real da query
+          // Isso ajuda a diagnosticar o problema
+        } else {
+          toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
+          setLoading(false);
+          return;
+        }
       }
 
       // Criar promise com timeout para evitar esperas infinitas

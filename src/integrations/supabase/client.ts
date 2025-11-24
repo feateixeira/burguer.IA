@@ -53,14 +53,39 @@ const sessionStorageAdapter = {
   },
 };
 
-export const supabase = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
-  auth: {
-    storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
-  }
-});
+// Criar cliente Supabase com tratamento de erro robusto
+let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+
+try {
+  supabaseInstance = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
+    auth: {
+      storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
+    },
+    // Configurações adicionais para evitar travamentos
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
+    }
+  });
+} catch (error) {
+  // Se falhar ao criar cliente, criar um cliente "dummy" que falhará nas queries
+  // mas não quebrará a aplicação
+  console.error("Erro ao criar cliente Supabase:", error);
+  supabaseInstance = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
+    auth: {
+      storage: sessionStorageAdapter,
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    }
+  });
+}
+
+export const supabase = supabaseInstance!;
 
 // Exportar função para verificar se Supabase está configurado corretamente
 export const isSupabaseConfigured = () => {

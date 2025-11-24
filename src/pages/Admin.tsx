@@ -140,10 +140,11 @@ export default function Admin() {
       let error: any = null;
       
       // Tentar buscar com campos de assinatura (se a migration foi aplicada)
+      // Incluir usuários onde is_admin é false OU null (não definido)
       const { data: profilesWithSubscription, error: errorWithSubscription } = await supabase
         .from('profiles')
         .select('user_id, full_name, created_at, status, is_admin, establishment_id, subscription_type, plan_type, plan_amount, trial_end_date, next_payment_date, payment_status')
-        .eq('is_admin', false);
+        .or('is_admin.eq.false,is_admin.is.null');
 
       if (errorWithSubscription) {
         // Verificar se o erro é porque os campos não existem (migration não aplicada)
@@ -155,10 +156,11 @@ export default function Admin() {
         
         if (isColumnMissingError) {
           // Campo não existe - buscar sem os campos de assinatura
+          // Incluir usuários onde is_admin é false OU null (não definido)
           const { data: profilesBasic, error: errorBasic } = await supabase
             .from('profiles')
             .select('user_id, full_name, created_at, status, is_admin, establishment_id')
-            .eq('is_admin', false);
+            .or('is_admin.eq.false,is_admin.is.null');
           
           if (errorBasic) throw errorBasic;
           profiles = profilesBasic || [];

@@ -381,8 +381,8 @@ const MenuPublic = () => {
       }
 
       // Criar promise com timeout para evitar esperas infinitas
-      const queryWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
-        const timeoutPromise = new Promise<T>((_, reject) => {
+      const queryWithTimeout = async (promise: Promise<any>, timeoutMs: number = 10000): Promise<any> => {
+        const timeoutPromise = new Promise<any>((_, reject) => {
           setTimeout(() => reject(new Error("Tempo de espera excedido")), timeoutMs);
         });
         return Promise.race([promise, timeoutPromise]);

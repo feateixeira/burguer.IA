@@ -29,7 +29,6 @@ import NotFound from "./pages/NotFound";
 import Assistant from "./pages/gold/Assistant";
 import AssistantSettings from "./pages/gold/AssistantSettings";
 import WhatsApp from "./pages/gold/WhatsApp";
-import { DebugEnv } from "./pages/DebugEnv";
 import { TeamUserProvider } from "@/components/TeamUserProvider";
 import { ConfirmProvider } from "@/hooks/useConfirm";
 import { SessionGuard } from "@/components/SessionGuard";
@@ -51,7 +50,6 @@ const queryClient = new QueryClient({
 
 // Componente interno para usar hooks
 const AppContent = () => {
-  console.log('[App] AppContent renderizado');
   // Limpar sessão ao fechar aba/navegador
   useSessionCleanup();
 
@@ -90,7 +88,6 @@ const AppContent = () => {
                 <Route path="/gold/assistant/settings" element={<AssistantSettings />} />
                 <Route path="/gold/whatsapp" element={<WhatsApp />} />
                 <Route path="/landing" element={<Index />} />
-                <Route path="/debug-env" element={<DebugEnv />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>

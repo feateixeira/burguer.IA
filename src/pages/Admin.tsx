@@ -446,17 +446,30 @@ export default function Admin() {
 
       // Verificar se houve erro na resposta
       if (response.error) {
-        let errorMessage = response.error.message || 'Erro desconhecido ao excluir usuário';
+        let errorMessage = 'Erro desconhecido ao excluir usuário';
         
-        // Tentar obter mensagem do data se disponível
+        // Prioridade 1: Mensagem do data.error (quando status não é 2xx, a mensagem real está aqui)
         if (response.data?.error) {
           errorMessage = response.data.error;
+        }
+        // Prioridade 2: Mensagem do contexto do erro
+        else if (response.error.context?.body?.error) {
+          errorMessage = response.error.context.body.error;
+        }
+        // Prioridade 3: Mensagem do erro do Supabase
+        else if (response.error.message) {
+          // Se a mensagem é genérica "non-2xx", tentar obter do data
+          if (response.error.message.includes('non-2xx') && response.data?.error) {
+            errorMessage = response.data.error;
+          } else {
+            errorMessage = response.error.message;
+          }
         }
         
         throw new Error(errorMessage);
       }
 
-      // Verificar se a resposta tem erro no objeto data
+      // Verificar se a resposta tem erro no objeto data (quando status não é 2xx mas não há error no response)
       if (response.data?.error) {
         throw new Error(response.data.error);
       }
@@ -470,7 +483,21 @@ export default function Admin() {
       loadUsers();
     } catch (error: any) {
       console.error('Error deleting user:', error);
-      toast.error('Erro ao excluir usuário: ' + (error.message || 'Erro desconhecido'));
+      const errorMessage = error.message || 'Erro desconhecido';
+      
+      // Melhorar mensagens de erro específicas
+      if (errorMessage.includes('Access denied') || errorMessage.includes('Admin privileges')) {
+        toast.error('Acesso negado. Você precisa ser um administrador para excluir usuários.');
+      } else if (errorMessage.includes('Cannot delete your own account')) {
+        toast.error('Você não pode excluir sua própria conta.');
+      } else if (errorMessage.includes('Invalid authentication') || errorMessage.includes('Authorization')) {
+        toast.error('Erro de autenticação. Por favor, faça login novamente.');
+      } else if (errorMessage.includes('non-2xx')) {
+        // Quando o erro é apenas "non-2xx", tentar obter mais detalhes
+        toast.error('Erro ao excluir usuário. Verifique se você tem permissões de administrador.');
+      } else {
+        toast.error('Erro ao excluir usuário: ' + errorMessage);
+      }
     }
   };
 

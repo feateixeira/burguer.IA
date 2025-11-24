@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { supabase, isSupabaseConfigured } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { normalizePhoneBRToE164, phoneMask } from "@/utils/phoneNormalizer";
 import { useBusinessHours } from "@/hooks/useBusinessHours";
@@ -83,7 +83,6 @@ interface Establishment {
 const MenuPublic = () => {
   const { slug } = useParams<{ slug: string }>();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -107,13 +106,9 @@ const MenuPublic = () => {
   const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
   const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_credito" | "cartao_debito" | "">("");
 
-  // Hook para verificar horário de funcionamento (só quando establishment estiver carregado)
+  // Hook para verificar horário de funcionamento
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
   const [hasBusinessHoursConfig, setHasBusinessHoursConfig] = useState(false);
-  
-  // Flag para evitar múltiplas chamadas de loadEstablishmentData
-  const loadingRef = useRef(false);
-  const mountedRef = useRef(true);
   
   // Menu customization
   const menuCustomization = establishment?.settings?.menuCustomization || {
@@ -142,45 +137,15 @@ const MenuPublic = () => {
   }, [establishment?.name]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    
-    // Timeout de segurança: se não carregar em 30 segundos, parar o loading
-    const safetyTimeout = setTimeout(() => {
-      if (mountedRef.current && loadingRef.current) {
-        setError("Tempo de carregamento excedido. Por favor, recarregue a página.");
-        setLoading(false);
-        loadingRef.current = false;
-      }
-    }, 30000);
-    
-    if (slug && !loadingRef.current) {
-      loadingRef.current = true;
-      loadEstablishmentData().finally(() => {
-        clearTimeout(safetyTimeout);
-        if (mountedRef.current) {
-          loadingRef.current = false;
-        }
-      });
-    } else if (!slug) {
-      setError("Slug do estabelecimento não encontrado na URL");
-      clearTimeout(safetyTimeout);
-      setLoading(false);
+    if (slug) {
+      loadEstablishmentData();
     }
     
     // Carregar preferência de pagamento do localStorage
-    try {
-      const savedPayment = localStorage.getItem('preferred_payment_method');
-      if (savedPayment && ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
-        setPaymentMethod(savedPayment as any);
-      }
-    } catch (e) {
-      // Ignorar erros do localStorage
+    const savedPayment = localStorage.getItem('preferred_payment_method');
+    if (savedPayment && ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
+      setPaymentMethod(savedPayment as any);
     }
-    
-    return () => {
-      clearTimeout(safetyTimeout);
-      mountedRef.current = false;
-    };
   }, [slug]);
 
   // Real-time subscriptions para atualizar produtos, categorias e combos automaticamente
@@ -210,13 +175,13 @@ const MenuPublic = () => {
     const reloadProducts = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .eq("establishment_id", establishment.id)
-          .eq("active", true)
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true)
           .or("is_combo.is.null,is_combo.eq.false")
-          .order("sort_order");
+        .order("sort_order");
         if (!error && data && isMounted) {
           setProducts(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -233,12 +198,12 @@ const MenuPublic = () => {
     const reloadCategories = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("categories")
-          .select("*")
-          .eq("establishment_id", establishment.id)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCategories(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -255,12 +220,12 @@ const MenuPublic = () => {
     const reloadCombos = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("combos")
-          .select("*, combo_items(product_id, quantity)")
-          .eq("establishment_id", establishment.id)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("combos")
+        .select("*, combo_items(product_id, quantity)")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCombos(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -277,11 +242,11 @@ const MenuPublic = () => {
     const reloadPromotions = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("promotions")
-          .select("*, promotion_products(product_id, fixed_price)")
-          .eq("establishment_id", establishment.id)
-          .eq("active", true);
+      const { data, error } = await supabase
+        .from("promotions")
+        .select("*, promotion_products(product_id, fixed_price)")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true);
         if (!error && data && isMounted) {
           setPromotions(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -402,111 +367,46 @@ const MenuPublic = () => {
   }, [paymentMethod]);
 
   const loadEstablishmentData = async () => {
-    // Evitar múltiplas chamadas simultâneas
-    if (loadingRef.current && !mountedRef.current) {
-      return;
-    }
-    
     try {
-      if (!mountedRef.current) return;
-      
       setLoading(true);
-      setError(null);
 
-      // Verificar se slug existe
-      if (!slug) {
-        setError("Slug do estabelecimento não encontrado na URL");
-        setLoading(false);
-        return;
-      }
-
-      // Verificar se Supabase está configurado
-      const isConfigured = isSupabaseConfigured();
-      if (!isConfigured && import.meta.env.DEV) {
-        setError("Variáveis de ambiente do Supabase não encontradas. Verifique as configurações.");
-        setLoading(false);
-        return;
-      }
-
-      // Criar promise com timeout para evitar esperas infinitas
-      const queryWithTimeout = async (promise: Promise<any>, timeoutMs: number = 10000): Promise<any> => {
-        const timeoutPromise = new Promise<any>((_, reject) => {
-          setTimeout(() => reject(new Error("Tempo de espera excedido")), timeoutMs);
-        });
-        return Promise.race([promise, timeoutPromise]);
-      };
-
-      // Load establishment by slug
-      let estabData: any = null;
-      let estabError: any = null;
-      
-      try {
-        const result = await queryWithTimeout(
-          supabase
-            .from("establishments")
-            .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
-            .eq("slug", slug)
-            .single(),
-          10000
-        );
-        estabData = result.data;
-        estabError = result.error;
-      } catch (timeoutError: any) {
-        if (timeoutError?.message === "Tempo de espera excedido") {
-          setError("Tempo de espera excedido. Tente novamente.");
-          setLoading(false);
-          return;
-        }
-        throw timeoutError;
-      }
+      // Load establishment by slug (tentar com campos novos, se falhar tenta sem eles)
+      let { data: estabData, error: estabError } = await supabase
+        .from("establishments")
+        .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
+        .eq("slug", slug)
+        .single();
 
       // Se falhar por causa de colunas inexistentes, tentar sem elas
       if (estabError && estabError.message?.includes("does not exist")) {
-        try {
-          const fallbackResult = await queryWithTimeout(
-            supabase
-              .from("establishments")
-              .select("id, name, phone, address, slug")
-              .eq("slug", slug)
-              .single(),
-            10000
-          );
-          const fallbackData = fallbackResult.data;
-          const fallbackError = fallbackResult.error;
-          
-          if (!fallbackError && fallbackData) {
-            estabData = { 
-              ...fallbackData, 
-              pix_key: null, 
-              timezone: null, 
-              allow_orders_when_closed: false, 
-              show_schedule_on_menu: false,
-              menu_online_enabled: true
-            } as any;
-            estabError = null;
-          } else {
-            estabError = fallbackError;
-          }
-        } catch (timeoutError: any) {
-          if (timeoutError?.message === "Tempo de espera excedido") {
-            setError("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
-            setLoading(false);
-            return;
-          }
-          throw timeoutError;
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("establishments")
+          .select("id, name, phone, address, slug")
+          .eq("slug", slug)
+          .single();
+        
+        if (!fallbackError && fallbackData) {
+          estabData = { 
+            ...fallbackData, 
+            pix_key: null, 
+            timezone: null, 
+            allow_orders_when_closed: false, 
+            show_schedule_on_menu: false,
+            menu_online_enabled: true
+          } as any;
+          estabError = null;
+        } else {
+          estabError = fallbackError;
         }
       }
 
       if (estabError || !estabData) {
-        const errorMsg = estabError?.message || "Estabelecimento não encontrado";
-        setError(`Estabelecimento não encontrado: ${errorMsg}`);
-        setLoading(false);
+        toast.error("Estabelecimento não encontrado");
         return;
       }
 
       // Verificar se o cardápio online está desativado
       if (estabData.menu_online_enabled === false) {
-        setError("O cardápio online deste estabelecimento está desativado.");
         setEstablishment(null);
         setLoading(false);
         return;
@@ -515,94 +415,52 @@ const MenuPublic = () => {
       setEstablishment(estabData as any);
 
       // Verificar se há horários de funcionamento configurados
-      let hoursData: any = null;
-      try {
-        const hoursResult = await queryWithTimeout(
-          supabase
-            .from("establishment_hours")
-            .select("id")
-            .eq("estab_id", (estabData as any)?.id)
-            .limit(1),
-          10000
-        );
-        hoursData = hoursResult.data;
-      } catch (timeoutError: any) {
-        // Ignorar timeout em horários - não é crítico
-      }
+      const { data: hoursData } = await supabase
+        .from("establishment_hours")
+        .select("id")
+        .eq("estab_id", (estabData as any)?.id)
+        .limit(1);
       
       setHasBusinessHoursConfig((hoursData && hoursData.length > 0) || false);
 
       // Load products, categories and combos
       const estabId = (estabData as any)?.id;
       if (!estabId) {
-        setError("Erro ao identificar estabelecimento");
-        setLoading(false);
+        toast.error("Erro ao identificar estabelecimento");
         return;
       }
       
-      let productsResult: any, categoriesResult: any, combosResult: any, promotionsResult: any;
-      
-      try {
-        [productsResult, categoriesResult, combosResult, promotionsResult] = await Promise.all([
-          queryWithTimeout(
-            supabase
-              .from("products")
-              .select("*")
-              .eq("establishment_id", estabId)
-              .eq("active", true)
-              .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
-              .order("sort_order"),
-            15000
-          ),
-          queryWithTimeout(
-            supabase
-              .from("categories")
-              .select("*")
-              .eq("establishment_id", estabId)
-              .eq("active", true)
-              .order("sort_order"),
-            10000
-          ),
-          queryWithTimeout(
-            supabase
-              .from("combos")
-              .select("*, combo_items(product_id, quantity)")
-              .eq("establishment_id", estabId)
-              .eq("active", true)
-              .order("sort_order"),
-            10000
-          ),
-          queryWithTimeout(
-            supabase
-              .from("promotions")
-              .select("*, promotion_products(product_id, fixed_price)")
-              .eq("establishment_id", estabId)
-              .eq("active", true),
-            10000
-          )
-        ]);
-      } catch (timeoutError: any) {
-        if (timeoutError?.message === "Tempo de espera excedido") {
-          setError("Tempo de espera excedido ao carregar produtos. Tente novamente.");
-          setLoading(false);
-          return;
-        }
-        throw timeoutError;
-      }
+      const [productsResult, categoriesResult, combosResult, promotionsResult] = await Promise.all([
+        supabase
+          .from("products")
+          .select("*")
+          .eq("establishment_id", estabId)
+          .eq("active", true)
+          .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
+          .order("sort_order"),
+        supabase
+          .from("categories")
+          .select("*")
+          .eq("establishment_id", estabId)
+          .eq("active", true)
+          .order("sort_order"),
+        supabase
+          .from("combos")
+          .select("*, combo_items(product_id, quantity)")
+          .eq("establishment_id", estabId)
+          .eq("active", true)
+          .order("sort_order"),
+        supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", estabId)
+          .eq("active", true)
+      ]);
 
-      // Verificar erros nas queries
-      if (productsResult.error) {
-        throw new Error(`Erro ao carregar produtos: ${productsResult.error.message || 'Erro desconhecido'}`);
-      }
-      if (categoriesResult.error) {
-        throw new Error(`Erro ao carregar categorias: ${categoriesResult.error.message || 'Erro desconhecido'}`);
-      }
-      if (combosResult.error) {
-        throw new Error(`Erro ao carregar combos: ${combosResult.error.message || 'Erro desconhecido'}`);
-      }
-      if (promotionsResult.error) {
-        throw new Error(`Erro ao carregar promoções: ${promotionsResult.error.message || 'Erro desconhecido'}`);
-      }
+      if (productsResult.error) throw productsResult.error;
+      if (categoriesResult.error) throw categoriesResult.error;
+      if (combosResult.error) throw combosResult.error;
+      if (promotionsResult.error) throw promotionsResult.error;
 
       setProducts(productsResult.data || []);
       setCategories(categoriesResult.data || []);
@@ -612,15 +470,10 @@ const MenuPublic = () => {
       // Começar mostrando todos os produtos (null = todos)
       setSelectedCategory(null);
       setShowCombosOnly(false);
-    } catch (error: any) {
-      const errorMessage = error?.message || "Erro desconhecido ao carregar cardápio";
-      setError(errorMessage);
-        
+    } catch (error) {
+      toast.error("Erro ao carregar cardápio");
     } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
-      loadingRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -1088,35 +941,13 @@ const MenuPublic = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="text-center max-w-md">
-          <AlertTriangle className="h-16 w-16 text-destructive mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-4">Erro ao Carregar Cardápio</h1>
-          <p className="text-muted-foreground mb-4">{error}</p>
-          <Button onClick={() => window.location.reload()} className="mt-4">
-            Recarregar Página
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   if (!establishment) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="text-center max-w-md">
-          <AlertTriangle className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-4">Cardápio Indisponível</h1>
-          <p className="text-muted-foreground mb-4">
-            {slug 
-              ? `O cardápio online do estabelecimento "${slug}" está temporariamente indisponível ou não foi encontrado.`
-              : "O cardápio online deste estabelecimento está temporariamente indisponível."
-            }
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Por favor, verifique a URL ou tente novamente mais tarde.
+          <p className="text-muted-foreground">
+            O cardápio online deste estabelecimento está temporariamente indisponível.
           </p>
         </div>
       </div>

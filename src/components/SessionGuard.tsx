@@ -34,7 +34,7 @@ export function SessionGuard({ children }: { children: React.ReactNode }) {
   const { showTrialExpiredModal, setShowTrialExpiredModal } = useTrialCheck();
 
   // Rotas públicas que não precisam validação
-  const publicRoutes = ['/', '/auth', '/landing', '/password-display', '/password-panel', '/debug-env'];
+  const publicRoutes = ['/', '/auth', '/landing', '/password-display', '/password-panel'];
   const isPublicRoute = publicRoutes.includes(location.pathname) || 
                        location.pathname.startsWith('/menu-public/') || 
                        location.pathname.startsWith('/cardapio/');

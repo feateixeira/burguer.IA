@@ -17,6 +17,20 @@ Deno.serve(async (req) => {
     })
   }
 
+  // Verificar método HTTP
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ 
+        success: false,
+        error: 'Method not allowed. Use POST.' 
+      }),
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 405 
+      }
+    )
+  }
+
   try {
     // Tenta múltiplas variáveis de ambiente para compatibilidade
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || Deno.env.get('SUPABASE_PROJECT_URL')
@@ -56,11 +70,16 @@ Deno.serve(async (req) => {
     }
 
     // Check if the user is an admin
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('is_admin')
       .eq('user_id', user.id)
       .single()
+
+    if (profileError) {
+      console.error('Error fetching profile:', profileError)
+      throw new Error(`Error checking admin status: ${profileError.message}`)
+    }
 
     if (!profile?.is_admin) {
       throw new Error('Access denied. Admin privileges required.')
@@ -137,11 +156,27 @@ Deno.serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error in delete-user function:', error)
+    
+    // Determinar status code apropriado baseado no tipo de erro
+    let statusCode = 500
+    let errorMessage = error.message || 'Internal server error'
+    
+    if (error.message?.includes('Authorization') || error.message?.includes('Invalid authentication')) {
+      statusCode = 401
+    } else if (error.message?.includes('Access denied') || error.message?.includes('Admin privileges')) {
+      statusCode = 403
+    } else if (error.message?.includes('required') || error.message?.includes('Cannot delete')) {
+      statusCode = 400
+    }
+    
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ 
+        success: false,
+        error: errorMessage 
+      }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500 
+        status: statusCode 
       }
     )
   }

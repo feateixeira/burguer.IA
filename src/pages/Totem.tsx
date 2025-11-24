@@ -109,13 +109,13 @@ export default function Totem() {
     const reloadProducts = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("id, name, price, image_url, description, category_id, active, sort_order, is_combo")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, name, price, image_url, description, category_id, active, sort_order, is_combo")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
           .or("is_combo.is.null,is_combo.eq.false")
-          .order("sort_order");
+        .order("sort_order");
         if (!error && data && isMounted) {
           setProducts(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -132,12 +132,12 @@ export default function Totem() {
     const reloadCombos = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("combos")
-          .select("id, name, price, image_url, description, active, sort_order")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("combos")
+        .select("id, name, price, image_url, description, active, sort_order")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCombos(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -154,12 +154,12 @@ export default function Totem() {
     const reloadCategories = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("categories")
-          .select("*")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCategories(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -176,11 +176,11 @@ export default function Totem() {
     const reloadPromotions = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("promotions")
-          .select("*, promotion_products(product_id, fixed_price)")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true);
+      const { data, error } = await supabase
+        .from("promotions")
+        .select("*, promotion_products(product_id, fixed_price)")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true);
         if (!error && data && isMounted) {
           setPromotions(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {

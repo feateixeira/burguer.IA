@@ -49,39 +49,30 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loadEstablishmentSettings = async () => {
     try {
-      // Verificar se Supabase está disponível antes de fazer queries
-      if (!supabase || typeof supabase.auth === 'undefined') {
-        return;
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) return;
-
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('establishment_id')
         .eq('user_id', session.user.id)
         .single();
 
-      if (profileError || !profile?.establishment_id) return;
+      if (!profile?.establishment_id) return;
 
       setEstablishmentId(profile.establishment_id);
 
       // SECURITY: Do NOT load password hash to client
       // Only load settings needed for UI configuration
-      const { data: establishment, error: estabError } = await supabase
+      const { data: establishment } = await supabase
         .from('establishments')
         .select('settings')
         .eq('id', profile.establishment_id)
         .single();
 
-      if (estabError) return;
-
       // SECURITY: Use RPC to check if password exists without exposing the hash
-      const { data: hasPassword, error: rpcError } = await supabase
+      const { data: hasPassword } = await supabase
         .rpc('check_admin_password_exists', { establishment_uuid: profile.establishment_id });
-      
-      if (rpcError) return;
 
       if (establishment) {
         const settings = establishment.settings as any;
@@ -94,12 +85,7 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
         });
       }
     } catch (error) {
-      // Não bloquear a aplicação se houver erro ao carregar configurações
-      // Apenas logar o erro silenciosamente
-      if (import.meta.env.DEV) {
-        console.error('Error loading establishment settings:', error);
-      }
-      // Não fazer nada - a aplicação deve continuar funcionando mesmo sem essas configurações
+      console.error('Error loading establishment settings:', error);
     }
   };
 

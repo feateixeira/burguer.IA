@@ -2,98 +2,46 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-// Obter variáveis de ambiente
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Verificar se está configurado
-export const isSupabaseConfigured = () => {
-  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && 
-           SUPABASE_URL !== "https://placeholder.supabase.co" && 
-           SUPABASE_PUBLISHABLE_KEY !== "placeholder-key");
-};
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  const missingVars = [];
+  if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
+  if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
+  
+  throw new Error(
+    `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
+    `Please set them in your .env file and RESTART the development server. ` +
+    `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
+  );
+}
 
-// SessionStorage adapter
+// Import the supabase client like this:
+// import { supabase } from "@/integrations/supabase/client";
+
+// Usar sessionStorage para não persistir sessão após fechar aba/navegador
+// Isso garante que ao fechar a aba, o usuário precise fazer login novamente
 const sessionStorageAdapter = {
   getItem: (key: string) => {
     if (typeof window === 'undefined') return null;
-    try {
-      return sessionStorage.getItem(key);
-    } catch {
-      return null;
-    }
+    return sessionStorage.getItem(key);
   },
   setItem: (key: string, value: string) => {
     if (typeof window === 'undefined') return;
-    try {
-      sessionStorage.setItem(key, value);
-    } catch {
-      // Ignorar erros
-    }
+    sessionStorage.setItem(key, value);
   },
   removeItem: (key: string) => {
     if (typeof window === 'undefined') return;
-    try {
-      sessionStorage.removeItem(key);
-    } catch {
-      // Ignorar erros
-    }
+    sessionStorage.removeItem(key);
   },
 };
 
-// Criar cliente de forma segura
-let supabaseInstance: ReturnType<typeof createClient<Database>>;
-
-const url = SUPABASE_URL || "https://placeholder.supabase.co";
-const key = SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
-
-// Se não configurado, criar cliente dummy imediatamente
-if (url === "https://placeholder.supabase.co" || key === "placeholder-key") {
-  const dummyClient = {
-    from: () => ({ 
-      select: () => ({ 
-        eq: () => ({ 
-          single: () => Promise.resolve({ data: null, error: { message: "Supabase não configurado" } }),
-          order: () => ({ eq: () => ({ or: () => Promise.resolve({ data: [], error: { message: "Supabase não configurado" } }) }) })
-        }) 
-      }) 
-    }),
-    auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
-    removeChannel: () => {},
-  };
-  supabaseInstance = dummyClient as any;
-} else {
-  // Criar cliente real
-  try {
-    supabaseInstance = createClient<Database>(url, key, {
-      auth: {
-        storage: sessionStorageAdapter,
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false,
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 10
-        }
-      }
-    });
-  } catch (error) {
-    // Se falhar, usar dummy
-    const dummyClient = {
-      from: () => ({ 
-        select: () => ({ 
-          eq: () => ({ 
-            single: () => Promise.resolve({ data: null, error: { message: "Erro ao criar cliente Supabase" } }),
-            order: () => ({ eq: () => ({ or: () => Promise.resolve({ data: [], error: { message: "Erro ao criar cliente Supabase" } }) }) })
-          }) 
-        }) 
-      }),
-      auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
-      removeChannel: () => {},
-    };
-    supabaseInstance = dummyClient as any;
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
   }
-}
-
-export const supabase = supabaseInstance;
+});

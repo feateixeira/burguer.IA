@@ -36,7 +36,7 @@ const TEAM_USER_KEY = "burgueria_team_user";
 
 export const TeamUserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const publicRoutes = ['/', '/auth', '/landing', '/password-display', '/password-panel', '/totem', '/debug-env'];
+  const publicRoutes = ['/', '/auth', '/landing', '/password-display', '/password-panel', '/totem'];
   // Rotas públicas também incluem cardápio online (menu-public e cardapio)
   const isPublicRoute = publicRoutes.includes(location.pathname) || 
                        location.pathname.startsWith('/menu-public/') || 

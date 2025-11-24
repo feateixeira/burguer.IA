@@ -273,12 +273,12 @@ const PDV = () => {
     const reloadProducts = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
-          .order("name");
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
+        .order("name");
         if (!error && data && isMounted) {
           // Só atualiza se os dados realmente mudaram
           setProducts(prev => {
@@ -305,12 +305,12 @@ const PDV = () => {
     const reloadCategories = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("categories")
-          .select("*")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCategories(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -327,12 +327,12 @@ const PDV = () => {
     const reloadCombos = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("combos")
-          .select("*, combo_items(product_id, quantity)")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true)
-          .order("sort_order");
+      const { data, error } = await supabase
+        .from("combos")
+        .select("*, combo_items(product_id, quantity)")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true)
+        .order("sort_order");
         if (!error && data && isMounted) {
           setCombos(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -349,11 +349,11 @@ const PDV = () => {
     const reloadPromotions = async () => {
       if (!isMounted) return;
       try {
-        const { data, error } = await supabase
-          .from("promotions")
-          .select("*, promotion_products(product_id, fixed_price)")
-          .eq("establishment_id", establishmentId)
-          .eq("active", true);
+      const { data, error } = await supabase
+        .from("promotions")
+        .select("*, promotion_products(product_id, fixed_price)")
+        .eq("establishment_id", establishmentId)
+        .eq("active", true);
         if (!error && data && isMounted) {
           setPromotions(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {

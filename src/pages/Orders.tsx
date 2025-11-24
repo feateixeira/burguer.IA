@@ -527,6 +527,11 @@ interface Order {
 
     const loadOrders = async (opts?: { background?: boolean }) => {
       try {
+        // Verificar se establishment está disponível
+        if (!establishment?.id) {
+          return;
+        }
+
         const background = !!opts?.background;
         if (!background && firstLoadRef.current) setLoading(true);
         
@@ -550,11 +555,14 @@ interface Order {
         if (error) throw error;
         
         setOrders(data || []);
-        setFilteredOrders(data || []);
+        // filteredOrders é calculado automaticamente pelo useMemo baseado em orders
         
         // Notificações de novos pedidos são tratadas pelo sistema global (OrderNotificationProvider)
-      } catch (error) {
-        toast.error("Erro ao carregar pedidos");
+      } catch (error: any) {
+        // Só exibir erro se não for um erro de cancelamento ou se for um erro crítico
+        if (error?.code !== 'PGRST301' && error?.message !== 'The user aborted a request') {
+          toast.error("Erro ao carregar pedidos");
+        }
       } finally {
         if (firstLoadRef.current) {
           setLoading(false);

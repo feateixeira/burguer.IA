@@ -119,6 +119,7 @@ interface Order {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const firstLoadRef = useRef(true);
+    const isLoadingRef = useRef(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -160,68 +161,95 @@ interface Order {
     }, []);
 
      useEffect(() => {
-       if (establishment) {
-         loadOrders();
+       if (!establishment?.id) return;
 
-         // OTIMIZAÇÃO: Throttle recarregamento para evitar muitas requisições
-         let reloadTimeout: NodeJS.Timeout | null = null;
-         const reloadWithThrottle = (immediate = false) => {
-           if (reloadTimeout) clearTimeout(reloadTimeout);
-           if (immediate) {
-             loadOrders({ background: true });
-           } else {
-             // Aguardar 500ms antes de recarregar (throttle)
-             reloadTimeout = setTimeout(() => {
-               loadOrders({ background: true });
-             }, 500);
-           }
-         };
+       // Resetar firstLoadRef quando o establishment mudar
+       firstLoadRef.current = true;
+       setLoading(true);
+       loadOrders();
 
-         // Realtime: escuta INSERT de novos pedidos para atualização imediata
-         const channel = supabase
-           .channel('orders-realtime')
-           .on('postgres_changes', { 
-             event: 'INSERT', 
-             schema: 'public', 
-             table: 'orders', 
-             filter: `establishment_id=eq.${establishment.id}` 
-           }, (payload) => {
-             // Quando um novo pedido é inserido, recarregar imediatamente
-             reloadWithThrottle(true);
-           })
-           .on('postgres_changes', { 
-             event: '*', 
-             schema: 'public', 
-             table: 'orders', 
-             filter: `establishment_id=eq.${establishment.id}` 
-           }, () => {
-             // Para updates/deletes, atualizar com throttle
-             reloadWithThrottle();
-           })
-           .on('postgres_changes', { 
-             event: '*', 
-             schema: 'public', 
-             table: 'order_items' 
-           }, () => {
-             // Quando itens são alterados, atualizar com throttle
-             reloadWithThrottle();
-           })
-           .subscribe();
+       // OTIMIZAÇÃO: Throttle recarregamento para evitar muitas requisições
+       let reloadTimeout: NodeJS.Timeout | null = null;
+       let lastReloadTime = 0;
+       const THROTTLE_DELAY = 500;
+       const MIN_RELOAD_INTERVAL = 1000; // Mínimo de 1 segundo entre reloads
 
-         // Escuta eventos customizados para atualização quando notificação chegar
-         const handleNewOrderNotification = () => {
-           reloadWithThrottle(true);
-         };
+       const reloadWithThrottle = (immediate = false) => {
+         const now = Date.now();
          
-         window.addEventListener('new-order-notification', handleNewOrderNotification);
+         // Se já está carregando, ignorar nova chamada
+         if (isLoadingRef.current && !immediate) {
+           return;
+         }
 
-         return () => {
-           if (reloadTimeout) clearTimeout(reloadTimeout);
-           supabase.removeChannel(channel);
-           window.removeEventListener('new-order-notification', handleNewOrderNotification);
-         };
-       }
-     }, [establishment]);
+         // Limpar timeout anterior se existir
+         if (reloadTimeout) {
+           clearTimeout(reloadTimeout);
+           reloadTimeout = null;
+         }
+
+         if (immediate) {
+           // Para eventos imediatos, verificar se passou o intervalo mínimo
+           if (now - lastReloadTime < MIN_RELOAD_INTERVAL) {
+             // Se não passou, agendar para depois
+             reloadTimeout = setTimeout(() => {
+               lastReloadTime = Date.now();
+               loadOrders({ background: true });
+             }, MIN_RELOAD_INTERVAL - (now - lastReloadTime));
+           } else {
+             lastReloadTime = now;
+             loadOrders({ background: true });
+           }
+         } else {
+           // Para eventos não imediatos, usar throttle normal
+           reloadTimeout = setTimeout(() => {
+             const currentTime = Date.now();
+             if (currentTime - lastReloadTime >= MIN_RELOAD_INTERVAL) {
+               lastReloadTime = currentTime;
+               loadOrders({ background: true });
+             }
+           }, THROTTLE_DELAY);
+         }
+       };
+
+       // Realtime: escuta mudanças em orders (INSERT, UPDATE, DELETE)
+       // REMOVIDO: subscription duplicada de INSERT - a genérica de '*' já captura todos os eventos
+       const channel = supabase
+         .channel(`orders-realtime-${establishment.id}`)
+         .on('postgres_changes', { 
+           event: '*', 
+           schema: 'public', 
+           table: 'orders', 
+           filter: `establishment_id=eq.${establishment.id}` 
+         }, (payload) => {
+           // Verificar se é INSERT (tem payload.new mas não payload.old)
+           // Para INSERT, recarregar imediatamente (mas com throttle)
+           // Para UPDATE/DELETE, usar throttle normal
+           const isInsert = payload.new && !payload.old;
+           reloadWithThrottle(isInsert);
+         })
+         .subscribe();
+
+       // REMOVIDO: subscription de order_items sem filtro
+       // Mudanças em order_items geralmente vêm junto com mudanças em orders
+       // e a subscription de orders já captura essas mudanças
+
+       // Escuta eventos customizados para atualização quando notificação chegar
+       const handleNewOrderNotification = () => {
+         reloadWithThrottle(true);
+       };
+       
+       window.addEventListener('new-order-notification', handleNewOrderNotification);
+
+       return () => {
+         if (reloadTimeout) {
+           clearTimeout(reloadTimeout);
+           reloadTimeout = null;
+         }
+         supabase.removeChannel(channel);
+         window.removeEventListener('new-order-notification', handleNewOrderNotification);
+       };
+     }, [establishment?.id]);
 
     // Memoizar função helper para evitar recriação
     const isFromNaBrasaSite = useCallback((order: Order) => {
@@ -526,14 +554,23 @@ interface Order {
     };
 
     const loadOrders = async (opts?: { background?: boolean }) => {
+      // Proteção contra múltiplas execuções simultâneas
+      if (isLoadingRef.current) {
+        return;
+      }
+
       try {
         // Verificar se establishment está disponível
         if (!establishment?.id) {
           return;
         }
 
+        isLoadingRef.current = true;
         const background = !!opts?.background;
-        if (!background && firstLoadRef.current) setLoading(true);
+        
+        if (!background && firstLoadRef.current) {
+          setLoading(true);
+        }
         
         // Calculate cutoff date: 3 months ago (for performance - only load recent orders)
         const cutoffDate = new Date();
@@ -564,6 +601,9 @@ interface Order {
           toast.error("Erro ao carregar pedidos");
         }
       } finally {
+        isLoadingRef.current = false;
+        
+        // Sempre resetar loading no primeiro carregamento
         if (firstLoadRef.current) {
           setLoading(false);
           firstLoadRef.current = false;

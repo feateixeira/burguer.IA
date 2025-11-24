@@ -2,121 +2,98 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-// Obter variáveis de ambiente de forma mais robusta
-// Em produção, o Vite injeta essas variáveis no build
-// IMPORTANTE: No Vercel, essas variáveis DEVEM estar configuradas como Environment Variables
-// e devem estar disponíveis durante o build (não apenas em runtime)
-let SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-let SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// Obter variáveis de ambiente
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Tentar obter de window.__ENV__ se disponível (fallback para casos especiais)
-if (typeof window !== 'undefined' && (window as any).__ENV__) {
-  SUPABASE_URL = (window as any).__ENV__.VITE_SUPABASE_URL || SUPABASE_URL;
-  SUPABASE_PUBLISHABLE_KEY = (window as any).__ENV__.VITE_SUPABASE_ANON_KEY || SUPABASE_PUBLISHABLE_KEY;
-}
+// Verificar se está configurado
+export const isSupabaseConfigured = () => {
+  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && 
+           SUPABASE_URL !== "https://placeholder.supabase.co" && 
+           SUPABASE_PUBLISHABLE_KEY !== "placeholder-key");
+};
 
-// Em desenvolvimento, lançar erro se variáveis não estiverem configuradas
-if (import.meta.env.DEV && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
-  const missingVars = [];
-  if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
-  if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
-  
-  throw new Error(
-    `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
-    `Please set them in your .env file and RESTART the development server. ` +
-    `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
-  );
-}
-
-// Em produção, se não houver variáveis, usar valores padrão que causarão erro nas queries
-// mas não quebrarão a aplicação imediatamente
-const finalSupabaseUrl = SUPABASE_URL || "https://placeholder.supabase.co";
-const finalSupabaseKey = SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
-
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
-
-// Usar sessionStorage para não persistir sessão após fechar aba/navegador
-// Isso garante que ao fechar a aba, o usuário precise fazer login novamente
+// SessionStorage adapter
 const sessionStorageAdapter = {
   getItem: (key: string) => {
     if (typeof window === 'undefined') return null;
-    return sessionStorage.getItem(key);
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
   },
   setItem: (key: string, value: string) => {
     if (typeof window === 'undefined') return;
-    sessionStorage.setItem(key, value);
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // Ignorar erros
+    }
   },
   removeItem: (key: string) => {
     if (typeof window === 'undefined') return;
-    sessionStorage.removeItem(key);
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // Ignorar erros
+    }
   },
 };
 
-// Criar cliente Supabase com tratamento de erro robusto
-console.log('[Supabase Client] Iniciando criação do cliente...');
-console.log('[Supabase Client] URL:', finalSupabaseUrl ? 'configurada' : 'NÃO CONFIGURADA');
-console.log('[Supabase Client] Key:', finalSupabaseKey ? 'configurada' : 'NÃO CONFIGURADA');
+// Criar cliente de forma segura
+let supabaseInstance: ReturnType<typeof createClient<Database>>;
 
-let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+const url = SUPABASE_URL || "https://placeholder.supabase.co";
+const key = SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
 
-try {
-  // Validar URL antes de criar cliente
-  if (finalSupabaseUrl && finalSupabaseUrl !== "https://placeholder.supabase.co" &&
-      finalSupabaseKey && finalSupabaseKey !== "placeholder-key") {
-    console.log('[Supabase Client] Criando cliente com configurações válidas...');
-    supabaseInstance = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
+// Se não configurado, criar cliente dummy imediatamente
+if (url === "https://placeholder.supabase.co" || key === "placeholder-key") {
+  const dummyClient = {
+    from: () => ({ 
+      select: () => ({ 
+        eq: () => ({ 
+          single: () => Promise.resolve({ data: null, error: { message: "Supabase não configurado" } }),
+          order: () => ({ eq: () => ({ or: () => Promise.resolve({ data: [], error: { message: "Supabase não configurado" } }) }) })
+        }) 
+      }) 
+    }),
+    auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
+    removeChannel: () => {},
+  };
+  supabaseInstance = dummyClient as any;
+} else {
+  // Criar cliente real
+  try {
+    supabaseInstance = createClient<Database>(url, key, {
       auth: {
         storage: sessionStorageAdapter,
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
       },
-      // Configurações adicionais para evitar travamentos
       realtime: {
         params: {
           eventsPerSecond: 10
         }
       }
     });
-    console.log('[Supabase Client] ✅ Cliente criado com sucesso!');
-  } else {
-    // Se não houver variáveis válidas, criar cliente dummy
-    console.warn('[Supabase Client] ⚠️ Variáveis de ambiente não configuradas, criando cliente dummy');
-    throw new Error("Variáveis de ambiente não configuradas");
-  }
-} catch (error) {
-  // Se falhar ao criar cliente, criar um cliente "dummy" que falhará nas queries
-  // mas não quebrará a aplicação
-  console.error('[Supabase Client] ❌ ERRO ao criar cliente:', error);
-  console.warn('[Supabase Client] Criando cliente dummy como fallback...');
-  try {
-    supabaseInstance = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
-      auth: {
-        storage: sessionStorageAdapter,
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      }
-    });
-  } catch (fallbackError) {
-    // Se até o fallback falhar, usar um objeto mínimo
-    console.error("Erro crítico ao criar cliente Supabase:", fallbackError);
-    // Criar um objeto mínimo que não quebrará a aplicação
-    console.error('[Supabase Client] ❌ ERRO CRÍTICO: Não foi possível criar cliente nem fallback');
-    supabaseInstance = {
-      from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: { message: "Supabase não configurado" } }) }) }) }),
+  } catch (error) {
+    // Se falhar, usar dummy
+    const dummyClient = {
+      from: () => ({ 
+        select: () => ({ 
+          eq: () => ({ 
+            single: () => Promise.resolve({ data: null, error: { message: "Erro ao criar cliente Supabase" } }),
+            order: () => ({ eq: () => ({ or: () => Promise.resolve({ data: [], error: { message: "Erro ao criar cliente Supabase" } }) }) })
+          }) 
+        }) 
+      }),
       auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
-    } as any;
+      removeChannel: () => {},
+    };
+    supabaseInstance = dummyClient as any;
   }
 }
 
-console.log('[Supabase Client] Cliente exportado:', !!supabaseInstance);
-export const supabase = supabaseInstance!;
-
-// Exportar função para verificar se Supabase está configurado corretamente
-export const isSupabaseConfigured = () => {
-  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && 
-           SUPABASE_URL !== "https://placeholder.supabase.co" && 
-           SUPABASE_PUBLISHABLE_KEY !== "placeholder-key");
-};
+export const supabase = supabaseInstance;

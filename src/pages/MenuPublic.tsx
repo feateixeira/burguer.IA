@@ -81,10 +81,9 @@ interface Establishment {
 }
 
 const MenuPublic = () => {
-  console.log('[MenuPublic] Componente iniciado');
   const { slug } = useParams<{ slug: string }>();
-  console.log('[MenuPublic] Slug da URL:', slug);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -143,35 +142,29 @@ const MenuPublic = () => {
   }, [establishment?.name]);
 
   useEffect(() => {
-    console.log('[MenuPublic] useEffect executado, slug:', slug);
     mountedRef.current = true;
     
     // Timeout de segurança: se não carregar em 30 segundos, parar o loading
     const safetyTimeout = setTimeout(() => {
-      console.error('[MenuPublic] TIMEOUT DE SEGURANÇA: loadEstablishmentData demorou mais de 30 segundos');
       if (mountedRef.current && loadingRef.current) {
+        setError("Tempo de carregamento excedido. Por favor, recarregue a página.");
         setLoading(false);
         loadingRef.current = false;
-        toast.error("Tempo de carregamento excedido. Tente recarregar a página.");
       }
     }, 30000);
     
     if (slug && !loadingRef.current) {
-      console.log('[MenuPublic] Iniciando loadEstablishmentData para slug:', slug);
       loadingRef.current = true;
       loadEstablishmentData().finally(() => {
-        console.log('[MenuPublic] loadEstablishmentData finalizado');
         clearTimeout(safetyTimeout);
         if (mountedRef.current) {
           loadingRef.current = false;
         }
       });
     } else if (!slug) {
-      console.warn('[MenuPublic] Slug não encontrado na URL');
+      setError("Slug do estabelecimento não encontrado na URL");
       clearTimeout(safetyTimeout);
       setLoading(false);
-    } else {
-      console.log('[MenuPublic] loadEstablishmentData já está em execução, ignorando chamada duplicada');
     }
     
     // Carregar preferência de pagamento do localStorage
@@ -409,53 +402,30 @@ const MenuPublic = () => {
   }, [paymentMethod]);
 
   const loadEstablishmentData = async () => {
-    console.log('[MenuPublic] loadEstablishmentData iniciado');
-    
     // Evitar múltiplas chamadas simultâneas
     if (loadingRef.current && !mountedRef.current) {
-      console.log('[MenuPublic] Chamada ignorada: já está em execução ou componente desmontado');
       return;
     }
     
     try {
-      if (!mountedRef.current) {
-        console.log('[MenuPublic] Componente desmontado, abortando');
-        return;
-      }
+      if (!mountedRef.current) return;
       
-      console.log('[MenuPublic] Definindo loading = true');
       setLoading(true);
+      setError(null);
 
       // Verificar se slug existe
       if (!slug) {
-        console.error('[MenuPublic] ERRO: Slug não encontrado');
-        if (mountedRef.current) {
-          toast.error("Slug do estabelecimento não encontrado na URL");
-          setLoading(false);
-        }
+        setError("Slug do estabelecimento não encontrado na URL");
+        setLoading(false);
         return;
       }
 
-      // Verificar se Supabase está configurado corretamente
-      console.log('[MenuPublic] Verificando configuração do Supabase...');
+      // Verificar se Supabase está configurado
       const isConfigured = isSupabaseConfigured();
-      console.log('[MenuPublic] Supabase configurado?', isConfigured);
-      console.log('[MenuPublic] Variáveis:', {
-        url: import.meta.env.VITE_SUPABASE_URL ? 'configurada' : 'NÃO CONFIGURADA',
-        key: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'configurada' : 'NÃO CONFIGURADA',
-      });
-      
-      if (!isConfigured) {
-        if (import.meta.env.PROD) {
-          console.warn('[MenuPublic] AVISO: Variáveis de ambiente do Supabase podem não estar configuradas corretamente');
-        } else {
-          console.error('[MenuPublic] ERRO: Variáveis de ambiente não encontradas em desenvolvimento');
-          if (mountedRef.current) {
-            toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
-            setLoading(false);
-          }
-          return;
-        }
+      if (!isConfigured && import.meta.env.DEV) {
+        setError("Variáveis de ambiente do Supabase não encontradas. Verifique as configurações.");
+        setLoading(false);
+        return;
       }
 
       // Criar promise com timeout para evitar esperas infinitas
@@ -466,36 +436,24 @@ const MenuPublic = () => {
         return Promise.race([promise, timeoutPromise]);
       };
 
-      // Load establishment by slug (tentar com campos novos, se falhar tenta sem eles)
-      console.log('[MenuPublic] Buscando estabelecimento com slug:', slug);
+      // Load establishment by slug
       let estabData: any = null;
       let estabError: any = null;
       
       try {
-        console.log('[MenuPublic] Executando query para buscar estabelecimento...');
-        const queryStart = Date.now();
         const result = await queryWithTimeout(
           supabase
             .from("establishments")
             .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
             .eq("slug", slug)
             .single(),
-          10000 // 10 segundos de timeout
+          10000
         );
-        const queryTime = Date.now() - queryStart;
-        console.log('[MenuPublic] Query concluída em', queryTime, 'ms');
-        console.log('[MenuPublic] Resultado:', { 
-          hasData: !!result.data, 
-          hasError: !!result.error,
-          errorMessage: result.error?.message 
-        });
         estabData = result.data;
         estabError = result.error;
       } catch (timeoutError: any) {
-        console.error('[MenuPublic] ERRO na query:', timeoutError);
         if (timeoutError?.message === "Tempo de espera excedido") {
-          console.error('[MenuPublic] TIMEOUT: Query demorou mais de 10 segundos');
-          toast.error("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
+          setError("Tempo de espera excedido. Tente novamente.");
           setLoading(false);
           return;
         }
@@ -531,7 +489,7 @@ const MenuPublic = () => {
           }
         } catch (timeoutError: any) {
           if (timeoutError?.message === "Tempo de espera excedido") {
-            toast.error("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
+            setError("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
             setLoading(false);
             return;
           }
@@ -541,13 +499,14 @@ const MenuPublic = () => {
 
       if (estabError || !estabData) {
         const errorMsg = estabError?.message || "Estabelecimento não encontrado";
-        toast.error(`Estabelecimento não encontrado: ${errorMsg}`);
+        setError(`Estabelecimento não encontrado: ${errorMsg}`);
         setLoading(false);
         return;
       }
 
       // Verificar se o cardápio online está desativado
       if (estabData.menu_online_enabled === false) {
+        setError("O cardápio online deste estabelecimento está desativado.");
         setEstablishment(null);
         setLoading(false);
         return;
@@ -576,7 +535,8 @@ const MenuPublic = () => {
       // Load products, categories and combos
       const estabId = (estabData as any)?.id;
       if (!estabId) {
-        toast.error("Erro ao identificar estabelecimento");
+        setError("Erro ao identificar estabelecimento");
+        setLoading(false);
         return;
       }
       
@@ -621,19 +581,9 @@ const MenuPublic = () => {
             10000
           )
         ]);
-        const productsTime = Date.now() - productsStart;
-        console.log('[MenuPublic] Produtos/categorias/combos/promoções carregados em', productsTime, 'ms');
-        console.log('[MenuPublic] Resultados:', {
-          products: productsResult.data?.length || 0,
-          categories: categoriesResult.data?.length || 0,
-          combos: combosResult.data?.length || 0,
-          promotions: promotionsResult.data?.length || 0,
-        });
       } catch (timeoutError: any) {
-        console.error('[MenuPublic] ERRO ao carregar produtos/categorias:', timeoutError);
         if (timeoutError?.message === "Tempo de espera excedido") {
-          console.error('[MenuPublic] TIMEOUT: Carregamento de produtos demorou mais de 15 segundos');
-          toast.error("Tempo de espera excedido ao carregar produtos. Tente novamente.");
+          setError("Tempo de espera excedido ao carregar produtos. Tente novamente.");
           setLoading(false);
           return;
         }
@@ -642,23 +592,18 @@ const MenuPublic = () => {
 
       // Verificar erros nas queries
       if (productsResult.error) {
-        console.error('[MenuPublic] ERRO ao carregar produtos:', productsResult.error);
         throw new Error(`Erro ao carregar produtos: ${productsResult.error.message || 'Erro desconhecido'}`);
       }
       if (categoriesResult.error) {
-        console.error('[MenuPublic] ERRO ao carregar categorias:', categoriesResult.error);
         throw new Error(`Erro ao carregar categorias: ${categoriesResult.error.message || 'Erro desconhecido'}`);
       }
       if (combosResult.error) {
-        console.error('[MenuPublic] ERRO ao carregar combos:', combosResult.error);
         throw new Error(`Erro ao carregar combos: ${combosResult.error.message || 'Erro desconhecido'}`);
       }
       if (promotionsResult.error) {
-        console.error('[MenuPublic] ERRO ao carregar promoções:', promotionsResult.error);
         throw new Error(`Erro ao carregar promoções: ${promotionsResult.error.message || 'Erro desconhecido'}`);
       }
 
-      console.log('[MenuPublic] Definindo produtos, categorias, combos e promoções no estado');
       setProducts(productsResult.data || []);
       setCategories(categoriesResult.data || []);
       setCombos(combosResult.data || []);
@@ -667,39 +612,11 @@ const MenuPublic = () => {
       // Começar mostrando todos os produtos (null = todos)
       setSelectedCategory(null);
       setShowCombosOnly(false);
-      console.log('[MenuPublic] ✅ Carregamento concluído com sucesso!');
     } catch (error: any) {
-      console.error('[MenuPublic] ❌ ERRO CAPTURADO no loadEstablishmentData:', error);
-      console.error('[MenuPublic] Stack trace:', error?.stack);
-      console.error('[MenuPublic] Error message:', error?.message);
-      console.error('[MenuPublic] Error name:', error?.name);
-      
-      // Não exibir toast se já foi exibido um erro específico de timeout
-      if (error?.message !== "Tempo de espera excedido") {
-        const errorMessage = error?.message || "Erro desconhecido";
+      const errorMessage = error?.message || "Erro desconhecido ao carregar cardápio";
+      setError(errorMessage);
         
-        // Log do erro sempre (não apenas em desenvolvimento)
-        console.error('[MenuPublic] Erro ao carregar cardápio:', {
-          message: errorMessage,
-          error: error,
-          slug,
-          isConfigured: isSupabaseConfigured(),
-        });
-        
-        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError") || errorMessage.includes("fetch")) {
-          toast.error("Erro de conexão com o servidor. Verifique sua internet e tente novamente.");
-        } else if (errorMessage.includes("Missing Supabase") || errorMessage.includes("Variáveis de ambiente")) {
-          toast.error("Erro de configuração: Variáveis de ambiente não encontradas");
-        } else if (errorMessage.includes("Tempo de espera excedido")) {
-          toast.error("Tempo de espera excedido. Tente novamente.");
-        } else if (errorMessage.includes("Estabelecimento não encontrado")) {
-          toast.error("Estabelecimento não encontrado");
-        } else {
-          toast.error(`Erro ao carregar cardápio: ${errorMessage}`);
-        }
-      }
     } finally {
-      console.log('[MenuPublic] Finally executado, definindo loading = false');
       if (mountedRef.current) {
         setLoading(false);
       }
@@ -1166,6 +1083,21 @@ const MenuPublic = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-muted-foreground">Carregando cardápio...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="h-16 w-16 text-destructive mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-4">Erro ao Carregar Cardápio</h1>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()} className="mt-4">
+            Recarregar Página
+          </Button>
         </div>
       </div>
     );

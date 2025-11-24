@@ -370,33 +370,82 @@ const MenuPublic = () => {
     try {
       setLoading(true);
 
+      // Verificar se Supabase está configurado
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+      const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+      
+      if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+        toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas");
+        setLoading(false);
+        return;
+      }
+
+      // Criar promise com timeout para evitar esperas infinitas
+      const queryWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
+        const timeoutPromise = new Promise<T>((_, reject) => {
+          setTimeout(() => reject(new Error("Tempo de espera excedido")), timeoutMs);
+        });
+        return Promise.race([promise, timeoutPromise]);
+      };
+
       // Load establishment by slug (tentar com campos novos, se falhar tenta sem eles)
-      let { data: estabData, error: estabError } = await supabase
-        .from("establishments")
-        .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
-        .eq("slug", slug)
-        .single();
+      let estabData: any = null;
+      let estabError: any = null;
+      
+      try {
+        const result = await queryWithTimeout(
+          supabase
+            .from("establishments")
+            .select("id, name, phone, address, slug, pix_key, timezone, allow_orders_when_closed, show_schedule_on_menu, menu_online_enabled, settings")
+            .eq("slug", slug)
+            .single(),
+          10000 // 10 segundos de timeout
+        );
+        estabData = result.data;
+        estabError = result.error;
+      } catch (timeoutError: any) {
+        if (timeoutError?.message === "Tempo de espera excedido") {
+          toast.error("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
+          setLoading(false);
+          return;
+        }
+        throw timeoutError;
+      }
 
       // Se falhar por causa de colunas inexistentes, tentar sem elas
       if (estabError && estabError.message?.includes("does not exist")) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from("establishments")
-          .select("id, name, phone, address, slug")
-          .eq("slug", slug)
-          .single();
-        
-        if (!fallbackError && fallbackData) {
-          estabData = { 
-            ...fallbackData, 
-            pix_key: null, 
-            timezone: null, 
-            allow_orders_when_closed: false, 
-            show_schedule_on_menu: false,
-            menu_online_enabled: true
-          } as any;
-          estabError = null;
-        } else {
-          estabError = fallbackError;
+        try {
+          const fallbackResult = await queryWithTimeout(
+            supabase
+              .from("establishments")
+              .select("id, name, phone, address, slug")
+              .eq("slug", slug)
+              .single(),
+            10000
+          );
+          const fallbackData = fallbackResult.data;
+          const fallbackError = fallbackResult.error;
+          
+          if (!fallbackError && fallbackData) {
+            estabData = { 
+              ...fallbackData, 
+              pix_key: null, 
+              timezone: null, 
+              allow_orders_when_closed: false, 
+              show_schedule_on_menu: false,
+              menu_online_enabled: true
+            } as any;
+            estabError = null;
+          } else {
+            estabError = fallbackError;
+          }
+        } catch (timeoutError: any) {
+          if (timeoutError?.message === "Tempo de espera excedido") {
+            toast.error("Tempo de espera excedido ao carregar estabelecimento. Tente novamente.");
+            setLoading(false);
+            return;
+          }
+          throw timeoutError;
         }
       }
 
@@ -415,11 +464,20 @@ const MenuPublic = () => {
       setEstablishment(estabData as any);
 
       // Verificar se há horários de funcionamento configurados
-      const { data: hoursData } = await supabase
-        .from("establishment_hours")
-        .select("id")
-        .eq("estab_id", (estabData as any)?.id)
-        .limit(1);
+      let hoursData: any = null;
+      try {
+        const hoursResult = await queryWithTimeout(
+          supabase
+            .from("establishment_hours")
+            .select("id")
+            .eq("estab_id", (estabData as any)?.id)
+            .limit(1),
+          10000
+        );
+        hoursData = hoursResult.data;
+      } catch (timeoutError: any) {
+        // Ignorar timeout em horários - não é crítico
+      }
       
       setHasBusinessHoursConfig((hoursData && hoursData.length > 0) || false);
 
@@ -430,32 +488,55 @@ const MenuPublic = () => {
         return;
       }
       
-      const [productsResult, categoriesResult, combosResult, promotionsResult] = await Promise.all([
-        supabase
-          .from("products")
-          .select("*")
-          .eq("establishment_id", estabId)
-          .eq("active", true)
-          .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
-          .order("sort_order"),
-        supabase
-          .from("categories")
-          .select("*")
-          .eq("establishment_id", estabId)
-          .eq("active", true)
-          .order("sort_order"),
-        supabase
-          .from("combos")
-          .select("*, combo_items(product_id, quantity)")
-          .eq("establishment_id", estabId)
-          .eq("active", true)
-          .order("sort_order"),
-        supabase
-          .from("promotions")
-          .select("*, promotion_products(product_id, fixed_price)")
-          .eq("establishment_id", estabId)
-          .eq("active", true)
-      ]);
+      let productsResult: any, categoriesResult: any, combosResult: any, promotionsResult: any;
+      
+      try {
+        [productsResult, categoriesResult, combosResult, promotionsResult] = await Promise.all([
+          queryWithTimeout(
+            supabase
+              .from("products")
+              .select("*")
+              .eq("establishment_id", estabId)
+              .eq("active", true)
+              .or("is_combo.is.null,is_combo.eq.false") // Excluir produtos que são combos
+              .order("sort_order"),
+            15000
+          ),
+          queryWithTimeout(
+            supabase
+              .from("categories")
+              .select("*")
+              .eq("establishment_id", estabId)
+              .eq("active", true)
+              .order("sort_order"),
+            10000
+          ),
+          queryWithTimeout(
+            supabase
+              .from("combos")
+              .select("*, combo_items(product_id, quantity)")
+              .eq("establishment_id", estabId)
+              .eq("active", true)
+              .order("sort_order"),
+            10000
+          ),
+          queryWithTimeout(
+            supabase
+              .from("promotions")
+              .select("*, promotion_products(product_id, fixed_price)")
+              .eq("establishment_id", estabId)
+              .eq("active", true),
+            10000
+          )
+        ]);
+      } catch (timeoutError: any) {
+        if (timeoutError?.message === "Tempo de espera excedido") {
+          toast.error("Tempo de espera excedido ao carregar produtos. Tente novamente.");
+          setLoading(false);
+          return;
+        }
+        throw timeoutError;
+      }
 
       if (productsResult.error) throw productsResult.error;
       if (categoriesResult.error) throw categoriesResult.error;
@@ -470,8 +551,18 @@ const MenuPublic = () => {
       // Começar mostrando todos os produtos (null = todos)
       setSelectedCategory(null);
       setShowCombosOnly(false);
-    } catch (error) {
-      toast.error("Erro ao carregar cardápio");
+    } catch (error: any) {
+      // Não exibir toast se já foi exibido um erro específico de timeout
+      if (error?.message !== "Tempo de espera excedido") {
+        const errorMessage = error?.message || "Erro desconhecido";
+        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+          toast.error("Erro de conexão. Verifique sua internet e tente novamente.");
+        } else if (errorMessage.includes("Missing Supabase")) {
+          toast.error("Erro de configuração: Variáveis de ambiente não encontradas");
+        } else {
+          toast.error("Erro ao carregar cardápio");
+        }
+      }
     } finally {
       setLoading(false);
     }

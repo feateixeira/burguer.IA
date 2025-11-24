@@ -5,16 +5,22 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
+// Em produção, não lançar erro imediatamente - deixar o cliente ser criado mesmo sem variáveis
+// para que possamos mostrar uma mensagem de erro mais amigável na UI
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  const missingVars = [];
-  if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
-  if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
-  
-  throw new Error(
-    `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
-    `Please set them in your .env file and RESTART the development server. ` +
-    `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
-  );
+  if (import.meta.env.DEV) {
+    const missingVars = [];
+    if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
+    if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
+    
+    throw new Error(
+      `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
+      `Please set them in your .env file and RESTART the development server. ` +
+      `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
+    );
+  }
+  // Em produção, criar cliente com valores vazios para evitar crash
+  // O erro será tratado quando tentar usar o cliente
 }
 
 // Import the supabase client like this:

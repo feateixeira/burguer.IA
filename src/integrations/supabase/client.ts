@@ -57,32 +57,50 @@ const sessionStorageAdapter = {
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 
 try {
-  supabaseInstance = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
-    auth: {
-      storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
-    },
-    // Configurações adicionais para evitar travamentos
-    realtime: {
-      params: {
-        eventsPerSecond: 10
+  // Validar URL antes de criar cliente
+  if (finalSupabaseUrl && finalSupabaseUrl !== "https://placeholder.supabase.co" &&
+      finalSupabaseKey && finalSupabaseKey !== "placeholder-key") {
+    
+    supabaseInstance = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
+      auth: {
+        storage: sessionStorageAdapter,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+      },
+      // Configurações adicionais para evitar travamentos
+      realtime: {
+        params: {
+          eventsPerSecond: 10
+        }
       }
-    }
-  });
+    });
+  } else {
+    // Se não houver variáveis válidas, criar cliente dummy
+    throw new Error("Variáveis de ambiente não configuradas");
+  }
 } catch (error) {
   // Se falhar ao criar cliente, criar um cliente "dummy" que falhará nas queries
   // mas não quebrará a aplicação
-  console.error("Erro ao criar cliente Supabase:", error);
-  supabaseInstance = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
-    auth: {
-      storage: sessionStorageAdapter,
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    }
-  });
+  console.warn("Cliente Supabase não configurado corretamente:", error);
+  try {
+    supabaseInstance = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
+      auth: {
+        storage: sessionStorageAdapter,
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      }
+    });
+  } catch (fallbackError) {
+    // Se até o fallback falhar, usar um objeto mínimo
+    console.error("Erro crítico ao criar cliente Supabase:", fallbackError);
+    // Criar um objeto mínimo que não quebrará a aplicação
+    supabaseInstance = {
+      from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: { message: "Supabase não configurado" } }) }) }) }),
+      auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
+    } as any;
+  }
 }
 
 export const supabase = supabaseInstance!;

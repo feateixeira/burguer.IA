@@ -6,32 +6,44 @@ export const DebugEnv = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const url = import.meta.env.VITE_SUPABASE_URL || "";
-      const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-      
-      setEnvInfo({
-        VITE_SUPABASE_URL: url || "NÃO CONFIGURADO",
-        VITE_SUPABASE_URL_LENGTH: url.length,
-        VITE_SUPABASE_ANON_KEY: key 
-          ? `${key.substring(0, 20)}... (${key.length} caracteres)` 
-          : "NÃO CONFIGURADO",
-        VITE_SUPABASE_ANON_KEY_LENGTH: key.length,
-        MODE: import.meta.env.MODE,
-        DEV: import.meta.env.DEV,
-        PROD: import.meta.env.PROD,
-        isSupabaseConfigured: !!(url && key && url !== "https://placeholder.supabase.co" && key !== "placeholder-key"),
-        windowEnv: typeof window !== 'undefined' ? (window as any).__ENV__ : null,
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A',
-      });
-    } catch (error: any) {
-      setEnvInfo({
-        error: error.message || "Erro desconhecido",
-        stack: error.stack,
-      });
-    } finally {
-      setLoading(false);
-    }
+    // Usar setTimeout para garantir que o componente renderize primeiro
+    const timer = setTimeout(() => {
+      try {
+        const url = import.meta.env.VITE_SUPABASE_URL || "";
+        const key = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+        
+        const info: any = {
+          VITE_SUPABASE_URL: url || "NÃO CONFIGURADO",
+          VITE_SUPABASE_URL_LENGTH: url.length,
+          VITE_SUPABASE_ANON_KEY: key 
+            ? `${key.substring(0, 20)}... (${key.length} caracteres)` 
+            : "NÃO CONFIGURADO",
+          VITE_SUPABASE_ANON_KEY_LENGTH: key.length,
+          MODE: import.meta.env.MODE,
+          DEV: import.meta.env.DEV,
+          PROD: import.meta.env.PROD,
+          isSupabaseConfigured: !!(url && key && url !== "https://placeholder.supabase.co" && key !== "placeholder-key"),
+        };
+
+        // Adicionar informações do window apenas se disponível
+        if (typeof window !== 'undefined') {
+          info.windowEnv = (window as any).__ENV__ || null;
+          info.userAgent = navigator.userAgent || 'N/A';
+          info.location = window.location.href;
+        }
+
+        setEnvInfo(info);
+      } catch (error: any) {
+        setEnvInfo({
+          error: error.message || "Erro desconhecido",
+          errorType: error.name || "Unknown",
+        });
+      } finally {
+        setLoading(false);
+      }
+    }, 100); // Pequeno delay para garantir renderização
+
+    return () => clearTimeout(timer);
   }, []);
 
   if (loading) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { supabase, isSupabaseConfigured } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -106,9 +106,13 @@ const MenuPublic = () => {
   const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
   const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_credito" | "cartao_debito" | "">("");
 
-  // Hook para verificar horário de funcionamento
+  // Hook para verificar horário de funcionamento (só quando establishment estiver carregado)
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
   const [hasBusinessHoursConfig, setHasBusinessHoursConfig] = useState(false);
+  
+  // Flag para evitar múltiplas chamadas de loadEstablishmentData
+  const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
   
   // Menu customization
   const menuCustomization = establishment?.settings?.menuCustomization || {
@@ -137,15 +141,45 @@ const MenuPublic = () => {
   }, [establishment?.name]);
 
   useEffect(() => {
-    if (slug) {
-      loadEstablishmentData();
+    mountedRef.current = true;
+    
+    // Timeout de segurança: se não carregar em 30 segundos, parar o loading
+    const safetyTimeout = setTimeout(() => {
+      if (mountedRef.current && loadingRef.current) {
+        console.error("Timeout de segurança: loadEstablishmentData demorou mais de 30 segundos");
+        setLoading(false);
+        loadingRef.current = false;
+        toast.error("Tempo de carregamento excedido. Tente recarregar a página.");
+      }
+    }, 30000);
+    
+    if (slug && !loadingRef.current) {
+      loadingRef.current = true;
+      loadEstablishmentData().finally(() => {
+        clearTimeout(safetyTimeout);
+        if (mountedRef.current) {
+          loadingRef.current = false;
+        }
+      });
+    } else if (!slug) {
+      clearTimeout(safetyTimeout);
+      setLoading(false);
     }
     
     // Carregar preferência de pagamento do localStorage
-    const savedPayment = localStorage.getItem('preferred_payment_method');
-    if (savedPayment && ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
-      setPaymentMethod(savedPayment as any);
+    try {
+      const savedPayment = localStorage.getItem('preferred_payment_method');
+      if (savedPayment && ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
+        setPaymentMethod(savedPayment as any);
+      }
+    } catch (e) {
+      // Ignorar erros do localStorage
     }
+    
+    return () => {
+      clearTimeout(safetyTimeout);
+      mountedRef.current = false;
+    };
   }, [slug]);
 
   // Real-time subscriptions para atualizar produtos, categorias e combos automaticamente
@@ -367,25 +401,36 @@ const MenuPublic = () => {
   }, [paymentMethod]);
 
   const loadEstablishmentData = async () => {
+    // Evitar múltiplas chamadas simultâneas
+    if (loadingRef.current && !mountedRef.current) {
+      return;
+    }
+    
     try {
+      if (!mountedRef.current) return;
       setLoading(true);
 
       // Verificar se slug existe
       if (!slug) {
-        toast.error("Slug do estabelecimento não encontrado na URL");
-        setLoading(false);
+        if (mountedRef.current) {
+          toast.error("Slug do estabelecimento não encontrado na URL");
+          setLoading(false);
+        }
         return;
       }
 
       // Verificar se Supabase está configurado corretamente
-      // Em produção, tentar mesmo sem variáveis para ver o erro real
-      if (!isSupabaseConfigured()) {
+      const isConfigured = isSupabaseConfigured();
+      if (!isConfigured) {
         if (import.meta.env.PROD) {
-          // Em produção, continuar para ver o erro real da query
-          // Isso ajuda a diagnosticar o problema
+          // Em produção, tentar mesmo assim para ver o erro real
+          // Mas mostrar aviso
+          console.warn("Variáveis de ambiente do Supabase podem não estar configuradas corretamente");
         } else {
-          toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
-          setLoading(false);
+          if (mountedRef.current) {
+            toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
+            setLoading(false);
+          }
           return;
         }
       }
@@ -595,7 +640,10 @@ const MenuPublic = () => {
         }
       }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+      loadingRef.current = false;
     }
   };
 

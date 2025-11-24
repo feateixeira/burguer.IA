@@ -28,10 +28,15 @@ export function useBusinessHours(
   useEffect(() => {
     if (!establishmentId) {
       setLoading(false);
+      setIsOpen(true); // Por padrão, considerar aberto se não houver ID
       return;
     }
 
+    let isMounted = true;
+
     const loadAndCalculate = async () => {
+      if (!isMounted) return;
+      
       try {
         setLoading(true);
         setError(null);
@@ -119,8 +124,16 @@ export function useBusinessHours(
     loadAndCalculate();
 
     // Revalidar a cada 5 minutos
-    const interval = setInterval(loadAndCalculate, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (isMounted) {
+        loadAndCalculate();
+      }
+    }, 5 * 60 * 1000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [establishmentId]);
 
   return {

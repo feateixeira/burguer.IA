@@ -2,26 +2,28 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+// Obter variáveis de ambiente de forma mais robusta
+// Em produção, o Vite injeta essas variáveis no build
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Em produção, não lançar erro imediatamente - deixar o cliente ser criado mesmo sem variáveis
-// para que possamos mostrar uma mensagem de erro mais amigável na UI
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  if (import.meta.env.DEV) {
-    const missingVars = [];
-    if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
-    if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
-    
-    throw new Error(
-      `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
-      `Please set them in your .env file and RESTART the development server. ` +
-      `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
-    );
-  }
-  // Em produção, criar cliente com valores vazios para evitar crash
-  // O erro será tratado quando tentar usar o cliente
+// Em desenvolvimento, lançar erro se variáveis não estiverem configuradas
+if (import.meta.env.DEV && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
+  const missingVars = [];
+  if (!SUPABASE_URL) missingVars.push("VITE_SUPABASE_URL");
+  if (!SUPABASE_PUBLISHABLE_KEY) missingVars.push("VITE_SUPABASE_ANON_KEY");
+  
+  throw new Error(
+    `Missing Supabase environment variables: ${missingVars.join(", ")}. ` +
+    `Please set them in your .env file and RESTART the development server. ` +
+    `Current values: URL=${SUPABASE_URL ? "✓" : "✗"}, KEY=${SUPABASE_PUBLISHABLE_KEY ? "✓" : "✗"}`
+  );
 }
+
+// Em produção, se não houver variáveis, usar valores padrão que causarão erro nas queries
+// mas não quebrarão a aplicação imediatamente
+const finalSupabaseUrl = SUPABASE_URL || "https://placeholder.supabase.co";
+const finalSupabaseKey = SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -43,7 +45,7 @@ const sessionStorageAdapter = {
   },
 };
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
   auth: {
     storage: sessionStorageAdapter, // Usa sessionStorage para não persistir após fechar aba
     persistSession: true,
@@ -51,3 +53,10 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
   }
 });
+
+// Exportar função para verificar se Supabase está configurado corretamente
+export const isSupabaseConfigured = () => {
+  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && 
+           SUPABASE_URL !== "https://placeholder.supabase.co" && 
+           SUPABASE_PUBLISHABLE_KEY !== "placeholder-key");
+};

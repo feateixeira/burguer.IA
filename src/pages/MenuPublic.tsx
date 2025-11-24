@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseConfigured } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { normalizePhoneBRToE164, phoneMask } from "@/utils/phoneNormalizer";
 import { useBusinessHours } from "@/hooks/useBusinessHours";
@@ -370,12 +370,16 @@ const MenuPublic = () => {
     try {
       setLoading(true);
 
-      // Verificar se Supabase está configurado
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-      const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-      
-      if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-        toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas");
+      // Verificar se slug existe
+      if (!slug) {
+        toast.error("Slug do estabelecimento não encontrado na URL");
+        setLoading(false);
+        return;
+      }
+
+      // Verificar se Supabase está configurado corretamente
+      if (!isSupabaseConfigured()) {
+        toast.error("Erro de configuração: Variáveis de ambiente do Supabase não encontradas. Verifique as configurações do servidor.");
         setLoading(false);
         return;
       }
@@ -450,7 +454,9 @@ const MenuPublic = () => {
       }
 
       if (estabError || !estabData) {
-        toast.error("Estabelecimento não encontrado");
+        const errorMsg = estabError?.message || "Estabelecimento não encontrado";
+        toast.error(`Estabelecimento não encontrado: ${errorMsg}`);
+        setLoading(false);
         return;
       }
 
@@ -538,10 +544,19 @@ const MenuPublic = () => {
         throw timeoutError;
       }
 
-      if (productsResult.error) throw productsResult.error;
-      if (categoriesResult.error) throw categoriesResult.error;
-      if (combosResult.error) throw combosResult.error;
-      if (promotionsResult.error) throw promotionsResult.error;
+      // Verificar erros nas queries
+      if (productsResult.error) {
+        throw new Error(`Erro ao carregar produtos: ${productsResult.error.message || 'Erro desconhecido'}`);
+      }
+      if (categoriesResult.error) {
+        throw new Error(`Erro ao carregar categorias: ${categoriesResult.error.message || 'Erro desconhecido'}`);
+      }
+      if (combosResult.error) {
+        throw new Error(`Erro ao carregar combos: ${combosResult.error.message || 'Erro desconhecido'}`);
+      }
+      if (promotionsResult.error) {
+        throw new Error(`Erro ao carregar promoções: ${promotionsResult.error.message || 'Erro desconhecido'}`);
+      }
 
       setProducts(productsResult.data || []);
       setCategories(categoriesResult.data || []);
@@ -555,12 +570,22 @@ const MenuPublic = () => {
       // Não exibir toast se já foi exibido um erro específico de timeout
       if (error?.message !== "Tempo de espera excedido") {
         const errorMessage = error?.message || "Erro desconhecido";
-        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
-          toast.error("Erro de conexão. Verifique sua internet e tente novamente.");
-        } else if (errorMessage.includes("Missing Supabase")) {
+        
+        // Log do erro para debug (apenas em desenvolvimento)
+        if (import.meta.env.DEV) {
+          console.error("Erro ao carregar cardápio:", error);
+        }
+        
+        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError") || errorMessage.includes("fetch")) {
+          toast.error("Erro de conexão com o servidor. Verifique sua internet e tente novamente.");
+        } else if (errorMessage.includes("Missing Supabase") || errorMessage.includes("Variáveis de ambiente")) {
           toast.error("Erro de configuração: Variáveis de ambiente não encontradas");
+        } else if (errorMessage.includes("Tempo de espera excedido")) {
+          toast.error("Tempo de espera excedido. Tente novamente.");
+        } else if (errorMessage.includes("Estabelecimento não encontrado")) {
+          toast.error("Estabelecimento não encontrado");
         } else {
-          toast.error("Erro ao carregar cardápio");
+          toast.error(`Erro ao carregar cardápio: ${errorMessage}`);
         }
       }
     } finally {
@@ -1036,9 +1061,16 @@ const MenuPublic = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="text-center max-w-md">
+          <AlertTriangle className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-4">Cardápio Indisponível</h1>
-          <p className="text-muted-foreground">
-            O cardápio online deste estabelecimento está temporariamente indisponível.
+          <p className="text-muted-foreground mb-4">
+            {slug 
+              ? `O cardápio online do estabelecimento "${slug}" está temporariamente indisponível ou não foi encontrado.`
+              : "O cardápio online deste estabelecimento está temporariamente indisponível."
+            }
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Por favor, verifique a URL ou tente novamente mais tarde.
           </p>
         </div>
       </div>

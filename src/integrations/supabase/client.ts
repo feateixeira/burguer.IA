@@ -54,13 +54,17 @@ const sessionStorageAdapter = {
 };
 
 // Criar cliente Supabase com tratamento de erro robusto
+console.log('[Supabase Client] Iniciando criação do cliente...');
+console.log('[Supabase Client] URL:', finalSupabaseUrl ? 'configurada' : 'NÃO CONFIGURADA');
+console.log('[Supabase Client] Key:', finalSupabaseKey ? 'configurada' : 'NÃO CONFIGURADA');
+
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 
 try {
   // Validar URL antes de criar cliente
   if (finalSupabaseUrl && finalSupabaseUrl !== "https://placeholder.supabase.co" &&
       finalSupabaseKey && finalSupabaseKey !== "placeholder-key") {
-    
+    console.log('[Supabase Client] Criando cliente com configurações válidas...');
     supabaseInstance = createClient<Database>(finalSupabaseUrl, finalSupabaseKey, {
       auth: {
         storage: sessionStorageAdapter,
@@ -75,14 +79,17 @@ try {
         }
       }
     });
+    console.log('[Supabase Client] ✅ Cliente criado com sucesso!');
   } else {
     // Se não houver variáveis válidas, criar cliente dummy
+    console.warn('[Supabase Client] ⚠️ Variáveis de ambiente não configuradas, criando cliente dummy');
     throw new Error("Variáveis de ambiente não configuradas");
   }
 } catch (error) {
   // Se falhar ao criar cliente, criar um cliente "dummy" que falhará nas queries
   // mas não quebrará a aplicação
-  console.warn("Cliente Supabase não configurado corretamente:", error);
+  console.error('[Supabase Client] ❌ ERRO ao criar cliente:', error);
+  console.warn('[Supabase Client] Criando cliente dummy como fallback...');
   try {
     supabaseInstance = createClient<Database>("https://placeholder.supabase.co", "placeholder-key", {
       auth: {
@@ -96,6 +103,7 @@ try {
     // Se até o fallback falhar, usar um objeto mínimo
     console.error("Erro crítico ao criar cliente Supabase:", fallbackError);
     // Criar um objeto mínimo que não quebrará a aplicação
+    console.error('[Supabase Client] ❌ ERRO CRÍTICO: Não foi possível criar cliente nem fallback');
     supabaseInstance = {
       from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: { message: "Supabase não configurado" } }) }) }) }),
       auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
@@ -103,6 +111,7 @@ try {
   }
 }
 
+console.log('[Supabase Client] Cliente exportado:', !!supabaseInstance);
 export const supabase = supabaseInstance!;
 
 // Exportar função para verificar se Supabase está configurado corretamente

@@ -51,6 +51,7 @@ const queryClient = new QueryClient({
 
 // Componente interno para usar hooks
 const AppContent = () => {
+  console.log('[App] AppContent renderizado');
   // Limpar sessão ao fechar aba/navegador
   useSessionCleanup();
 

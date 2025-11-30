@@ -131,6 +131,7 @@ interface Order {
   const [showAllDates, setShowAllDates] = useState(false);
   const [showPDV, setShowPDV] = useState(false);
   const [showSite, setShowSite] = useState(false);
+  const [showDeliveries, setShowDeliveries] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("");
   const [showNonFiscalModal, setShowNonFiscalModal] = useState(false);
@@ -478,6 +479,13 @@ interface Order {
           });
         }
 
+        // Filtrar por tipo de pedido (Entregas)
+        if (showDeliveries) {
+          filtered = filtered.filter(order => {
+            return order.order_type === 'delivery';
+          });
+        }
+
         // Filtrar por origem usando checkboxes (PDV e/ou Site)
         // Se nenhum estiver selecionado, não mostrar nada
         if (!showPDV && !showSite) {
@@ -506,7 +514,7 @@ interface Order {
       }
 
       return filtered;
-    }, [orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite, selectedDate, selectedPaymentMethod, searchTerm, isFromNaBrasaSite, isFromOnlineMenu, isPDVOrder]);
+    }, [orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite, showDeliveries, selectedDate, selectedPaymentMethod, searchTerm, isFromNaBrasaSite, isFromOnlineMenu, isPDVOrder]);
 
 
     const checkAuth = async () => {
@@ -2094,6 +2102,16 @@ interface Order {
                             Site
                           </Label>
                         </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="showDeliveries"
+                            checked={showDeliveries}
+                            onCheckedChange={(checked) => setShowDeliveries(checked === true)}
+                          />
+                          <Label htmlFor="showDeliveries" className="text-sm font-normal cursor-pointer">
+                            Entregas
+                          </Label>
+                        </div>
                       </div>
                       
                       <div className="flex flex-wrap items-center gap-4">
@@ -2161,6 +2179,32 @@ interface Order {
                     </div>
                   </Card>
                 )}
+                
+                {/* Contador de pedidos filtrados */}
+                {filteredOrders.length > 0 && (
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-5 w-5 text-muted-foreground" />
+                        <span className="text-sm font-semibold">
+                          {filteredOrders.length} {filteredOrders.length === 1 ? 'item' : 'itens'}
+                        </span>
+                      </div>
+                      {(showPDV || showSite || showDeliveries || selectedDate || selectedPaymentMethod || searchTerm) && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                          <span className="font-medium">Filtros:</span>
+                          {showPDV && <Badge variant="outline" className="text-xs">PDV</Badge>}
+                          {showSite && <Badge variant="outline" className="text-xs">Site</Badge>}
+                          {showDeliveries && <Badge variant="outline" className="text-xs">Entregas</Badge>}
+                          {selectedDate && <Badge variant="outline" className="text-xs">Data</Badge>}
+                          {selectedPaymentMethod && <Badge variant="outline" className="text-xs">Pagamento</Badge>}
+                          {searchTerm && <Badge variant="outline" className="text-xs">Busca</Badge>}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                )}
+                
                 {filteredOrders.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />

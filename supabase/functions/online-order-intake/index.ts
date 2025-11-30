@@ -165,11 +165,15 @@ serve(async (req) => {
     const discountAmount = order.totals?.discount || 0;
     const totalAmount = order.totals?.final_total || (subtotal + deliveryFee - discountAmount);
 
+    // Preparar nome do cliente ANTES de extrair serviceType (para poder verificar no nome)
+    const customerNameRaw = order.customer?.name || 'Cliente Online';
+    
     // Extrair informação de "comer no local" ou "embalar pra levar"
     // Essa informação deve aparecer ao lado do nome do cliente, não nas instruções
     let serviceType: string | null = null; // "comer no local" ou "embalar pra levar"
     
     // Verifica em vários lugares onde essa informação pode vir
+    // PRIORIDADE 1: Campos específicos do pedido
     if (order.meta?.dine_in === true || order.meta?.dineIn === true || order.meta?.service_type === 'dine_in') {
       serviceType = 'comer no local';
     } else if (order.meta?.takeout === true || order.meta?.takeOut === true || order.meta?.service_type === 'takeout') {
@@ -180,7 +184,19 @@ serve(async (req) => {
       serviceType = 'embalar pra levar';
     }
     
-    // Se não encontrou em campos específicos, tenta extrair das instruções ou do whatsapp_message_preview
+    // PRIORIDADE 2: Verificar no nome do cliente (pode vir do site)
+    if (!serviceType && customerNameRaw) {
+      const customerNameLower = customerNameRaw.toLowerCase();
+      if (customerNameLower.includes('comer no local') || customerNameLower.includes('comer no estabelecimento')) {
+        serviceType = 'comer no local';
+      } else if (customerNameLower.includes('embalar') && (customerNameLower.includes('para levar') || customerNameLower.includes('pra levar'))) {
+        serviceType = 'embalar pra levar';
+      } else if (customerNameLower.includes('embalar') || customerNameLower.includes('para levar') || customerNameLower.includes('pra levar')) {
+        serviceType = 'embalar pra levar';
+      }
+    }
+    
+    // PRIORIDADE 3: Tenta extrair das instruções ou do whatsapp_message_preview
     if (!serviceType) {
       const instructionsText = order.instructions || order.general_instructions || order.order_instructions || '';
       const whatsappPreview = order.meta?.whatsapp_message_preview || '';
@@ -412,15 +428,82 @@ serve(async (req) => {
     }
 
     // Preparar nome do cliente com informação de serviceType se houver
-    let customerName = order.customer?.name || 'Cliente Online';
+    let customerName = customerNameRaw;
     const customerPhone = order.customer?.phone || null;
     
     // Verificar se é do site hamburguerianabrasa.com.br
     const isNaBrasaSite = source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
     
-    // Se for pedido retirar no local (pickup) ou "Cliente Balcão", e tiver serviceType, adiciona ao nome
-    const isPickup = order.meta?.deliveryType === 'pickup' || order.deliveryType === 'pickup' || 
-                     customerName.toLowerCase().includes('balcão') || customerName.toLowerCase().includes('balcao');
+    // Verificar se há endereço válido (para determinar se é realmente entrega)
+    const hasValidAddress = order.customer?.address || 
+                           order.delivery_address || 
+                           order.meta?.delivery_address ||
+                           (orderNotes && orderNotes.toLowerCase().includes('endereço:'));
+    
+    // Verificar se é pickup/retirada de várias formas
+    const isPickupExplicit = order.meta?.deliveryType === 'pickup' || 
+                            order.deliveryType === 'pickup' ||
+                            order.order_type === 'pickup';
+    
+    // Verificar no nome do cliente se indica retirada
+    const customerNameLower = customerName.toLowerCase();
+    const indicatesPickup = customerNameLower.includes('balcão') || 
+                            customerNameLower.includes('balcao') ||
+                            customerNameLower.includes('retirar') ||
+                            customerNameLower.includes('retirada') ||
+                            customerNameLower.includes('comer aqui');
+    
+    const isPickup = isPickupExplicit || indicatesPickup;
+    
+    // Determinar se é realmente entrega ou retirada
+    // Para Na Brasa: REGRA ULTRA RIGOROSA - apenas contar como entrega se:
+    // 1. deliveryType for 'delivery' explicitamente
+    // 2. E tiver endereço válido
+    // 3. E NÃO for "embalar pra levar", "comer no local", "retirar no local" ou "comer aqui"
+    // Qualquer indicação de retirada/balcão/takeout SEMPRE é pickup
+    const isDeliveryExplicit = (order.meta?.deliveryType === 'delivery' || order.deliveryType === 'delivery') && hasValidAddress;
+    const isTakeout = serviceType === 'embalar pra levar' || 
+                     serviceType === 'comer no local' ||
+                     serviceType === 'retirar no local' ||
+                     serviceType === 'comer aqui';
+    const isPickupOrTakeout = isPickup || isTakeout;
+    
+    // Determinar o tipo final do pedido
+    let finalOrderType: string;
+    if (isNaBrasaSite) {
+      // Para Na Brasa: REGRA ULTRA RIGOROSA
+      // PRIORIDADE 1: Se houver QUALQUER indicação de retirada/takeout, SEMPRE é pickup
+      // Isso inclui: serviceType, nome do cliente, deliveryType='pickup', etc.
+      if (isTakeout || isPickup || indicatesPickup || serviceType) {
+        // Se tem serviceType (embalar pra levar, comer no local), SEMPRE é pickup
+        // Mesmo que o site tenha enviado deliveryType='delivery' por engano
+        finalOrderType = 'pickup';
+      } else if (isDeliveryExplicit && hasValidAddress) {
+        // PRIORIDADE 2: Apenas se deliveryType for explicitamente 'delivery' 
+        // E tiver endereço válido
+        // E NÃO tiver nenhuma indicação de retirada
+        finalOrderType = 'delivery';
+      } else {
+        // PRIORIDADE 3: Caso padrão para Na Brasa: SEMPRE pickup (não assumir delivery)
+        // Por segurança, se não tiver certeza absoluta de que é entrega, é pickup
+        finalOrderType = 'pickup';
+      }
+    } else {
+      // Para outros sites: se for pickup ou takeout, é pickup, senão verifica se é delivery
+      finalOrderType = isPickupOrTakeout ? 'pickup' : (isDeliveryExplicit ? 'delivery' : 'pickup');
+    }
+    
+    // LOG DE DEBUG (remover em produção se necessário)
+    // console.log('Order Type Determination:', {
+    //   isNaBrasaSite,
+    //   serviceType,
+    //   isPickup,
+    //   indicatesPickup,
+    //   isTakeout,
+    //   isDeliveryExplicit,
+    //   hasValidAddress,
+    //   finalOrderType
+    // });
     
     if (isPickup && serviceType) {
       // Para pedidos do site Na Brasa com "embalar pra levar" e telefone, incluir telefone no nome
@@ -474,7 +557,7 @@ serve(async (req) => {
       order_number: orderNumber,
       customer_name: customerName,
       customer_phone: order.customer?.phone || null,
-      order_type: 'delivery',
+      order_type: finalOrderType,
       subtotal: subtotal,
       delivery_fee: deliveryFee,
       discount_amount: discountAmount,

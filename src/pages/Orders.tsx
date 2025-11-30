@@ -1081,16 +1081,11 @@ const Orders = () => {
     let customerDisplay = order.customer_name || '';
     let generalInstructions: string | undefined = undefined;
 
-    // Verifica o tipo do pedido para adicionar ao lado do nome (Lógica simplificada usando order_type)
+    // Verifica o tipo do pedido para adicionar ao lado do nome
     if (order.order_type === 'takeout') {
-      customerDisplay = `${customerDisplay} - RETIRADA / LEVAR`;
+      customerDisplay = `${customerDisplay} - Embalar pra levar`;
     } else if (order.order_type === 'dine_in') {
-      // Se tiver mesa, mostra a mesa, senão mostra "COMER NO LOCAL"
-      if (order.table_number) {
-          customerDisplay = `${customerDisplay} - MESA ${order.table_number}`;
-      } else {
-          customerDisplay = `${customerDisplay} - COMER NO LOCAL`;
-      }
+      customerDisplay = `${customerDisplay} - Comer aqui`;
     }
 
     // Se for delivery, tenta extrair o endereço das notas
@@ -1227,6 +1222,13 @@ const Orders = () => {
       }
     }
 
+    // Mapear order_type para o tipo que aparece no cupom
+    // TAKEOUT e DINE_IN devem aparecer como "pickup" (Retirar) no cupom
+    let receiptOrderType = order.order_type || "delivery";
+    if (receiptOrderType === 'takeout' || receiptOrderType === 'dine_in') {
+      receiptOrderType = 'RETIRADA';
+    }
+
     const receiptData = {
       orderNumber: order.order_number,
       customerName: customerDisplay,
@@ -1240,7 +1242,7 @@ const Orders = () => {
       establishmentAddress: (establishment as any)?.address,
       establishmentPhone: (establishment as any)?.phone,
       paymentMethod: order.payment_method,
-      orderType: order.order_type || "delivery",
+      orderType: receiptOrderType,
       generalInstructions: generalInstructions
     };
 

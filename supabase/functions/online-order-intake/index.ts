@@ -168,23 +168,89 @@ serve(async (req) => {
     // Preparar nome do cliente ANTES de extrair serviceType (para poder verificar no nome)
     const customerNameRaw = order.customer?.name || 'Cliente Online';
     
+    // PRIORIDADE MÁXIMA: Extrair "Forma de entrega" e "Forma de consumo/embalagem" ANTES de tudo
+    // Esses campos são explícitos e devem ter prioridade absoluta
+    let deliveryForm: string | null = null; // "Retirar no local", "Entrega", etc.
+    let consumptionForm: string | null = null; // "Embalar pra levar", "Comer no local", etc.
+    
+    // Buscar em todos os campos de texto possíveis (manter case original para melhor matching)
+    const allTextFieldsOriginal = [
+      order.meta?.whatsapp_message_preview || '',
+      order.customer?.notes || '',
+      order.instructions || '',
+      order.general_instructions || '',
+      order.order_instructions || '',
+      JSON.stringify(order.meta || {}),
+      JSON.stringify(order.customer || {})
+    ].join(' ');
+    
+    const allTextFieldsLower = allTextFieldsOriginal.toLowerCase();
+    
+    // Extrair "Forma de entrega: ..." (case-insensitive, mas manter valor original)
+    const deliveryFormMatch = allTextFieldsOriginal.match(/forma\s+de\s+entrega[:\s]+([^\n\r]+)/i);
+    if (deliveryFormMatch && deliveryFormMatch[1]) {
+      deliveryForm = deliveryFormMatch[1].trim();
+    }
+    
+    // Extrair "Forma de consumo/embalagem: ..." ou variações
+    const consumptionFormMatch = allTextFieldsOriginal.match(/forma\s+de\s+(?:consumo[\/:]?\s*)?embalagem[:\s]+([^\n\r]+)/i) ||
+                                 allTextFieldsOriginal.match(/forma\s+de\s+consumo[:\s]+([^\n\r]+)/i);
+    if (consumptionFormMatch && consumptionFormMatch[1]) {
+      consumptionForm = consumptionFormMatch[1].trim();
+    }
+    
+    // Se não encontrou com ":", tentar sem ":" (pode vir como "Forma de entrega Retirar no local")
+    if (!deliveryForm) {
+      const deliveryFormMatch2 = allTextFieldsLower.match(/forma\s+de\s+entrega\s+(retirar|entrega|delivery|pickup)/i);
+      if (deliveryFormMatch2 && deliveryFormMatch2[1]) {
+        deliveryForm = deliveryFormMatch2[1].trim();
+      }
+    }
+    
+    if (!consumptionForm) {
+      const consumptionFormMatch2 = allTextFieldsLower.match(/forma\s+de\s+(?:consumo[\/:]?\s*)?embalagem\s+(embalar|comer)/i);
+      if (consumptionFormMatch2 && consumptionFormMatch2[1]) {
+        consumptionForm = consumptionFormMatch2[1].trim();
+      }
+    }
+    
     // Extrair informação de "comer no local" ou "embalar pra levar"
     // Essa informação deve aparecer ao lado do nome do cliente, não nas instruções
     let serviceType: string | null = null; // "comer no local" ou "embalar pra levar"
     
-    // Verifica em vários lugares onde essa informação pode vir
-    // PRIORIDADE 1: Campos específicos do pedido
-    if (order.meta?.dine_in === true || order.meta?.dineIn === true || order.meta?.service_type === 'dine_in') {
-      serviceType = 'comer no local';
-    } else if (order.meta?.takeout === true || order.meta?.takeOut === true || order.meta?.service_type === 'takeout') {
-      serviceType = 'embalar pra levar';
-    } else if (order.dine_in === true || order.dineIn === true) {
-      serviceType = 'comer no local';
-    } else if (order.takeout === true || order.takeOut === true) {
-      serviceType = 'embalar pra levar';
+    // PRIORIDADE 1: "Forma de consumo/embalagem" (PRIORIDADE MÁXIMA)
+    if (consumptionForm) {
+      const consumptionLower = consumptionForm.toLowerCase();
+      if (consumptionLower.includes('embalar') || consumptionLower.includes('pra levar') || consumptionLower.includes('para levar')) {
+        serviceType = 'embalar pra levar';
+      } else if (consumptionLower.includes('comer no local') || consumptionLower.includes('comer no estabelecimento')) {
+        serviceType = 'comer no local';
+      }
     }
     
-    // PRIORIDADE 2: Verificar no nome do cliente (pode vir do site)
+    // PRIORIDADE 2: "Forma de entrega: Retirar no local" (PRIORIDADE MÁXIMA)
+    if (deliveryForm) {
+      const deliveryFormLower = deliveryForm.toLowerCase();
+      if (deliveryFormLower.includes('retirar') || deliveryFormLower.includes('retirada') || deliveryFormLower.includes('pickup')) {
+        // Se "Forma de entrega" diz "Retirar no local", SEMPRE é pickup
+        serviceType = serviceType || 'retirar no local';
+      }
+    }
+    
+    // PRIORIDADE 3: Campos específicos do pedido
+    if (!serviceType) {
+      if (order.meta?.dine_in === true || order.meta?.dineIn === true || order.meta?.service_type === 'dine_in') {
+        serviceType = 'comer no local';
+      } else if (order.meta?.takeout === true || order.meta?.takeOut === true || order.meta?.service_type === 'takeout') {
+        serviceType = 'embalar pra levar';
+      } else if (order.dine_in === true || order.dineIn === true) {
+        serviceType = 'comer no local';
+      } else if (order.takeout === true || order.takeOut === true) {
+        serviceType = 'embalar pra levar';
+      }
+    }
+    
+    // PRIORIDADE 4: Verificar no nome do cliente (pode vir do site)
     if (!serviceType && customerNameRaw) {
       const customerNameLower = customerNameRaw.toLowerCase();
       if (customerNameLower.includes('comer no local') || customerNameLower.includes('comer no estabelecimento')) {
@@ -196,7 +262,7 @@ serve(async (req) => {
       }
     }
     
-    // PRIORIDADE 3: Tenta extrair das instruções ou do whatsapp_message_preview
+    // PRIORIDADE 5: Tenta extrair das instruções ou do whatsapp_message_preview
     if (!serviceType) {
       const instructionsText = order.instructions || order.general_instructions || order.order_instructions || '';
       const whatsappPreview = order.meta?.whatsapp_message_preview || '';
@@ -435,15 +501,48 @@ serve(async (req) => {
     const isNaBrasaSite = source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
     
     // Verificar se há endereço válido (para determinar se é realmente entrega)
-    const hasValidAddress = order.customer?.address || 
-                           order.delivery_address || 
-                           order.meta?.delivery_address ||
-                           (orderNotes && orderNotes.toLowerCase().includes('endereço:'));
+    // Verificar em múltiplos lugares onde o endereço pode estar
+    const addressFromCustomer = (order.customer?.address || '').trim();
+    const addressFromDelivery = (order.delivery_address || '').trim();
+    const addressFromMeta = (order.meta?.delivery_address || '').trim();
+    const addressFromMetaCustomer = (order.meta?.customer?.address || '').trim();
+    const addressFromNotes = orderNotes ? ((orderNotes.match(/Endereço:\s*(.+?)(?:\n|$)/i)?.[1] || '').trim()) : '';
+    
+    // Verificar também em campos genéricos que possam conter endereço
+    const allTextFields = [
+      addressFromCustomer,
+      addressFromDelivery,
+      addressFromMeta,
+      addressFromMetaCustomer,
+      addressFromNotes,
+      (order.customer?.street || '').trim(),
+      (order.customer?.full_address || '').trim(),
+      (order.meta?.address || '').trim()
+    ].filter(addr => addr && addr.length > 0);
+    
+    // Endereço válido = tem conteúdo real (não vazio, não só espaços, tem pelo menos 10 caracteres)
+    // E contém indicadores de endereço (rua, número, bairro, etc)
+    const hasValidAddress = allTextFields.some(addr => {
+      const addrLower = addr.toLowerCase();
+      const hasMinLength = addr.length >= 10;
+      const hasAddressIndicators = addrLower.includes('rua') || 
+                                   addrLower.includes('avenida') || 
+                                   addrLower.includes('av.') ||
+                                   addrLower.includes('av ') ||
+                                   addrLower.includes('bairro') ||
+                                   addrLower.includes('número') ||
+                                   addrLower.includes('numero') ||
+                                   addrLower.includes('nº') ||
+                                   addrLower.includes('n°') ||
+                                   /\d/.test(addr); // Tem pelo menos um número
+      return hasMinLength && hasAddressIndicators;
+    });
     
     // Verificar se é pickup/retirada de várias formas
     const isPickupExplicit = order.meta?.deliveryType === 'pickup' || 
                             order.deliveryType === 'pickup' ||
-                            order.order_type === 'pickup';
+                            order.order_type === 'pickup' ||
+                            order.meta?.order_type === 'pickup';
     
     // Verificar no nome do cliente se indica retirada
     const customerNameLower = customerName.toLowerCase();
@@ -455,62 +554,128 @@ serve(async (req) => {
     
     const isPickup = isPickupExplicit || indicatesPickup;
     
-    // Determinar se é realmente entrega ou retirada
-    // Para Na Brasa: REGRA ULTRA RIGOROSA - apenas contar como entrega se:
-    // 1. deliveryType for 'delivery' explicitamente
-    // 2. E tiver endereço válido
-    // 3. E NÃO for "embalar pra levar", "comer no local", "retirar no local" ou "comer aqui"
-    // Qualquer indicação de retirada/balcão/takeout SEMPRE é pickup
-    const isDeliveryExplicit = (order.meta?.deliveryType === 'delivery' || order.deliveryType === 'delivery') && hasValidAddress;
+    // Verificar se tem serviceType indicando retirada
     const isTakeout = serviceType === 'embalar pra levar' || 
                      serviceType === 'comer no local' ||
                      serviceType === 'retirar no local' ||
                      serviceType === 'comer aqui';
+    
+    // Verificar se deliveryType indica delivery (pode vir como 'delivery' ou 'DELIVERY')
+    const deliveryTypeLower = (order.meta?.deliveryType || order.deliveryType || '').toLowerCase();
+    const orderTypeLower = (order.order_type || order.meta?.order_type || '').toLowerCase();
+    const indicatesDelivery = deliveryTypeLower === 'delivery' || orderTypeLower === 'delivery';
+    
     const isPickupOrTakeout = isPickup || isTakeout;
     
     // Determinar o tipo final do pedido
     let finalOrderType: string;
     if (isNaBrasaSite) {
-      // Para Na Brasa: REGRA ULTRA RIGOROSA
-      // PRIORIDADE 1: Se houver QUALQUER indicação de retirada/takeout, SEMPRE é pickup
-      // Isso inclui: serviceType, nome do cliente, deliveryType='pickup', etc.
-      if (isTakeout || isPickup || indicatesPickup || serviceType) {
-        // Se tem serviceType (embalar pra levar, comer no local), SEMPRE é pickup
-        // Mesmo que o site tenha enviado deliveryType='delivery' por engano
+      // Para Na Brasa: REGRA ABSOLUTA E RIGOROSA
+      // REGRA 0 (PRIORIDADE MÁXIMA ABSOLUTA): Se "Forma de entrega" diz "Retirar no local", SEMPRE é pickup
+      // Isso sobrescreve QUALQUER outro campo, incluindo order.order_type = 'delivery'
+      if (deliveryForm && deliveryForm.toLowerCase().includes('retirar')) {
         finalOrderType = 'pickup';
-      } else if (isDeliveryExplicit && hasValidAddress) {
-        // PRIORIDADE 2: Apenas se deliveryType for explicitamente 'delivery' 
-        // E tiver endereço válido
-        // E NÃO tiver nenhuma indicação de retirada
+      }
+      // REGRA 1: Se "Forma de consumo/embalagem" diz "Embalar pra levar", SEMPRE é pickup
+      else if (consumptionForm && (consumptionForm.toLowerCase().includes('embalar') || consumptionForm.toLowerCase().includes('levar'))) {
+        finalOrderType = 'pickup';
+      }
+      // REGRA 2: Se houver QUALQUER indicação de retirada/takeout, SEMPRE é pickup
+      // Isso inclui: serviceType, nome do cliente, deliveryType='pickup', etc.
+      else if (isTakeout || isPickup || indicatesPickup || serviceType) {
+        finalOrderType = 'pickup';
+      } 
+      // REGRA 3: Se NÃO tiver endereço válido, SEMPRE é pickup (mesmo que venha como "delivery")
+      else if (!hasValidAddress) {
+        // SEM endereço válido = SEMPRE pickup, independente de qualquer outro campo
+        finalOrderType = 'pickup';
+      }
+      // REGRA 4: Apenas se deliveryType for 'delivery' E tiver endereço válido E não for takeout
+      // E "Forma de entrega" NÃO for "Retirar no local"
+      // E "Forma de consumo/embalagem" NÃO for "Embalar pra levar"
+      else if (indicatesDelivery && hasValidAddress && !isTakeout && !isPickup && 
+               (!deliveryForm || !deliveryForm.toLowerCase().includes('retirar')) &&
+               (!consumptionForm || !consumptionForm.toLowerCase().includes('embalar'))) {
         finalOrderType = 'delivery';
-      } else {
-        // PRIORIDADE 3: Caso padrão para Na Brasa: SEMPRE pickup (não assumir delivery)
-        // Por segurança, se não tiver certeza absoluta de que é entrega, é pickup
+      } 
+      // REGRA 5: Caso padrão = SEMPRE pickup (por segurança)
+      else {
         finalOrderType = 'pickup';
       }
     } else {
       // Para outros sites: se for pickup ou takeout, é pickup, senão verifica se é delivery
+      const isDeliveryExplicit = indicatesDelivery && hasValidAddress;
       finalOrderType = isPickupOrTakeout ? 'pickup' : (isDeliveryExplicit ? 'delivery' : 'pickup');
     }
     
     // LOG DE DEBUG (remover em produção se necessário)
-    // console.log('Order Type Determination:', {
+    // console.log('Order Type Determination (Na Brasa):', {
     //   isNaBrasaSite,
+    //   deliveryForm,
+    //   consumptionForm,
     //   serviceType,
     //   isPickup,
     //   indicatesPickup,
     //   isTakeout,
-    //   isDeliveryExplicit,
+    //   indicatesDelivery,
     //   hasValidAddress,
+    //   originalOrderType: order.order_type,
+    //   originalDeliveryType: order.deliveryType || order.meta?.deliveryType,
     //   finalOrderType
     // });
     
-    if (isPickup && serviceType) {
-      // Para pedidos do site Na Brasa com "embalar pra levar" e telefone, incluir telefone no nome
-      if (isNaBrasaSite && serviceType === 'embalar pra levar' && customerPhone) {
-        customerName = `${customerName} - embalar pra levar ${customerPhone}`;
-      } else {
-        customerName = `${customerName} - ${serviceType}`;
+    // Para Na Brasa: Sempre adicionar tipo de pedido ao nome do cliente para impressão na cozinha
+    // Isso é importante para a cozinha saber como preparar o pedido
+    if (isNaBrasaSite) {
+      let typeToAdd: string | null = null;
+      
+      // Prioridade 1: Usar consumptionForm se disponível (mais específico - vem de "Forma de consumo/embalagem")
+      if (consumptionForm) {
+        const consumptionLower = consumptionForm.toLowerCase().trim();
+        if (consumptionLower.includes('embalar') || consumptionLower.includes('levar')) {
+          typeToAdd = 'Embalar pra levar';
+        } else if (consumptionLower.includes('comer') || consumptionLower.includes('local')) {
+          typeToAdd = 'Comer aqui';
+        }
+      }
+      // Prioridade 2: Usar serviceType se disponível (extraído de vários campos)
+      if (!typeToAdd && serviceType) {
+        if (serviceType === 'embalar pra levar') {
+          typeToAdd = 'Embalar pra levar';
+        } else if (serviceType === 'comer no local' || serviceType === 'comer aqui') {
+          typeToAdd = 'Comer aqui';
+        } else if (serviceType === 'retirar no local') {
+          typeToAdd = 'Retirar no local';
+        } else {
+          // Formatar serviceType com primeira letra maiúscula
+          typeToAdd = serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
+        }
+      }
+      // Prioridade 3: Se deliveryForm diz "Retirar no local", adicionar ao nome
+      if (!typeToAdd && deliveryForm) {
+        const deliveryFormLower = deliveryForm.toLowerCase().trim();
+        if (deliveryFormLower.includes('retirar')) {
+          typeToAdd = 'Retirar no local';
+        }
+      }
+      
+      // Adicionar ao nome se encontrou algum tipo
+      if (typeToAdd) {
+        // Verificar se já não está no nome (evitar duplicação)
+        const customerNameLower = customerName.toLowerCase();
+        const typeToAddLower = typeToAdd.toLowerCase();
+        if (!customerNameLower.includes(typeToAddLower) && 
+            !customerNameLower.includes('embalar') && 
+            !customerNameLower.includes('comer aqui') &&
+            !customerNameLower.includes('retirar')) {
+          customerName = `${customerName} - ${typeToAdd}`;
+        }
+      }
+    } else if (isPickup && serviceType) {
+      // Para outros sites: adicionar serviceType ao nome
+      const formattedServiceType = serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
+      if (!customerName.toLowerCase().includes(formattedServiceType.toLowerCase())) {
+        customerName = `${customerName} - ${formattedServiceType}`;
       }
     }
     

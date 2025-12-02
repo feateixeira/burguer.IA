@@ -25,7 +25,7 @@ import {
   TrendingUp,
   Download,
 } from "lucide-react";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 interface Product {
@@ -65,6 +65,11 @@ const Reports = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [reportData, setReportData] = useState<SalesReportItem[]>([]);
+  // Estado para armazenar o mês selecionado (formato: YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return format(now, "yyyy-MM");
+  });
 
   useEffect(() => {
     loadInitialData();
@@ -74,7 +79,7 @@ const Reports = () => {
     if (profile && products.length > 0 && categories.length >= 0) {
       loadReportData();
     }
-  }, [profile, products, categories]);
+  }, [profile, products, categories, selectedMonth]);
 
   // Função para atualizar produtos existentes sem categoria
   const updateProductsCategories = async (establishmentId: string) => {
@@ -241,10 +246,10 @@ const Reports = () => {
     try {
       setLoading(true);
 
-      // Get current month range
-      const now = new Date();
-      const startDate = startOfMonth(now);
-      const endDate = endOfMonth(now);
+      // Get selected month range (parse from YYYY-MM format)
+      const selectedDate = parse(selectedMonth, "yyyy-MM", new Date());
+      const startDate = startOfMonth(selectedDate);
+      const endDate = endOfMonth(selectedDate);
 
       // Get orders in the current month
       const { data: orders, error: ordersError } = await supabase
@@ -262,19 +267,32 @@ const Reports = () => {
       const orderIds = orders?.map((o) => o.id) || [];
 
       // Get order items for current month
+      // Dividir em lotes para evitar URL muito longa (limite do PostgREST)
       let orderItems: any[] = [];
       if (orderIds.length > 0) {
-        const { data: items, error: itemsError } = await supabase
-          .from("order_items")
-          .select("id, product_id, quantity, unit_price, total_price")
-          .in("order_id", orderIds)
-          .not("product_id", "is", null);
-
-        if (itemsError) {
-          throw itemsError;
+        const BATCH_SIZE = 100; // Processar 100 pedidos por vez
+        const batches: string[][] = [];
+        
+        // Dividir orderIds em lotes
+        for (let i = 0; i < orderIds.length; i += BATCH_SIZE) {
+          batches.push(orderIds.slice(i, i + BATCH_SIZE));
         }
 
-        orderItems = items || [];
+        // Processar cada lote
+        for (const batch of batches) {
+          const { data: items, error: itemsError } = await supabase
+            .from("order_items")
+            .select("id, product_id, quantity, unit_price, total_price")
+            .in("order_id", batch);
+
+          if (itemsError) {
+            throw itemsError;
+          }
+
+          // Filtrar items com product_id não nulo e adicionar ao array
+          const filteredItems = (items || []).filter((item: any) => item.product_id !== null);
+          orderItems.push(...filteredItems);
+        }
       }
 
       // Get all categories (ensure they're loaded)
@@ -343,8 +361,24 @@ const Reports = () => {
     }
   };
 
-  const getCurrentMonthLabel = () => {
-    return format(new Date(), "MMMM yyyy", { locale: ptBR });
+  const getSelectedMonthLabel = () => {
+    const selectedDate = parse(selectedMonth, "yyyy-MM", new Date());
+    return format(selectedDate, "MMMM yyyy", { locale: ptBR });
+  };
+
+  // Gerar lista de meses disponíveis (últimos 12 meses)
+  const getAvailableMonths = () => {
+    const months: string[] = [];
+    const now = new Date();
+    
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthValue = format(date, "yyyy-MM");
+      const monthLabel = format(date, "MMMM yyyy", { locale: ptBR });
+      months.push(`${monthValue}|${monthLabel}`);
+    }
+    
+    return months;
   };
 
   const getTotalQuantity = () => {
@@ -374,7 +408,8 @@ const Reports = () => {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio-vendas-${format(new Date(), "yyyy-MM-dd")}.csv`);
+    const selectedDate = parse(selectedMonth, "yyyy-MM", new Date());
+    link.setAttribute("download", `relatorio-vendas-${format(selectedDate, "yyyy-MM")}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -415,15 +450,37 @@ const Reports = () => {
             Relatórios de Vendas
           </h2>
           <p className="text-muted-foreground mt-1">
-            Vendas do mês atual - Todos os produtos cadastrados
+            Vendas por mês - Todos os produtos cadastrados
           </p>
         </div>
-        {reportData.length > 0 && (
-          <Button onClick={exportToCSV} variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar CSV
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="month-select" className="text-sm font-medium">
+              Mês:
+            </label>
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger id="month-select" className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {getAvailableMonths().map((monthOption) => {
+                  const [value, label] = monthOption.split("|");
+                  return (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+          {reportData.length > 0 && (
+            <Button onClick={exportToCSV} variant="outline">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar CSV
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -432,11 +489,11 @@ const Reports = () => {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Mês Atual
+                Mês Selecionado
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold capitalize">{getCurrentMonthLabel()}</div>
+              <div className="text-2xl font-bold capitalize">{getSelectedMonthLabel()}</div>
             </CardContent>
           </Card>
           <Card>

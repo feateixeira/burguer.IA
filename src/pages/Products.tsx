@@ -172,7 +172,27 @@ const Products = () => {
       if (productsResult.error) throw productsResult.error;
       if (categoriesResult.error) throw categoriesResult.error;
 
-      setProducts(productsResult.data || []);
+      // Buscar ID da categoria "Adicionais" para filtrar
+      const { data: addonsCategory } = await supabase
+        .from("categories")
+        .select("id")
+        .eq("establishment_id", profile.establishment_id)
+        .eq("name", "Adicionais")
+        .eq("active", true)
+        .maybeSingle();
+
+      const addonsCategoryId = addonsCategory?.id || null;
+
+      // Filtrar produtos: excluir combos (is_combo: true) e produtos da categoria "Adicionais"
+      const filteredProducts = (productsResult.data || []).filter((product: any) => {
+        // Excluir produtos que são combos
+        if (product.is_combo) return false;
+        // Excluir produtos da categoria "Adicionais"
+        if (addonsCategoryId && product.category_id === addonsCategoryId) return false;
+        return true;
+      });
+
+      setProducts(filteredProducts);
       setCategories(categoriesResult.data || []);
     } catch (error) {
       toast.error("Erro ao carregar dados");

@@ -239,15 +239,15 @@ serve(async (req) => {
     
     // PRIORIDADE 3: Campos específicos do pedido
     if (!serviceType) {
-      if (order.meta?.dine_in === true || order.meta?.dineIn === true || order.meta?.service_type === 'dine_in') {
-        serviceType = 'comer no local';
-      } else if (order.meta?.takeout === true || order.meta?.takeOut === true || order.meta?.service_type === 'takeout') {
-        serviceType = 'embalar pra levar';
-      } else if (order.dine_in === true || order.dineIn === true) {
-        serviceType = 'comer no local';
-      } else if (order.takeout === true || order.takeOut === true) {
-        serviceType = 'embalar pra levar';
-      }
+    if (order.meta?.dine_in === true || order.meta?.dineIn === true || order.meta?.service_type === 'dine_in') {
+      serviceType = 'comer no local';
+    } else if (order.meta?.takeout === true || order.meta?.takeOut === true || order.meta?.service_type === 'takeout') {
+      serviceType = 'embalar pra levar';
+    } else if (order.dine_in === true || order.dineIn === true) {
+      serviceType = 'comer no local';
+    } else if (order.takeout === true || order.takeOut === true) {
+      serviceType = 'embalar pra levar';
+    }
     }
     
     // PRIORIDADE 4: Verificar no nome do cliente (pode vir do site)
@@ -646,7 +646,7 @@ serve(async (req) => {
           typeToAdd = 'Comer aqui';
         } else if (serviceType === 'retirar no local') {
           typeToAdd = 'Retirar no local';
-        } else {
+      } else {
           // Formatar serviceType com primeira letra maiúscula
           typeToAdd = serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
         }

@@ -62,6 +62,7 @@ export default function Totem() {
   const [products, setProducts] = useState<Product[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [addonsCategoryId, setAddonsCategoryId] = useState<string | null>(null);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -167,6 +168,10 @@ export default function Totem() {
             }
             return data || [];
           });
+          
+          // Buscar ID da categoria "Adicionais" para filtrar
+          const addonsCategory = data.find(cat => cat.name === "Adicionais");
+          setAddonsCategoryId(addonsCategory?.id || null);
         }
       } catch (error) {
         // Error reloading categories
@@ -811,9 +816,9 @@ export default function Totem() {
   // Combine products and combos for display (recalcula sempre que products/combos mudarem)
   const displayItems: DisplayItem[] = useMemo(() => {
     return [
-      // Filtrar produtos para excluir aqueles marcados como combos
+      // Filtrar produtos para excluir aqueles marcados como combos e adicionais
       ...products
-        .filter((p: any) => !p.is_combo)
+        .filter((p: any) => !p.is_combo && !(addonsCategoryId && p.category_id === addonsCategoryId))
         .map(p => ({ ...p, isCombo: false })),
       ...combos.map(c => ({ 
         id: c.id, 
@@ -825,7 +830,7 @@ export default function Totem() {
         isCombo: true 
       }))
     ];
-  }, [products, combos]);
+  }, [products, combos, addonsCategoryId]);
 
   // Filtra items baseado na categoria selecionada (recalcula sempre que necessário)
   const filteredItems = useMemo(() => {

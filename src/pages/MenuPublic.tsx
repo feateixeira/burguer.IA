@@ -86,6 +86,7 @@ const MenuPublic = () => {
   const [establishment, setEstablishment] = useState<Establishment | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [addonsCategoryId, setAddonsCategoryId] = useState<string | null>(null);
   const [combos, setCombos] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -211,6 +212,10 @@ const MenuPublic = () => {
             }
             return data;
           });
+          
+          // Buscar ID da categoria "Adicionais" para filtrar
+          const addonsCategory = data.find(cat => cat.name === "Adicionais");
+          setAddonsCategoryId(addonsCategory?.id || null);
         }
       } catch (error) {
         // Error reloading categories
@@ -692,9 +697,9 @@ const MenuPublic = () => {
         isCombo: true, // Flag para identificar combos
       }));
 
-    // Filtrar produtos válidos também (excluindo produtos que são combos)
+    // Filtrar produtos válidos também (excluindo produtos que são combos e adicionais)
     const validProducts = products
-      .filter((p: any) => p && p.id && p.name && !p.is_combo) // Excluir produtos marcados como combos
+      .filter((p: any) => p && p.id && p.name && !p.is_combo && !(addonsCategoryId && p.category_id === addonsCategoryId)) // Excluir produtos marcados como combos e adicionais
       .map((p: any) => ({
         ...p,
         price: Number(p.price) || 0,

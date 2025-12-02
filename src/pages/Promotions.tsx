@@ -47,6 +47,7 @@ export default function Promotions() {
   const confirmDialog = useConfirm();
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [addonsCategoryId, setAddonsCategoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
@@ -106,7 +107,21 @@ export default function Promotions() {
       ]);
 
       setPromotions(promotionsRes.data || []);
-      setProducts(productsRes.data || []);
+      
+      // Buscar ID da categoria "Adicionais" para filtrar
+      const addonsCategory = (categoriesRes.data || []).find((cat: any) => cat.name === "Adicionais");
+      setAddonsCategoryId(addonsCategory?.id || null);
+      
+      // Filtrar produtos: excluir combos (is_combo: true) e produtos da categoria "Adicionais"
+      const filteredProducts = (productsRes.data || []).filter((product: any) => {
+        // Excluir produtos que são combos
+        if (product.is_combo) return false;
+        // Excluir produtos da categoria "Adicionais"
+        if (addonsCategory?.id && product.category_id === addonsCategory.id) return false;
+        return true;
+      });
+      
+      setProducts(filteredProducts);
       setCategories(categoriesRes.data || []);
     } catch (error) {
       console.error("Error loading data:", error);

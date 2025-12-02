@@ -84,6 +84,7 @@ const PDV = () => {
   const [searchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [addonsCategoryId, setAddonsCategoryId] = useState<string | null>(null);
   const [combos, setCombos] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -318,6 +319,10 @@ const PDV = () => {
             }
             return data;
           });
+          
+          // Buscar ID da categoria "Adicionais" para filtrar
+          const addonsCategory = data.find(cat => cat.name === "Adicionais");
+          setAddonsCategoryId(addonsCategory?.id || null);
         }
       } catch (error) {
         // Error reloading categories
@@ -834,7 +839,38 @@ const PDV = () => {
 
   const isTriplo = (product: Product | null) => {
     if (!product) return false;
-    return product.name.toLowerCase().includes('triplo');
+    const productNameLower = product.name.toLowerCase().trim();
+    
+    // Verificar se contém "triplo" (lógica padrão)
+    if (productNameLower.includes('triplo')) return true;
+    
+    // Verificar se é o estabelecimento "Na Brasa" e o produto é "Na Brasa Eno - Mostro"
+    const establishmentNameLower = (establishmentInfo.name || '').toLowerCase().trim();
+    const isNaBrasa = establishmentNameLower.includes('na brasa') || 
+                      establishmentNameLower.includes('nabrasa') ||
+                      establishmentNameLower.includes('hamburgueria na brasa') ||
+                      establishmentNameLower === 'na brasa';
+    
+    if (isNaBrasa) {
+      // Verificar variações do nome: "Na Brasa Eno - Mostro", "Na Brasa Eno - Monstro", "ENO Mostro", etc.
+      // Verificar se contém "eno" e "mostro" ou "monstro" (pode estar em qualquer ordem ou formato)
+      // Normalizar removendo acentos e caracteres especiais para comparação
+      const normalizedName = productNameLower
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s]/g, ' ')
+        .replace(/\s+/g, ' ');
+      
+      const hasEno = normalizedName.includes('eno');
+      // Aceitar tanto "mostro" quanto "monstro" (com ou sem "o" no final)
+      const hasMostro = normalizedName.includes('mostro') || normalizedName.includes('monstro');
+      
+      if (hasEno && hasMostro) {
+        return true;
+      }
+    }
+    
+    return false;
   };
 
   const isDrink = (product: Product | null) => {
@@ -1069,7 +1105,8 @@ const PDV = () => {
   };
 
   const calculateSaucePrice = (product: Product, selectedSauces: string[]) => {
-    const freeSauces = isTriplo(product) ? 2 : 1;
+    const isTriploProduct = isTriplo(product);
+    const freeSauces = isTriploProduct ? 2 : 1;
     const extraSauces = Math.max(0, selectedSauces.length - freeSauces);
     return extraSauces * 2;
   };
@@ -1581,10 +1618,11 @@ const PDV = () => {
   };
 
   const getProductsByCategory = () => {
-    // Filtrar produtos que são combos (is_combo: true) - eles aparecem na seção de combos
+    // Filtrar produtos que são combos (is_combo: true) e adicionais - eles aparecem em seções separadas
     const filteredProducts = products.filter(product =>
       product?.name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !(product as any)?.is_combo // Excluir produtos que são combos
+      !(product as any)?.is_combo && // Excluir produtos que são combos
+      !(addonsCategoryId && product.category_id === addonsCategoryId) // Excluir produtos da categoria "Adicionais"
     );
 
     const normalize = (s: string) =>

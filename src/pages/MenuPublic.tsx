@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AddonsModal } from "@/components/AddonsModal";
+import { checkFreeDeliveryPromotion, registerFreeDeliveryUsage } from "@/utils/freeDeliveryPromotion";
 
 interface Product {
   id: string;
@@ -106,6 +107,7 @@ const MenuPublic = () => {
   const [orderNotes, setOrderNotes] = useState("");
   const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
   const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_credito" | "cartao_debito" | "">("");
+  const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
 
   // Hook para verificar horário de funcionamento
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
@@ -760,9 +762,11 @@ const MenuPublic = () => {
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   
   // Calcular taxa de entrega se for pedido de entrega
-  const deliveryFee = orderType === "delivery" && establishment?.settings?.delivery_fee 
+  // Se houver promoção de frete grátis ativa, não cobrar frete
+  const baseDeliveryFee = orderType === "delivery" && establishment?.settings?.delivery_fee 
     ? Number(establishment.settings.delivery_fee) || 0 
     : 0;
+  const deliveryFee = (orderType === "delivery" && freeDeliveryPromotionId) ? 0 : baseDeliveryFee;
   const finalTotal = cartTotal + deliveryFee;
 
   const handleCheckout = async () => {
@@ -848,12 +852,18 @@ const MenuPublic = () => {
           source_domain: window.location.hostname,
           queued_until_next_open: isQueued,
           release_at: releaseAt,
+          free_delivery_promotion_id: freeDeliveryPromotionId || null,
         })
         .select()
         .single();
 
       if (orderError) {
         throw orderError;
+      }
+
+      // Registrar uso da promoção de frete grátis se aplicável
+      if (freeDeliveryPromotionId && newOrder?.id) {
+        await registerFreeDeliveryUsage(newOrder.id, freeDeliveryPromotionId);
       }
 
       // Create order items
@@ -1443,10 +1453,16 @@ const MenuPublic = () => {
                     <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
                   </div>
                 )}
-                {deliveryFee > 0 && (
+                {orderType === "delivery" && (
                   <div className="flex justify-between items-center mb-2 text-sm">
                     <span>Taxa de Entrega:</span>
-                    <span>R$ {deliveryFee.toFixed(2).replace('.', ',')}</span>
+                    <span>
+                      {freeDeliveryPromotionId ? (
+                        <span className="text-green-600 font-semibold">Grátis</span>
+                      ) : (
+                        `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`
+                      )}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between items-center mb-2">
@@ -1543,7 +1559,17 @@ const MenuPublic = () => {
                 <Button
                   type="button"
                   variant={orderType === "delivery" ? "default" : "outline"}
-                  onClick={() => setOrderType("delivery")}
+                  onClick={async () => {
+                    setOrderType("delivery");
+                    // Verificar se há promoção de frete grátis ativa
+                    if (establishment?.id) {
+                      const promotionId = await checkFreeDeliveryPromotion(establishment.id);
+                      setFreeDeliveryPromotionId(promotionId);
+                      if (promotionId) {
+                        toast.success("Frete grátis aplicado!");
+                      }
+                    }
+                  }}
                   className="flex-1 h-12"
                   style={orderType === "delivery" ? {
                     backgroundColor: menuCustomization.primaryColor,
@@ -1665,10 +1691,16 @@ const MenuPublic = () => {
                     <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
                   </div>
                 )}
-                {deliveryFee > 0 && (
+                {orderType === "delivery" && (
                   <div className="flex justify-between items-center mb-2 text-sm">
                     <span>Taxa de Entrega:</span>
-                    <span>R$ {deliveryFee.toFixed(2).replace('.', ',')}</span>
+                    <span>
+                      {freeDeliveryPromotionId ? (
+                        <span className="text-green-600 font-semibold">Grátis</span>
+                      ) : (
+                        `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`
+                      )}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between items-center">

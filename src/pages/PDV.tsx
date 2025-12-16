@@ -38,6 +38,7 @@ import { generatePixQrCode } from "@/utils/pixQrCode";
 import { AddonsModal } from "@/components/AddonsModal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { checkFreeDeliveryPromotion, registerFreeDeliveryUsage } from "@/utils/freeDeliveryPromotion";
 
 interface Product {
   id: string;
@@ -101,6 +102,7 @@ const PDV = () => {
   const [establishmentInfo, setEstablishmentInfo] = useState<{ name: string; address?: string; phone?: string; storeNumber?: string }>({ name: '' });
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
   const [includeDelivery, setIncludeDelivery] = useState(false);
+  const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
   const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
   const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState<string>("");
   const [showSauceDialog, setShowSauceDialog] = useState(false);
@@ -812,7 +814,8 @@ const PDV = () => {
 
   const calculateDiscountedTotal = () => {
     const subtotal = calculateSubtotal();
-    const deliveryCost = includeDelivery ? deliveryFee : 0;
+    // Se for entrega e houver promoção de frete grátis ativa, não cobrar frete
+    const deliveryCost = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
     const discount = getCustomerDiscount();
     
     let discountValue = 0;
@@ -1246,7 +1249,10 @@ const PDV = () => {
   };
 
   const calculateTotal = () => {
-    return calculateSubtotal() + (includeDelivery ? deliveryFee : 0);
+    const subtotal = calculateSubtotal();
+    // Se for entrega e houver promoção de frete grátis ativa, não cobrar frete
+    const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
+    return subtotal + finalDeliveryFee;
   };
 
   const handleCheckout = async () => {
@@ -1292,10 +1298,12 @@ const PDV = () => {
       }
 
       const subtotal = calculateSubtotal();
+      // Calcular frete: se houver promoção de frete grátis, frete é 0
+      const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
       const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ? 
         calculateDiscountedTotal() : calculateTotal();
       const discountAmount = selectedCustomer && selectedCustomer.groups.length > 0 ? 
-        (subtotal + (includeDelivery ? deliveryFee : 0) - finalTotal) : 0;
+        (subtotal + finalDeliveryFee - finalTotal) : 0;
 
       // Verificar se é PIX para abrir modal informativo (mas pagamento já é considerado efetuado)
       const isPix = paymentMethod === "pix";
@@ -1323,8 +1331,10 @@ const PDV = () => {
             payment_method: paymentMethod,
             subtotal: subtotal,
             discount_amount: discountAmount,
+            delivery_fee: finalDeliveryFee,
             total_amount: finalTotal,
-            notes: orderNotes
+            notes: orderNotes,
+            free_delivery_promotion_id: freeDeliveryPromotionId || null
           })
           .eq("id", editingOrderId)
           .select()
@@ -1368,8 +1378,10 @@ const PDV = () => {
             payment_method: paymentMethod,
             subtotal: subtotal,
             discount_amount: discountAmount,
+            delivery_fee: finalDeliveryFee,
             total_amount: finalTotal,
-            notes: orderNotes
+            notes: orderNotes,
+            free_delivery_promotion_id: freeDeliveryPromotionId || null
           })
           .select()
           .single();
@@ -1535,7 +1547,7 @@ const PDV = () => {
         }),
         subtotal: subtotal,
         discountAmount: discountAmount,
-        deliveryFee: includeDelivery ? deliveryFee : 0,
+        deliveryFee: finalDeliveryFee,
         totalAmount: finalTotal,
         establishmentName: `${establishmentInfo.name || ''}${establishmentInfo.storeNumber ? ' - ' + establishmentInfo.storeNumber : ''}`,
         establishmentAddress: establishmentInfo.address,
@@ -1550,6 +1562,11 @@ const PDV = () => {
         pixKeyType: pixKeyType
       };
 
+      // Registrar uso da promoção de frete grátis se aplicável
+      if (freeDeliveryPromotionId && order?.id) {
+        await registerFreeDeliveryUsage(order.id, freeDeliveryPromotionId);
+      }
+
       // Print receipt (incluindo PIX com QR code)
       await printReceipt(receiptData);
 
@@ -1561,6 +1578,7 @@ const PDV = () => {
       setSelectedCustomer(null);
       setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
       setIncludeDelivery(false);
+      setFreeDeliveryPromotionId(null);
       setSelectedDeliveryBoy("");
       setPaymentMethod("");
       setGeneralInstructions("");
@@ -1598,6 +1616,7 @@ const PDV = () => {
     setSelectedCustomer(null);
     setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
     setIncludeDelivery(false);
+    setFreeDeliveryPromotionId(null);
     setSelectedDeliveryBoy("");
     setPaymentMethod("");
     setGeneralInstructions("");
@@ -2239,12 +2258,21 @@ const PDV = () => {
                       <Switch
                         id="delivery-toggle"
                         checked={includeDelivery}
-                        onCheckedChange={(checked) => {
+                        onCheckedChange={async (checked) => {
                           setIncludeDelivery(checked);
                           if (checked) {
                             loadDeliveryBoys();
+                            // Verificar se há promoção de frete grátis ativa
+                            if (establishmentId) {
+                              const promotionId = await checkFreeDeliveryPromotion(establishmentId);
+                              setFreeDeliveryPromotionId(promotionId);
+                              if (promotionId) {
+                                toast.success("Frete grátis aplicado!");
+                              }
+                            }
                           } else {
                             setSelectedDeliveryBoy("");
+                            setFreeDeliveryPromotionId(null);
                           }
                         }}
                       />
@@ -2408,7 +2436,13 @@ const PDV = () => {
                          {includeDelivery && (
                            <div className="flex justify-between">
                              <span>Taxa de entrega:</span>
-                             <span>R$ {deliveryFee.toFixed(2)}</span>
+                             <span>
+                               {freeDeliveryPromotionId ? (
+                                 <span className="text-green-600 font-semibold">Grátis</span>
+                               ) : (
+                                 `R$ ${deliveryFee.toFixed(2)}`
+                               )}
+                             </span>
                            </div>
                          )}
                          {selectedCustomer && selectedCustomer.groups.length > 0 && (() => {

@@ -161,8 +161,31 @@ serve(async (req) => {
 
     // Calculate totals
     const subtotal = order.totals?.subtotal || 0;
-    const deliveryFee = order.totals?.delivery_fee || 0;
+    let deliveryFee = order.totals?.delivery_fee || 0;
     const discountAmount = order.totals?.discount || 0;
+    
+    // Verificar se há promoção de frete grátis ativa (apenas para pedidos de entrega)
+    let freeDeliveryPromotionId: string | null = null;
+    if (order.order_type === 'delivery' || order.delivery_type === 'delivery') {
+      try {
+        const { data: promotionId, error: promotionError } = await supabase.rpc(
+          'check_free_delivery_promotion',
+          {
+            p_establishment_id: establishment.id,
+            p_order_time: new Date().toISOString()
+          }
+        );
+        
+        if (!promotionError && promotionId) {
+          freeDeliveryPromotionId = promotionId;
+          deliveryFee = 0; // Aplicar frete grátis
+        }
+      } catch (error) {
+        console.warn('Error checking free delivery promotion:', error);
+        // Continuar com o frete normal em caso de erro
+      }
+    }
+    
     const totalAmount = order.totals?.final_total || (subtotal + deliveryFee - discountAmount);
 
     // Preparar nome do cliente ANTES de extrair serviceType (para poder verificar no nome)
@@ -735,6 +758,7 @@ serve(async (req) => {
       external_id: order.external_id || null,
       channel: order.channel || 'online',
       origin: order.origin || 'site',
+      free_delivery_promotion_id: freeDeliveryPromotionId,
     };
 
     // Adicionar site_category_quantities se houver dados
@@ -751,6 +775,18 @@ serve(async (req) => {
     if (orderError) {
       console.error('Error creating order:', orderError);
       throw new Error('Erro ao criar pedido');
+    }
+
+    // Registrar uso da promoção de frete grátis se aplicável
+    if (freeDeliveryPromotionId && newOrder?.id) {
+      try {
+        await supabase.rpc('increment_free_delivery_usage', {
+          p_promotion_id: freeDeliveryPromotionId
+        });
+      } catch (error) {
+        console.warn('Error incrementing free delivery usage:', error);
+        // Não falhar o pedido por causa disso
+      }
     }
 
     // Create order items
@@ -836,9 +872,6 @@ serve(async (req) => {
           let cleanItemName = (item.name || '').trim();
           // Remove observações do nome se vieram misturadas
           cleanItemName = cleanItemName.replace(/\s*(Obs:|Observação:|Molhos?:).*$/i, '').trim();
-          
-          // Atualiza o nome do produto no productMap se necessário (para referência futura)
-          // Mas não altera o item.name original pois pode ser usado em outros lugares
 
           return {
             order_id: newOrder.id,

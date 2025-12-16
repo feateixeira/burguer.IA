@@ -40,6 +40,9 @@ interface Promotion {
   start_time?: string;
   end_time?: string;
   active: boolean;
+  max_orders?: number;
+  max_time?: string;
+  current_usage?: number;
 }
 
 export default function Promotions() {
@@ -65,6 +68,8 @@ export default function Promotions() {
     start_time: "",
     end_time: "",
     active: true,
+    max_orders: undefined as number | undefined,
+    max_time: "",
   });
   const [selectedProducts, setSelectedProducts] = useState<Array<{ product_id: string; fixed_price?: number }>>([]);
   const [productSearchTerm, setProductSearchTerm] = useState("");
@@ -154,8 +159,8 @@ export default function Promotions() {
       }
     }
 
-    // Validação para outros tipos
-    if (formData.type !== "product" && formData.type !== "global" && !formData.target_id) {
+    // Validação para outros tipos (category precisa de target_id)
+    if (formData.type === "category" && !formData.target_id) {
       toast.error("Selecione um alvo para a promoção");
       return;
     }
@@ -164,9 +169,14 @@ export default function Promotions() {
       const promotionData = {
         ...formData,
         establishment_id: establishmentId,
-        target_id: formData.type === "global" ? null : (formData.type === "product" ? null : formData.target_id || null),
+        target_id: formData.type === "global" || formData.type === "free_delivery" ? null : (formData.type === "product" ? null : formData.target_id || null),
         start_time: formData.start_time || null,
         end_time: formData.end_time || null,
+        max_orders: formData.type === "free_delivery" ? (formData.max_orders || null) : null,
+        max_time: formData.type === "free_delivery" ? (formData.max_time || null) : null,
+        // Para frete grátis, não precisa de discount_type e discount_value
+        discount_type: formData.type === "free_delivery" ? "percentage" : formData.discount_type,
+        discount_value: formData.type === "free_delivery" ? 0 : formData.discount_value,
       };
 
       let promotionId: string;
@@ -270,6 +280,8 @@ export default function Promotions() {
       start_time: promotion.start_time || "",
       end_time: promotion.end_time || "",
       active: promotion.active,
+      max_orders: promotion.max_orders || undefined,
+      max_time: promotion.max_time || "",
     });
 
     // Carregar produtos relacionados se for tipo produto
@@ -350,6 +362,8 @@ export default function Promotions() {
       start_time: "",
       end_time: "",
       active: true,
+      max_orders: undefined,
+      max_time: "",
     });
     setSelectedProducts([]);
     setProductSearchTerm("");
@@ -483,6 +497,7 @@ export default function Promotions() {
                           <SelectItem value="product">Produto</SelectItem>
                           <SelectItem value="category">Categoria</SelectItem>
                           <SelectItem value="global">Global</SelectItem>
+                          <SelectItem value="free_delivery">Frete Grátis</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -660,7 +675,7 @@ export default function Promotions() {
                     />
                   </div>
 
-                  {formData.type !== "product" && (
+                  {formData.type !== "product" && formData.type !== "free_delivery" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Tipo de Desconto *</Label>
@@ -694,6 +709,54 @@ export default function Promotions() {
                           }
                           placeholder={formData.discount_type === "percentage" ? "%" : "R$"}
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.type === "free_delivery" && (
+                    <div className="space-y-4 p-4 bg-muted rounded-md">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Condições de Frete Grátis</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Configure condições opcionais para limitar quando a promoção de frete grátis se aplica.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Limite de Pedidos (opcional)</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={formData.max_orders || ""}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                max_orders: e.target.value ? parseInt(e.target.value) : undefined,
+                              })
+                            }
+                            placeholder="Ex: 10 (primeiros 10 pedidos)"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Ex: 10 = apenas os 10 primeiros pedidos terão frete grátis
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Horário Limite (opcional)</Label>
+                          <Input
+                            type="time"
+                            value={formData.max_time}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                max_time: e.target.value,
+                              })
+                            }
+                            placeholder="Ex: 22:00"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Ex: 22:00 = frete grátis apenas até às 22h
+                          </p>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -842,13 +905,33 @@ export default function Promotions() {
                       <div>
                         <p className="text-muted-foreground">Desconto</p>
                         <p className="font-medium">
-                          {promotion.discount_type === "percentage"
+                          {promotion.type === "free_delivery"
+                            ? "Frete Grátis"
+                            : promotion.discount_type === "percentage"
                             ? `${promotion.discount_value}%`
                             : promotion.discount_type === "fixed_per_product"
                             ? "Valor fixo por produto"
                             : `R$ ${promotion.discount_value.toFixed(2)}`}
                         </p>
                       </div>
+                      {promotion.type === "free_delivery" && (
+                        <>
+                          {promotion.max_orders && (
+                            <div>
+                              <p className="text-muted-foreground">Limite de Pedidos</p>
+                              <p className="font-medium">
+                                {promotion.max_orders} primeiros pedidos
+                              </p>
+                            </div>
+                          )}
+                          {promotion.max_time && (
+                            <div>
+                              <p className="text-muted-foreground">Horário Limite</p>
+                              <p className="font-medium">Até {promotion.max_time}</p>
+                            </div>
+                          )}
+                        </>
+                      )}
                       <div>
                         <p className="text-muted-foreground">Período</p>
                         <p className="font-medium">

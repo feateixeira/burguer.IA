@@ -105,6 +105,16 @@ coverage/
 # Optional eslint cache
 .eslintcache
 
+# Vite cache directories (including script cache)
+node_modules/.vite
+node_modules/.cache
+.vite
+.vite-*
+**/scriptCache
+**/ScriptCache
+**/*cache*
+**/*Cache*
+
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff, Users, Plus, Trash2, Truck, Clock } from "lucide-react";
+import { Settings as SettingsIcon, Save, Building, User, Shield, Target, Phone, Mail, MapPin, Printer, CreditCard, Key, Copy, RefreshCw, Eye, EyeOff, Users, Plus, Trash2, Truck, Clock, Wallet } from "lucide-react";
 import { useConfirm } from "@/hooks/useConfirm";
 import Sidebar from "@/components/Sidebar";
 import { PrinterConfigComponent } from "@/components/PrinterConfig";
@@ -21,7 +21,9 @@ import { DeliveryBoysManager } from "@/components/delivery/DeliveryBoysManager";
 import { useTeamUser } from "@/components/TeamUserProvider";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { BusinessHoursConfig } from "@/components/BusinessHoursConfig";
+import { PaymentManager } from "@/components/PaymentManager";
 import { useSearchParams } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 
 interface Profile {
@@ -482,46 +484,122 @@ const Settings = () => {
               </p>
             </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6 tabs-compact">
-            <TabsList className={`grid w-full h-auto p-1 ${isNaBrasa ? 'grid-cols-8' : 'grid-cols-7'}`}>
-              <TabsTrigger value="establishment" className="flex items-center gap-2 py-3">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <div className="mb-6 flex gap-2 border-b overflow-x-auto">
+              <button
+                onClick={() => setActiveTab('establishment')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'establishment'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <Building className="h-4 w-4" />
                 <span className="hidden lg:inline">Estabelecimento</span>
-              </TabsTrigger>
+              </button>
               {/* Aba API apenas para Na Brasa */}
               {isNaBrasa && (
-                <TabsTrigger value="api" className="flex items-center gap-2 py-3">
+                <button
+                  onClick={() => setActiveTab('api')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                    activeTab === 'api'
+                      ? "border-primary text-primary font-medium"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                  )}
+                >
                   <Key className="h-4 w-4" />
                   <span className="hidden lg:inline">API</span>
-                </TabsTrigger>
+                </button>
               )}
-              <TabsTrigger value="hours" className="flex items-center gap-2 py-3">
+              <button
+                onClick={() => setActiveTab('hours')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'hours'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <Clock className="h-4 w-4" />
                 <span className="hidden lg:inline">Horários</span>
-              </TabsTrigger>
-              <TabsTrigger value="printers" className="flex items-center gap-2 py-3">
+              </button>
+              <button
+                onClick={() => setActiveTab('printers')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'printers'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <Printer className="h-4 w-4" />
                 <span className="hidden lg:inline">Impressoras</span>
-              </TabsTrigger>
-              <TabsTrigger value="pix" className="flex items-center gap-2 py-3">
+              </button>
+              <button
+                onClick={() => setActiveTab('payment')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'payment'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
+                <Wallet className="h-4 w-4" />
+                <span>Pagamento</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('pix')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'pix'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <CreditCard className="h-4 w-4" />
                 <span className="hidden lg:inline">PIX</span>
-              </TabsTrigger>
-              <TabsTrigger value="delivery" className="flex items-center gap-2 py-3">
+              </button>
+              <button
+                onClick={() => setActiveTab('delivery')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'delivery'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <Truck className="h-4 w-4" />
                 <span className="hidden lg:inline">Delivery</span>
-              </TabsTrigger>
+              </button>
               {(userRole === 'master' || userRole === 'admin') && (
-                <TabsTrigger value="team" className="flex items-center gap-2 py-3">
+                <button
+                  onClick={() => setActiveTab('team')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                    activeTab === 'team'
+                      ? "border-primary text-primary font-medium"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                  )}
+                >
                   <Users className="h-4 w-4" />
                   <span className="hidden lg:inline">Gerenciar Equipe</span>
-                </TabsTrigger>
+                </button>
               )}
-              <TabsTrigger value="security" className="flex items-center gap-2 py-3">
+              <button
+                onClick={() => setActiveTab('security')}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 border-b-2 transition-colors whitespace-nowrap",
+                  activeTab === 'security'
+                    ? "border-primary text-primary font-medium"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                )}
+              >
                 <Shield className="h-4 w-4" />
                 <span className="hidden lg:inline">Segurança</span>
-              </TabsTrigger>
-            </TabsList>
+              </button>
+            </div>
             {/* Team Management Tab */}
             {(userRole === 'master' || userRole === 'admin') && (
               <TabsContent value="team" className="space-y-4">
@@ -1196,6 +1274,18 @@ const Settings = () => {
             {/* PIX Tab */}
             <TabsContent value="pix">
               {establishment && <PixConfig establishmentId={establishment.id} onSave={loadData} />}
+            </TabsContent>
+
+            {/* Payment Tab */}
+            <TabsContent value="payment" className="space-y-4">
+              {(() => {
+                try {
+                  return <PaymentManager />;
+                } catch (error) {
+                  console.error('Error rendering PaymentManager:', error);
+                  return <div>Erro ao carregar gerenciador de pagamento. Por favor, recarregue a página.</div>;
+                }
+              })()}
             </TabsContent>
 
             {/* Delivery Tab */}

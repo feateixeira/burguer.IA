@@ -112,3 +112,12 @@ coverage/
 # NOTA: Esta migration contém UUIDs específicos de usuários
 # Execute-a no Supabase e depois remova do repositório se não quiser commitá-la
 # supabase/migrations/20250112000000_delete_specific_users.sql
+
+# Documentação temporária de troubleshooting (não commitar)
+VERIFICAR_PERFIL_CONSOLE.md
+SOLUCAO_PERFIL_NAO_ENCONTRADO.md
+VERIFICAR_EDGE_FUNCTION.md
+TESTE_DIRETO_EDGE_FUNCTION.md
+SOLUCAO_404_EDGE_FUNCTION.md
+DIAGNOSTICO_ERRO_INIT_POINT.md
+MERCADOPAGO_TROUBLESHOOTING.md

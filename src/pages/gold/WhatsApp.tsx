@@ -17,7 +17,8 @@ const WhatsApp = () => {
   const { trialStatus } = useTrialCheck();
 
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [status, setStatus] = useState<'disconnected' | 'initializing' | 'connecting' | 'connected'>('disconnected');
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
 
@@ -42,6 +43,7 @@ const WhatsApp = () => {
         },
         (payload) => {
           const newData = payload.new as any;
+          console.log('Realtime Update:', newData); // Debug log
           if (newData.whatsapp_status) setStatus(newData.whatsapp_status);
           if (newData.whatsapp_qr !== undefined) setQrCode(newData.whatsapp_qr);
         }
@@ -87,22 +89,23 @@ const WhatsApp = () => {
 
   const handleConnect = async () => {
     if (!establishmentId) return;
-    setLoading(true);
+    setConnectionLoading(true);
+    // Optimistic update
+    setStatus('initializing');
     try {
-      // Use localhost assuming client is running it locally OR server is accessible
-      // NOTE: In production SaaS, this URL should be your deployed server URL (e.g., https://api.burguer.ia/sessions/start)
       const response = await fetch('http://localhost:3000/sessions/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ establishmentId })
       });
       if (!response.ok) throw new Error('Falha ao iniciar sessão');
-      toast.success('Iniciando conexão com WhatsApp...');
+      toast.success('Solicitação enviada. Aguarde o QR Code...');
     } catch (error) {
       console.error(error);
       toast.error('Erro ao conectar. Verifique se o Bot Server está rodando.');
+      setStatus('disconnected'); // Revert on error
     } finally {
-      setLoading(false);
+      setConnectionLoading(false);
     }
   };
 
@@ -115,10 +118,13 @@ const WhatsApp = () => {
         body: JSON.stringify({ establishmentId })
       });
       toast.success('Sessão encerrada');
+      setQrCode(null);
     } catch (error) {
       toast.error('Erro ao desconectar');
     }
   };
+
+  const showQrLoading = status === 'connecting' || status === 'initializing';
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -182,6 +188,9 @@ const WhatsApp = () => {
                       <Badge variant="outline" className="px-4 py-1 border-green-500 text-green-600">
                         Online
                       </Badge>
+                      <Button variant="outline" onClick={handleDisconnect} className="mt-4 text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50">
+                        Desconectar
+                      </Button>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-6 max-w-md text-center">
@@ -190,33 +199,44 @@ const WhatsApp = () => {
                         <p className="text-sm text-muted-foreground">
                           Clique abaixo para iniciar a conexão. Um QR Code será gerado.
                         </p>
+
+                        {/* Only show connect button if disconnected */}
                         {status === 'disconnected' && (
-                          <Button onClick={handleConnect} disabled={loading} className="w-full bg-green-600 hover:bg-green-700">
-                            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                          <Button onClick={handleConnect} disabled={connectionLoading} className="w-full bg-green-600 hover:bg-green-700">
+                            <RefreshCw className={`mr-2 h-4 w-4 ${connectionLoading ? 'animate-spin' : ''}`} />
                             Iniciar Conexão
                           </Button>
                         )}
                       </div>
 
-                      <div className="p-4 bg-white rounded-xl shadow-sm border">
+                      <div className="p-4 bg-white rounded-xl shadow-sm border text-center">
                         {qrCode ? (
-                          <div className="space-y-4">
+                          <div className="space-y-4 flex flex-col items-center">
                             <QRCodeSVG value={qrCode} size={256} />
-                            <p className="text-xs text-muted-foreground animate-pulse">Aguardando leitura...</p>
+                            <p className="text-xs text-muted-foreground animate-pulse">Aguardando leitura do QR Code...</p>
                           </div>
                         ) : (
                           <div className="h-64 w-64 bg-muted/30 flex flex-col items-center justify-center gap-4 text-muted-foreground rounded-lg">
-                            <Smartphone className="h-10 w-10 opacity-20" />
-                            <p className="text-sm px-4">
-                              {status === 'connecting' ? 'Gerando QR Code...' : 'Clique em Iniciar para gerar o QR Code'}
-                            </p>
+                            {showQrLoading ? (
+                              <>
+                                <RefreshCw className="h-10 w-10 animate-spin text-green-500" />
+                                <p className="text-sm px-4">Iniciando Bot & Gerando QR Code...</p>
+                                <p className="text-xs text-muted-foreground">(Isso pode levar alguns segundos)</p>
+                              </>
+                            ) : (
+                              <>
+                                <Smartphone className="h-10 w-10 opacity-20" />
+                                <p className="text-sm px-4">Clique em Iniciar para gerar o QR Code</p>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
 
+                      {/* Show Cancel button if stuck or in progress */}
                       {status !== 'disconnected' && (
-                        <Button variant="outline" onClick={handleDisconnect} className="text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50">
-                          Cancelar / Desconectar
+                        <Button variant="ghost" size="sm" onClick={handleDisconnect} className="text-muted-foreground hover:text-red-500">
+                          Cancelar Tentativa
                         </Button>
                       )}
                     </div>
@@ -233,7 +253,6 @@ const WhatsApp = () => {
                   <p>1. Certifique-se que o "Bot Server" está rodando no servidor.</p>
                   <p>2. Clique em "Iniciar Conexão" acima.</p>
                   <p>3. Aguarde o QR Code e escaneie com seu WhatsApp.</p>
-                  {/* <p className="text-xs text-muted-foreground mt-2">API URL: http://localhost:3000 (Dev)</p> */}
                 </CardContent>
               </Card>
 
@@ -250,7 +269,7 @@ const WhatsApp = () => {
                     <div className="flex justify-between py-2 border-b">
                       <span>Status do Bot</span>
                       <Badge variant={status === 'connected' ? 'default' : 'secondary'}>
-                        {status === 'connected' ? 'Ativo' : status === 'connecting' ? 'Conectando...' : 'Desconectado'}
+                        {status === 'connected' ? 'Ativo' : status === 'connecting' || status === 'initializing' ? 'Conectando...' : 'Desconectado'}
                       </Badge>
                     </div>
                   </div>

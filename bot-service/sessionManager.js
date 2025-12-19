@@ -39,13 +39,12 @@ class SessionManager {
 
         this.bindEvents(client, establishmentId);
 
-        try {
-            await client.initialize();
-        } catch (error) {
+        // Don't await initialization to prevent blocking the API response
+        client.initialize().catch(async (error) => {
             console.error(`Failed to initialize client for ${establishmentId}:`, error);
             await this.updateStatus(establishmentId, 'disconnected', null);
             this.sessions.delete(establishmentId);
-        }
+        });
     }
 
     bindEvents(client, establishmentId) {

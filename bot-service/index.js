@@ -14,16 +14,27 @@ app.use(express.json());
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
+console.log(`Initializing Bot Server...`);
+console.log(`Supabase URL: ${supabaseUrl}`);
+console.log(`Using Service Key: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY}`);
+
 if (!supabaseUrl || !supabaseKey) {
     console.error('Missing Supabase credentials');
     process.exit(1);
 }
+
+// Logger Middleware
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+});
 
 // Initialize Session Manager
 sessionManager.initialize(supabaseUrl, supabaseKey);
 
 // Routes
 app.post('/sessions/start', async (req, res) => {
+    console.log('Received start session request:', req.body);
     const { establishmentId } = req.body;
     if (!establishmentId) return res.status(400).json({ error: 'Missing establishmentId' });
 

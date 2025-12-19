@@ -1,0 +1,22 @@
+{
+    "name": "burguer-ia-bot",
+    "version": "1.0.0",
+    "description": "WhatsApp Bot for Burguer.IA",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "nodemon index.js"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.3.1",
+        "express": "^5.2.1",
+        "node-fetch": "^3.3.2",
+        "qrcode-terminal": "^0.12.0",
+        "whatsapp-web.js": "^1.23.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.2"
+    }
+}

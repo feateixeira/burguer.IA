@@ -3,8 +3,16 @@ import QRCode from 'qrcode';
 /**
  * Gera o payload PIX no formato EMV (padrão brasileiro)
  * Implementação idêntica à que funcionava no PixPaymentModal
+ * 
+ * IMPORTANTE: Para chaves de telefone, o padrão PIX requer apenas dígitos (sem o +)
+ * Formato E.164 para armazenamento: +5511999999999
+ * Formato para payload PIX: 5511999999999 (sem o +)
  */
 export const generatePixPayload = (key: string, name: string, amount: number): string => {
+  if (!key || !key.trim()) {
+    throw new Error('Chave PIX não pode estar vazia');
+  }
+
   // Sanitizar nome (máximo 25 caracteres, apenas alfanuméricos e espaços)
   const sanitizedName = name
     .normalize('NFD')
@@ -23,7 +31,17 @@ export const generatePixPayload = (key: string, name: string, amount: number): s
   }
 
   const amountStr = amount.toFixed(2);
-  const cleanKey = key.trim();
+  // Para chaves de telefone, remover o + do formato E.164 (o padrão PIX requer apenas dígitos)
+  // Exemplo: +5511999999999 -> 5511999999999
+  let cleanKey = key.trim();
+  if (cleanKey.startsWith('+')) {
+    cleanKey = cleanKey.substring(1);
+  }
+  
+  // Validar que a chave não está vazia após limpeza
+  if (!cleanKey) {
+    throw new Error('Chave PIX inválida após normalização');
+  }
 
   const tag = (id: string, value: string) => `${id}${value.length.toString().padStart(2, '0')}${value}`;
 
@@ -74,7 +92,18 @@ export const generatePixPayload = (key: string, name: string, amount: number): s
  */
 export const generatePixQrCode = async (key: string, name: string, amount: number): Promise<string> => {
   try {
+    // Log para debug (apenas em desenvolvimento)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Gerando QR code PIX:', { key: key.substring(0, 5) + '...', name, amount });
+    }
+    
     const pixPayload = generatePixPayload(key, name, amount);
+    
+    // Log do payload (apenas primeiros caracteres para não expor dados sensíveis)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Payload PIX gerado (primeiros 50 chars):', pixPayload.substring(0, 50) + '...');
+    }
+    
     const qrUrl = await QRCode.toDataURL(pixPayload, {
       width: 300,
       margin: 2,
@@ -84,9 +113,10 @@ export const generatePixQrCode = async (key: string, name: string, amount: numbe
       }
     });
     return qrUrl;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating PIX QR code:', error);
-    throw error;
+    console.error('Detalhes:', { key: key?.substring(0, 10) + '...', name, amount, message: error?.message });
+    throw new Error(`Erro ao gerar QR code PIX: ${error?.message || 'Erro desconhecido'}`);
   }
 };
 

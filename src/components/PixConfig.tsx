@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
+import { normalizePhoneBRToE164 } from '@/utils/phoneNormalizer';
 
 interface PixConfigProps {
   establishmentId: string;
@@ -29,13 +30,19 @@ interface PixConfig {
   pix_key_locked: boolean;
 }
 
-interface AuditLog {
+interface PixAuditLog {
   id: string;
-  action: string;
-  old_values: any;
-  new_values: any;
-  created_at: string;
-  user_id: string;
+  establishment_id: string;
+  old_pix_key: string | null;
+  new_pix_key: string;
+  old_pix_key_type: string | null;
+  new_pix_key_type: string;
+  old_pix_bank_name: string | null;
+  new_pix_bank_name: string | null;
+  old_pix_holder_name: string | null;
+  new_pix_holder_name: string | null;
+  changed_by: string;
+  changed_at: string;
 }
 
 export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
@@ -50,7 +57,7 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
   const [loading, setLoading] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Partial<PixConfig> | null>(null);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLogs, setAuditLogs] = useState<PixAuditLog[]>([]);
 
   useEffect(() => {
     loadConfig();
@@ -65,34 +72,47 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
         .eq('id', establishmentId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading PIX config:', error);
+        toast.error(`Erro ao carregar configurações PIX: ${error.message}`);
+        return;
+      }
+      
       if (data) {
         setConfig({
-          ...data,
           pix_key_type: data.pix_key_type as PixKeyType | null,
+          pix_key_value: data.pix_key_value || null,
+          pix_bank_name: data.pix_bank_name || null,
+          pix_holder_name: data.pix_holder_name || null,
           pix_key_locked: data.pix_key_locked || false,
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading PIX config:', error);
-      toast.error('Erro ao carregar configurações PIX');
+      toast.error(`Erro ao carregar configurações PIX: ${error?.message || 'Erro desconhecido'}`);
     }
   };
 
   const loadAuditLogs = async () => {
     try {
       const { data, error } = await supabase
-        .from('audit_logs')
+        .from('pix_key_audit')
         .select('*')
         .eq('establishment_id', establishmentId)
-        .eq('action', 'update_pix_key')
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .order('changed_at', { ascending: false })
+        .limit(20);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading PIX audit logs:', error);
+        // Não mostrar erro ao usuário se a tabela não existir ainda
+        if (error.code !== '42P01') {
+          toast.error('Erro ao carregar histórico de alterações');
+        }
+        return;
+      }
       setAuditLogs(data || []);
     } catch (error) {
-      console.error('Error loading audit logs:', error);
+      console.error('Error loading PIX audit logs:', error);
     }
   };
 
@@ -106,9 +126,28 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
     await saveConfig();
   };
 
+  // Normalizar chave PIX de telefone para formato E.164
+  const normalizePixKey = (key: string | null, type: PixKeyType | null): string | null => {
+    if (!key || !type) return key;
+    
+    if (type === 'phone') {
+      // Se já começa com +, remover para normalizar
+      const keyWithoutPlus = key.startsWith('+') ? key.substring(1) : key;
+      // Normalizar telefone para formato E.164 (sem +)
+      const normalized = normalizePhoneBRToE164(keyWithoutPlus);
+      // Adicionar + no início (formato E.164 completo)
+      return normalized ? `+${normalized}` : key;
+    }
+    
+    return key;
+  };
+
   const saveConfig = async () => {
     setLoading(true);
     try {
+      // Normalizar chave PIX se for telefone
+      const normalizedKey = normalizePixKey(config.pix_key_value, config.pix_key_type);
+      
       // Get current values before update
       const { data: currentData } = await supabase
         .from('establishments')
@@ -125,7 +164,7 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
 
       const newValues = {
         pix_key_type: config.pix_key_type,
-        pix_key_value: config.pix_key_value,
+        pix_key_value: normalizedKey,
         pix_bank_name: config.pix_bank_name,
         pix_holder_name: config.pix_holder_name,
       };
@@ -139,11 +178,12 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
       );
 
       // Update establishment
+      // O trigger audit_pix_changes irá registrar automaticamente na tabela pix_key_audit
       const { error } = await supabase
         .from('establishments')
         .update({
           pix_key_type: config.pix_key_type,
-          pix_key_value: config.pix_key_value,
+          pix_key_value: normalizedKey,
           pix_bank_name: config.pix_bank_name,
           pix_holder_name: config.pix_holder_name,
         })
@@ -151,23 +191,14 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
 
       if (error) throw error;
 
-      // Create audit log if there are changes
-      if (hasChanges) {
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        await supabase
-          .from('audit_logs')
-          .insert({
-            establishment_id: establishmentId,
-            user_id: user?.id || null,
-            action: 'update_pix_key',
-            old_values: oldValues,
-            new_values: newValues,
-          });
-      }
-
       toast.success('Configurações PIX salvas com sucesso!');
+      
+      // Recarregar configuração e histórico após salvar
+      // Aguardar um pouco para garantir que o trigger foi executado
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await loadConfig();
       await loadAuditLogs();
+      
       // Call onSave callback if provided to reload establishment data
       if (onSave) {
         onSave();
@@ -290,12 +321,29 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="pix_key_value">Chave PIX</Label>
+            <Label htmlFor="pix_key_value">
+              Chave PIX
+              {config.pix_key_type === 'phone' && (
+                <span className="text-xs text-muted-foreground ml-2">
+                  (Formato: (XX) XXXXX-XXXX ou +55XXXXXXXXXXX)
+                </span>
+              )}
+            </Label>
             <Input
               id="pix_key_value"
               value={config.pix_key_value || ''}
               onChange={(e) => setConfig(prev => ({ ...prev, pix_key_value: e.target.value }))}
-              placeholder="Digite a chave PIX"
+              placeholder={
+                config.pix_key_type === 'phone' 
+                  ? 'Ex: (11) 99999-9999 ou +5511999999999'
+                  : config.pix_key_type === 'email'
+                  ? 'Ex: exemplo@email.com'
+                  : config.pix_key_type === 'cpf'
+                  ? 'Ex: 12345678901'
+                  : config.pix_key_type === 'cnpj'
+                  ? 'Ex: 12345678000190'
+                  : 'Digite a chave PIX'
+              }
               disabled={config.pix_key_locked}
             />
           </div>
@@ -352,40 +400,40 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
                       {auditLogs.map((log) => (
                         <TableRow key={log.id}>
                           <TableCell className="whitespace-nowrap">
-                            {format(new Date(log.created_at), 'dd/MM/yyyy HH:mm')}
+                            {format(new Date(log.changed_at), 'dd/MM/yyyy HH:mm')}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm space-y-1">
-                              {log.old_values?.pix_key_type && (
-                                <div><strong>Tipo:</strong> {log.old_values.pix_key_type}</div>
+                              {log.old_pix_key_type && (
+                                <div><strong>Tipo:</strong> {log.old_pix_key_type}</div>
                               )}
-                              {log.old_values?.pix_key_value && (
-                                <div><strong>Chave:</strong> {log.old_values.pix_key_value}</div>
+                              {log.old_pix_key && (
+                                <div><strong>Chave:</strong> {log.old_pix_key}</div>
                               )}
-                              {log.old_values?.pix_bank_name && (
-                                <div><strong>Banco:</strong> {log.old_values.pix_bank_name}</div>
+                              {log.old_pix_bank_name && (
+                                <div><strong>Banco:</strong> {log.old_pix_bank_name}</div>
                               )}
-                              {log.old_values?.pix_holder_name && (
-                                <div><strong>Titular:</strong> {log.old_values.pix_holder_name}</div>
+                              {log.old_pix_holder_name && (
+                                <div><strong>Titular:</strong> {log.old_pix_holder_name}</div>
                               )}
-                              {!log.old_values?.pix_key_type && !log.old_values?.pix_key_value && (
+                              {!log.old_pix_key_type && !log.old_pix_key && (
                                 <div className="text-muted-foreground italic">Sem dados anteriores</div>
                               )}
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="text-sm space-y-1">
-                              {log.new_values?.pix_key_type && (
-                                <div><strong>Tipo:</strong> {log.new_values.pix_key_type}</div>
+                              {log.new_pix_key_type && (
+                                <div><strong>Tipo:</strong> {log.new_pix_key_type}</div>
                               )}
-                              {log.new_values?.pix_key_value && (
-                                <div><strong>Chave:</strong> {log.new_values.pix_key_value}</div>
+                              {log.new_pix_key && (
+                                <div><strong>Chave:</strong> {log.new_pix_key}</div>
                               )}
-                              {log.new_values?.pix_bank_name && (
-                                <div><strong>Banco:</strong> {log.new_values.pix_bank_name}</div>
+                              {log.new_pix_bank_name && (
+                                <div><strong>Banco:</strong> {log.new_pix_bank_name}</div>
                               )}
-                              {log.new_values?.pix_holder_name && (
-                                <div><strong>Titular:</strong> {log.new_values.pix_holder_name}</div>
+                              {log.new_pix_holder_name && (
+                                <div><strong>Titular:</strong> {log.new_pix_holder_name}</div>
                               )}
                             </div>
                           </TableCell>

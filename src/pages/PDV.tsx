@@ -35,6 +35,7 @@ import { printReceipt, ReceiptData } from "@/utils/receiptPrinter";
 import { PixPaymentModal } from "@/components/PixPaymentModal";
 import { CashRequiredModal } from "@/components/CashRequiredModal";
 import { generatePixQrCode } from "@/utils/pixQrCode";
+import { normalizePhoneBRToE164 } from "@/utils/phoneNormalizer";
 import { AddonsModal } from "@/components/AddonsModal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -1504,10 +1505,19 @@ const PDV = () => {
             .single();
 
           if (establishment?.pix_key_value) {
-            pixKey = establishment.pix_key_value;
+            // Normalizar chave PIX se for telefone
+            let normalizedPixKey = establishment.pix_key_value;
+            if (establishment.pix_key_type === 'phone') {
+              // Se não começa com +, normalizar para E.164
+              if (!normalizedPixKey.startsWith('+')) {
+                const normalized = normalizePhoneBRToE164(normalizedPixKey);
+                normalizedPixKey = `+${normalized}`;
+              }
+            }
+            pixKey = normalizedPixKey;
             pixKeyType = establishment.pix_key_type;
             const holderName = establishment.pix_holder_name || establishmentInfo.name || 'Estabelecimento';
-            pixQrCode = await generatePixQrCode(pixKey, holderName, finalTotal);
+            pixQrCode = await generatePixQrCode(normalizedPixKey, holderName, finalTotal);
           } else {
             toast.error('Chave PIX não configurada. Configure em Configurações > PIX');
           }

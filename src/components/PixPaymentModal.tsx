@@ -7,6 +7,7 @@ import { QrCode, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-reac
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import QRCode from 'qrcode';
 import { useNavigate } from 'react-router-dom';
+import { normalizePhoneBRToE164 } from '@/utils/phoneNormalizer';
 
 interface PixPaymentModalProps {
   open: boolean;
@@ -65,13 +66,23 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
 
       setPixNotConfigured(false);
 
-      setPixKey(establishment.pix_key_value);
+      // Normalizar chave PIX se for telefone
+      let normalizedPixKey = establishment.pix_key_value;
+      if (establishment.pix_key_type === 'phone') {
+        // Se não começa com +, normalizar para E.164
+        if (!normalizedPixKey.startsWith('+')) {
+          const normalized = normalizePhoneBRToE164(normalizedPixKey);
+          normalizedPixKey = `+${normalized}`;
+        }
+      }
+
+      setPixKey(normalizedPixKey);
       setPixKeyType(establishment.pix_key_type);
 
       // Gerar QR Code PIX
       try {
         const pixPayload = generatePixPayload(
-          establishment.pix_key_value,
+          normalizedPixKey,
           establishment.pix_holder_name || 'Estabelecimento',
           amount
         );
@@ -111,20 +122,32 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
   const validatePixKey = (key: string, type: string): boolean => {
     if (!key || !type) return false;
     
-    // Remove caracteres especiais
-    const cleanKey = key.replace(/[^\w@.-]/g, '');
-    
     switch (type.toLowerCase()) {
-      case 'cpf':
+      case 'cpf': {
+        const cleanKey = key.replace(/\D/g, '');
         return /^\d{11}$/.test(cleanKey);
-      case 'cnpj':
+      }
+      case 'cnpj': {
+        const cleanKey = key.replace(/\D/g, '');
         return /^\d{14}$/.test(cleanKey);
+      }
       case 'email':
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanKey);
-      case 'phone':
-        return /^\d{10,11}$/.test(cleanKey);
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key.trim());
+      case 'phone': {
+        // Aceita telefone no formato E.164 (+55XXXXXXXXXXX) ou formato brasileiro (XX) XXXXX-XXXX
+        // Remove caracteres não numéricos exceto +
+        const cleanKey = key.replace(/[^\d+]/g, '');
+        // Se começa com +, deve ter +55 seguido de 11 dígitos (total 13 dígitos após +55)
+        if (cleanKey.startsWith('+')) {
+          const digits = cleanKey.substring(1).replace(/\D/g, '');
+          return digits.startsWith('55') && (digits.length === 13 || digits.length === 12);
+        }
+        // Se não começa com +, aceita 10 ou 11 dígitos (será normalizado depois)
+        const digits = cleanKey.replace(/\D/g, '');
+        return digits.length === 10 || digits.length === 11;
+      }
       case 'random':
-        return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(cleanKey);
+        return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(key);
       default:
         return false;
     }
@@ -149,7 +172,12 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
     }
 
     const amountStr = amount.toFixed(2);
-    const cleanKey = key.trim();
+    // Para chaves de telefone, remover o + do formato E.164 (o padrão PIX requer apenas dígitos)
+    // Exemplo: +5511999999999 -> 5511999999999
+    let cleanKey = key.trim();
+    if (cleanKey.startsWith('+')) {
+      cleanKey = cleanKey.substring(1);
+    }
 
     const tag = (id: string, value: string) => `${id}${value.length.toString().padStart(2, '0')}${value}`;
 

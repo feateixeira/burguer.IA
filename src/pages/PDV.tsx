@@ -6,10 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { 
-  Plus, 
-  Minus, 
-  ShoppingCart, 
+import {
+  Plus,
+  Minus,
+  ShoppingCart,
   Receipt,
   Search,
   X,
@@ -157,7 +157,7 @@ const PDV = () => {
     const initializeData = async () => {
       if (hasLoaded || !isMounted) return;
       hasLoaded = true;
-      
+
       await Promise.all([
         loadProducts(),
         loadCustomers()
@@ -224,7 +224,7 @@ const PDV = () => {
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault();
         if (!showSauceDialogRef.current && !showPixModalRef.current && !showCashModalRef.current) {
-          const total = selectedCustomerRef.current && selectedCustomerRef.current.groups.length > 0 ? 
+          const total = selectedCustomerRef.current && selectedCustomerRef.current.groups.length > 0 ?
             calculateDiscountedTotal() : calculateTotal();
           if (paymentMethodRef.current === 'dinheiro') {
             setCashGiven(Number(total));
@@ -277,20 +277,20 @@ const PDV = () => {
     const reloadProducts = async () => {
       if (!isMounted) return;
       try {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("name");
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("name");
         if (!error && data && isMounted) {
           // Só atualiza se os dados realmente mudaram
           setProducts(prev => {
             const prevIds = new Set(prev.map(p => p.id));
             const newIds = new Set(data.map(p => p.id));
-            if (prevIds.size !== newIds.size || 
-                ![...prevIds].every(id => newIds.has(id)) ||
-                ![...newIds].every(id => prevIds.has(id))) {
+            if (prevIds.size !== newIds.size ||
+              ![...prevIds].every(id => newIds.has(id)) ||
+              ![...newIds].every(id => prevIds.has(id))) {
               return data;
             }
             // Verificar se algum produto mudou
@@ -309,12 +309,12 @@ const PDV = () => {
     const reloadCategories = async () => {
       if (!isMounted) return;
       try {
-      const { data, error } = await supabase
-        .from("categories")
-        .select("*")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("sort_order");
+        const { data, error } = await supabase
+          .from("categories")
+          .select("*")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("sort_order");
         if (!error && data && isMounted) {
           setCategories(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -322,7 +322,7 @@ const PDV = () => {
             }
             return data;
           });
-          
+
           // Buscar ID da categoria "Adicionais" para filtrar
           const addonsCategory = data.find(cat => cat.name === "Adicionais");
           setAddonsCategoryId(addonsCategory?.id || null);
@@ -335,12 +335,12 @@ const PDV = () => {
     const reloadCombos = async () => {
       if (!isMounted) return;
       try {
-      const { data, error } = await supabase
-        .from("combos")
-        .select("*, combo_items(product_id, quantity)")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true)
-        .order("sort_order");
+        const { data, error } = await supabase
+          .from("combos")
+          .select("*, combo_items(product_id, quantity)")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true)
+          .order("sort_order");
         if (!error && data && isMounted) {
           setCombos(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -357,11 +357,11 @@ const PDV = () => {
     const reloadPromotions = async () => {
       if (!isMounted) return;
       try {
-      const { data, error } = await supabase
-        .from("promotions")
-        .select("*, promotion_products(product_id, fixed_price)")
-        .eq("establishment_id", establishmentId)
-        .eq("active", true);
+        const { data, error } = await supabase
+          .from("promotions")
+          .select("*, promotion_products(product_id, fixed_price)")
+          .eq("establishment_id", establishmentId)
+          .eq("active", true);
         if (!error && data && isMounted) {
           setPromotions(prev => {
             if (JSON.stringify(prev) === JSON.stringify(data)) {
@@ -626,7 +626,7 @@ const PDV = () => {
   const loadOrderForEditing = async (orderId: string) => {
     try {
       setLoading(true);
-      
+
       // Carregar pedido completo com itens
       const { data: order, error: orderError } = await supabase
         .from("orders")
@@ -666,10 +666,10 @@ const PDV = () => {
       setCustomerName(order.customer_name || "");
       setCustomerPhone(order.customer_phone || "");
       setCustomerSearch(order.customer_name || "");
-      
+
       // Buscar cliente se houver telefone
       if (order.customer_phone) {
-        const matchingCustomer = customers.find(c => 
+        const matchingCustomer = customers.find(c =>
           c.phone === order.customer_phone || c.name === order.customer_name
         );
         if (matchingCustomer) {
@@ -696,7 +696,7 @@ const PDV = () => {
 
       // Popular carrinho com itens do pedido
       const cartItems: CartItem[] = [];
-      
+
       for (const item of order.order_items || []) {
         const product = item.products;
         if (!product) continue;
@@ -739,7 +739,7 @@ const PDV = () => {
         // O unit_price já inclui tudo, então precisamos calcular o preço base
         const addonsPrice = addons.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0);
         const basePrice = item.unit_price - addonsPrice;
-        
+
         // Tentar extrair preço de molhos (se houver nas notes)
         if (notes.includes("molhos") || notes.includes("Molhos:")) {
           const sauceMatch = notes.match(/\+ R\$\s*([\d,\.]+)\s*\(molhos\)/);
@@ -796,11 +796,11 @@ const PDV = () => {
 
   const getCustomerDiscount = () => {
     if (!selectedCustomer || selectedCustomer.groups.length === 0) return { percentage: 0, amount: 0 };
-    
+
     // Apply the best discount available from customer groups
     let bestPercentage = 0;
     let bestAmount = 0;
-    
+
     selectedCustomer.groups.forEach(group => {
       if (group.discount_percentage > bestPercentage) {
         bestPercentage = group.discount_percentage;
@@ -809,7 +809,7 @@ const PDV = () => {
         bestAmount = group.discount_amount;
       }
     });
-    
+
     return { percentage: bestPercentage, amount: bestAmount };
   };
 
@@ -818,7 +818,7 @@ const PDV = () => {
     // Se for entrega e houver promoção de frete grátis ativa, não cobrar frete
     const deliveryCost = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
     const discount = getCustomerDiscount();
-    
+
     let discountValue = 0;
     if (discount.percentage > 0) {
       discountValue = subtotal * (discount.percentage / 100);
@@ -826,35 +826,35 @@ const PDV = () => {
     if (discount.amount > 0) {
       discountValue = Math.max(discountValue, discount.amount);
     }
-    
+
     return Math.max(0, subtotal - discountValue + deliveryCost);
   };
 
   const isHamburger = (product: Product | null) => {
     if (!product) return false;
-    const hamburgerCategory = categories.find(cat => 
-      cat.name?.toLowerCase().includes('hambúrguer') || 
+    const hamburgerCategory = categories.find(cat =>
+      cat.name?.toLowerCase().includes('hambúrguer') ||
       cat.name?.toLowerCase().includes('hamburger')
     );
-    return product.category_id === hamburgerCategory?.id || 
-           product.name.toLowerCase().includes('hambúrguer') ||
-           product.name.toLowerCase().includes('hamburger');
+    return product.category_id === hamburgerCategory?.id ||
+      product.name.toLowerCase().includes('hambúrguer') ||
+      product.name.toLowerCase().includes('hamburger');
   };
 
   const isTriplo = (product: Product | null) => {
     if (!product) return false;
     const productNameLower = product.name.toLowerCase().trim();
-    
+
     // Verificar se contém "triplo" (lógica padrão)
     if (productNameLower.includes('triplo')) return true;
-    
+
     // Verificar se é o estabelecimento "Na Brasa" e o produto é "Na Brasa Eno - Mostro"
     const establishmentNameLower = (establishmentInfo.name || '').toLowerCase().trim();
-    const isNaBrasa = establishmentNameLower.includes('na brasa') || 
-                      establishmentNameLower.includes('nabrasa') ||
-                      establishmentNameLower.includes('hamburgueria na brasa') ||
-                      establishmentNameLower === 'na brasa';
-    
+    const isNaBrasa = establishmentNameLower.includes('na brasa') ||
+      establishmentNameLower.includes('nabrasa') ||
+      establishmentNameLower.includes('hamburgueria na brasa') ||
+      establishmentNameLower === 'na brasa';
+
     if (isNaBrasa) {
       // Verificar variações do nome: "Na Brasa Eno - Mostro", "Na Brasa Eno - Monstro", "ENO Mostro", etc.
       // Verificar se contém "eno" e "mostro" ou "monstro" (pode estar em qualquer ordem ou formato)
@@ -864,23 +864,23 @@ const PDV = () => {
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^\w\s]/g, ' ')
         .replace(/\s+/g, ' ');
-      
+
       const hasEno = normalizedName.includes('eno');
       // Aceitar tanto "mostro" quanto "monstro" (com ou sem "o" no final)
       const hasMostro = normalizedName.includes('mostro') || normalizedName.includes('monstro');
-      
+
       if (hasEno && hasMostro) {
         return true;
       }
     }
-    
+
     return false;
   };
 
   const isDrink = (product: Product | null) => {
     if (!product) return false;
-    const drinkCategory = categories.find(cat => 
-      cat.name?.toLowerCase().includes('bebida') || 
+    const drinkCategory = categories.find(cat =>
+      cat.name?.toLowerCase().includes('bebida') ||
       cat.name?.toLowerCase().includes('refri') ||
       cat.name?.toLowerCase().includes('drink')
     );
@@ -895,9 +895,9 @@ const PDV = () => {
   // Filtro específico para bebidas do combo: apenas refrigerantes LATA, sucos e cremes
   const isComboDrink = (product: Product | null) => {
     if (!product || !isDrink(product)) return false;
-    
+
     const nameLower = product.name.toLowerCase();
-    
+
     // Excluir bebidas que não devem aparecer no combo
     const excludedKeywords = [
       'dell vale',
@@ -907,11 +907,11 @@ const PDV = () => {
       '600 ml',
       'pet'
     ];
-    
+
     if (excludedKeywords.some(keyword => nameLower.includes(keyword))) {
       return false;
     }
-    
+
     // Incluir apenas: refrigerantes lata, sucos e cremes
     const includedKeywords = [
       'lata',
@@ -924,13 +924,13 @@ const PDV = () => {
       'milk shake',
       'milkshake'
     ];
-    
+
     return includedKeywords.some(keyword => nameLower.includes(keyword));
   };
 
   const checkProductHasAddons = async (product: Product): Promise<boolean> => {
     if (!establishmentId || !product.id) return false;
-    
+
     try {
       const promises: Promise<any>[] = [];
 
@@ -971,7 +971,7 @@ const PDV = () => {
 
   const handleProductClick = async (product: Product) => {
     const productWithPromotion = applyPromotionIfAny(product);
-    
+
     if (isHamburger(product)) {
       // Para hambúrgueres, primeiro verificar adicionais, depois molhos
       const hasAddons = await checkProductHasAddons(product);
@@ -1022,13 +1022,13 @@ const PDV = () => {
   };
 
   const addToCart = (
-    product: Product | (Product & { originalPrice?: number; promotionId?: string; promotionName?: string }), 
-    notes?: string, 
+    product: Product | (Product & { originalPrice?: number; promotionId?: string; promotionName?: string }),
+    notes?: string,
     saucePrice?: number,
     addons?: Addon[]
   ) => {
     // Criar uma chave única para o item do carrinho baseada em id, notes e adicionais
-    const addonsKey = addons && addons.length > 0 
+    const addonsKey = addons && addons.length > 0
       ? addons.map(a => `${a.id}-${a.quantity}`).sort().join(',')
       : '';
     const itemKey = `${product.id}-${notes || ''}-${addonsKey}`;
@@ -1059,7 +1059,7 @@ const PDV = () => {
 
   const addComboToCart = (combo: any) => {
     if (!combo?.combo_items) return;
-    
+
     // Add combo as a single product with combo price
     const comboAsProduct: Product = {
       id: combo.id,
@@ -1125,16 +1125,16 @@ const PDV = () => {
 
   const handleDrinkConfirm = () => {
     if (!selectedDrink || !pendingComboAsProduct) return;
-    
+
     const drinkNote = `Bebida: ${selectedDrink.name}`;
-    
+
     // Verifica se o combo também tem hambúrguer (depois de escolher bebida, vai para molhos)
     const comboWithDrink = combos.find(c => c.id === pendingComboAsProduct.id);
     if (comboWithDrink) {
       const burgerInCombo: Product | undefined = comboWithDrink.combo_items
         .map((ci: any) => products.find(p => p.id === ci.product_id))
         .find((p: Product | undefined) => !!p && isHamburger(p));
-      
+
       if (burgerInCombo) {
         // Tem hambúrguer: guardar a bebida e abrir diálogo de molhos
         setSelectedProduct(burgerInCombo);
@@ -1150,11 +1150,11 @@ const PDV = () => {
         return;
       }
     }
-    
+
     // Se não tem hambúrguer: adicionar combo com bebida escolhida
     addToCart(applyPromotionIfAny(pendingComboAsProduct), `Combo - ${drinkNote}`);
     toast.success(`Combo "${pendingComboAsProduct.name}" adicionado ao carrinho`);
-    
+
     setShowDrinkDialog(false);
     setSelectedDrink(null);
     setComboDrinkItem(null);
@@ -1165,7 +1165,7 @@ const PDV = () => {
     if (!selectedProduct) return;
     const saucePrice = calculateSaucePrice(selectedProduct, selectedSauces);
     const sauceNames = selectedSauces.length > 0 ? selectedSauces.join(", ") : "Sem molho";
-    
+
     // Verifica se tem bebida escolhida no combo pendente
     let notes = sauceNote ? `Molhos: ${sauceNames}. Obs: ${sauceNote}` : `Molhos: ${sauceNames}`;
     if (pendingComboAsProduct?.description?.includes('Bebida:')) {
@@ -1183,7 +1183,7 @@ const PDV = () => {
       // Fluxo original para hambúrguer avulso
       addToCart(applyPromotionIfAny(selectedProduct), notes, saucePrice, addons);
     }
-    
+
     // Limpar adicionais dos produtos pendentes
     if ((selectedProduct as any).addons) {
       delete (selectedProduct as any).addons;
@@ -1191,7 +1191,7 @@ const PDV = () => {
     if ((pendingProduct as any)?.addons) {
       setPendingProduct(null);
     }
-    
+
     setShowSauceDialog(false);
     setSelectedProduct(null);
     setSauceNote("");
@@ -1203,13 +1203,13 @@ const PDV = () => {
       removeFromCart(productId, notes, addons);
       return;
     }
-    
+
     // Criar chave única baseada em id, notes e adicionais
-    const addonsKey = addons && addons.length > 0 
+    const addonsKey = addons && addons.length > 0
       ? addons.map(a => `${a.id}-${a.quantity}`).sort().join(',')
       : '';
     const itemKey = `${productId}-${notes || ''}-${addonsKey}`;
-    
+
     setCart(prevCart =>
       prevCart.map(item => {
         const itemAddonsKey = item.addons && item.addons.length > 0
@@ -1226,7 +1226,7 @@ const PDV = () => {
       ? addons.map(a => `${a.id}-${a.quantity}`).sort().join(',')
       : '';
     const itemKey = `${productId}-${notes || ''}-${addonsKey}`;
-    
+
     setCart(prevCart => {
       return prevCart.filter(item => {
         const itemAddonsKey = item.addons && item.addons.length > 0
@@ -1301,16 +1301,16 @@ const PDV = () => {
       const subtotal = calculateSubtotal();
       // Calcular frete: se houver promoção de frete grátis, frete é 0
       const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
-      const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ? 
+      const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ?
         calculateDiscountedTotal() : calculateTotal();
-      const discountAmount = selectedCustomer && selectedCustomer.groups.length > 0 ? 
+      const discountAmount = selectedCustomer && selectedCustomer.groups.length > 0 ?
         (subtotal + finalDeliveryFee - finalTotal) : 0;
 
       // Verificar se é PIX para abrir modal informativo (mas pagamento já é considerado efetuado)
       const isPix = paymentMethod === "pix";
-      
+
       // Preparar notes com instruções gerais se houver
-      const orderNotes = generalInstructions.trim() 
+      const orderNotes = generalInstructions.trim()
         ? `Instruções do Pedido: ${generalInstructions.trim()}`
         : null;
 
@@ -1320,7 +1320,7 @@ const PDV = () => {
       // Se estiver editando um pedido existente
       if (editingOrderId && editingOrderNumber) {
         orderNumber = editingOrderNumber;
-        
+
         // Atualizar pedido existente
         const { data: updatedOrder, error: orderError } = await supabase
           .from("orders")
@@ -1363,7 +1363,7 @@ const PDV = () => {
           return;
         }
         orderNumber = newOrderNumber;
-        
+
         // Criar novo pedido
         const { data: newOrder, error: orderError } = await supabase
           .from("orders")
@@ -1430,7 +1430,7 @@ const PDV = () => {
           // Calcular preço dos adicionais
           const addonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
           const unitPrice = item.price + (item.saucePrice || 0) + addonsPrice;
-          
+
           // Preparar customizations com adicionais
           const customizations: any = {};
           if (item.addons && item.addons.length > 0) {
@@ -1441,7 +1441,7 @@ const PDV = () => {
               price: addon.price
             }));
           }
-          
+
           // Preparar notes incluindo adicionais
           let notes = item.notes || '';
           if (item.addons && item.addons.length > 0) {
@@ -1451,7 +1451,7 @@ const PDV = () => {
           if (item.promotionName) {
             notes = `${notes ? notes + ' | ' : ''}Promoção: ${item.promotionName}${item.originalPrice ? ` (de R$ ${Number(item.originalPrice).toFixed(2)} por R$ ${Number(item.price).toFixed(2)})` : ''}`;
           }
-          
+
           return {
             order_id: order.id,
             product_id: productId,
@@ -1495,7 +1495,7 @@ const PDV = () => {
       let pixQrCode: string | undefined;
       let pixKey: string | undefined;
       let pixKeyType: string | undefined;
-      
+
       if (isPix) {
         try {
           const { data: establishment } = await supabase
@@ -1506,11 +1506,14 @@ const PDV = () => {
 
           if (establishment?.pix_key_value) {
             // Normalizar chave PIX se for telefone
+            // Normalizar chave PIX se for telefone
             let normalizedPixKey = establishment.pix_key_value;
-            if (establishment.pix_key_type === 'phone') {
-              // Se não começa com +, normalizar para E.164
-              if (!normalizedPixKey.startsWith('+')) {
-                const normalized = normalizePhoneBRToE164(normalizedPixKey);
+            // Verificar case-insensitive e garantir normalização para vários termos
+            const type = establishment.pix_key_type?.toLowerCase().trim() || '';
+            if (['phone', 'celular', 'telefone', 'tel'].includes(type) && normalizedPixKey) {
+              // Sempre normalizar para garantir apenas dígitos (remove formatação e garante +55)
+              const normalized = normalizePhoneBRToE164(normalizedPixKey);
+              if (normalized) {
                 normalizedPixKey = `+${normalized}`;
               }
             }
@@ -1542,11 +1545,11 @@ const PDV = () => {
           if (item.promotionName) {
             notes = `${notes ? notes + ' | ' : ''}Promoção: ${item.promotionName}${item.originalPrice ? ` (de R$ ${Number(item.originalPrice).toFixed(2)} por R$ ${Number(item.price).toFixed(2)})` : ''}`;
           }
-          
+
           // Calcular preço total incluindo adicionais
           const addonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
           const unitPrice = item.price + (item.saucePrice || 0) + addonsPrice;
-          
+
           return {
             name: item.name,
             quantity: item.quantity,
@@ -1592,7 +1595,7 @@ const PDV = () => {
       setSelectedDeliveryBoy("");
       setPaymentMethod("");
       setGeneralInstructions("");
-      
+
       // Limpar estados de edição
       if (editingOrderId) {
         setEditingOrderId(null);
@@ -1634,7 +1637,7 @@ const PDV = () => {
     setPendingOrderAmount(0);
     setPendingReceiptData(null);
     setShowPixModal(false);
-    
+
     // Limpar estados de edição
     if (wasEditing) {
       setEditingOrderId(null);
@@ -1725,30 +1728,30 @@ const PDV = () => {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
-      
+
       // Parse items (format: 1x Item Name - R$ 23.00)
       const itemMatch = line.match(/^(\d+)x\s+(.+?)\s+-.*?R\$\s*([\d,\.]+)$/);
       if (itemMatch) {
         const quantity = parseInt(itemMatch[1]);
         const name = itemMatch[2].trim();
         const price = parseFloat(itemMatch[3].replace(',', '.'));
-        
+
         // Check next line for notes (Molhos, Observações, etc)
         let notes = "";
         if (i + 1 < lines.length && lines[i + 1].trim().includes(':')) {
           notes = lines[i + 1].trim();
           i++; // Skip next line as we've processed it
         }
-        
+
         items.push({ name, quantity, price, notes });
       }
-      
+
       // Parse total
       const totalMatch = line.match(/^Total:\s*R\$\s*([\d,\.]+)$/);
       if (totalMatch) {
         total = parseFloat(totalMatch[1].replace(',', '.'));
       }
-      
+
       // Parse delivery type
       if (line.includes('Forma de entrega:')) {
         if (line.toLowerCase().includes('entrega') || line.toLowerCase().includes('delivery')) {
@@ -1757,7 +1760,7 @@ const PDV = () => {
           orderType = "balcao";
         }
       }
-      
+
       // Parse payment method
       if (line.includes('Forma de pagamento:')) {
         paymentMethod = line.split(':')[1]?.trim() || "";
@@ -1818,20 +1821,20 @@ const PDV = () => {
       return false;
     });
     if (!applicable) return null;
-    
+
     // Se for promoção do tipo produto com promotion_products, usar o valor fixo
     if (applicable.type === 'product' && applicable.promotion_products && Array.isArray(applicable.promotion_products)) {
       const productPromotion = applicable.promotion_products.find((pp: any) => pp.product_id === product.id);
       if (productPromotion && productPromotion.fixed_price !== null && productPromotion.fixed_price !== undefined) {
-        return { 
-          price: Number(productPromotion.fixed_price), 
-          originalPrice: product.price, 
-          promotionId: applicable.id, 
-          promotionName: applicable.name 
+        return {
+          price: Number(productPromotion.fixed_price),
+          originalPrice: product.price,
+          promotionId: applicable.id,
+          promotionName: applicable.name
         };
       }
     }
-    
+
     // Para outros tipos de promoção, calcular desconto normalmente
     const discounted = computeDiscountedPrice(product.price, applicable);
     return { price: discounted, originalPrice: product.price, promotionId: applicable.id, promotionName: applicable.name };
@@ -1865,7 +1868,7 @@ const PDV = () => {
 
     try {
       const parsed = parseWhatsAppOrder(whatsappOrderText);
-      
+
       if (parsed.items.length === 0) {
         toast.error("Não foi possível identificar os itens do pedido");
         return;
@@ -1892,7 +1895,7 @@ const PDV = () => {
       let discountAmount = 0;
       let finalTotal = parsed.total;
       const subtotal = parsed.items.reduce((sum, item) => sum + item.price, 0);
-      
+
       if (whatsappSelectedCustomer && whatsappSelectedCustomer.groups.length > 0) {
         const discount = getCustomerDiscount();
         if (discount.percentage > 0) {
@@ -1995,8 +1998,8 @@ const PDV = () => {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      
-      <main 
+
+      <main
         className="transition-all duration-300 ease-in-out"
         style={{
           marginLeft: isDesktop ? `${sidebarWidth}px` : '0px',
@@ -2084,11 +2087,11 @@ const PDV = () => {
                                               <span className="font-bold text-primary text-sm">R$ {product.price.toFixed(2)}</span>
                                             );
                                           })()}
-                                           <Button 
-                                             size="sm" 
-                                             onClick={(e) => { e.stopPropagation(); handleProductClick(product); }}
-                                             className="h-6 w-6 p-0"
-                                           >
+                                          <Button
+                                            size="sm"
+                                            onClick={(e) => { e.stopPropagation(); handleProductClick(product); }}
+                                            className="h-6 w-6 p-0"
+                                          >
                                             <Plus className="h-3 w-3" />
                                           </Button>
                                         </div>
@@ -2140,8 +2143,8 @@ const PDV = () => {
                                         <span className="font-bold text-primary text-sm">
                                           R$ {Number(combo.price || 0).toFixed(2)}
                                         </span>
-                                        <Button 
-                                          size="sm" 
+                                        <Button
+                                          size="sm"
                                           onClick={() => addComboToCart(combo)}
                                           className="h-6 w-6 p-0">
                                           <Plus className="h-3 w-3" />
@@ -2168,91 +2171,91 @@ const PDV = () => {
                     <ShoppingCart className="mr-2 h-5 w-5" />
                     Carrinho ({cart.reduce((sum, item) => sum + item.quantity, 0)})
                   </CardTitle>
-                 </CardHeader>
+                </CardHeader>
                 <CardContent className="space-y-4">
-                   {/* Customer Search - Unified */}
-                   <div className="space-y-2">
-                      <Label className="text-sm font-medium">Cliente</Label>
-                      <div className="relative">
-                        <Input
-                          placeholder="Nome do cliente ou buscar cadastrado..."
-                          value={customerSearch}
-                          onChange={(e) => {
-                            setCustomerSearch(e.target.value);
-                            setCustomerName(e.target.value);
-                            setShowCustomerDropdown(e.target.value.length > 0);
-                            if (e.target.value === "") {
-                              setSelectedCustomer(null);
-                            }
-                          }}
-                          onFocus={() => setShowCustomerDropdown(customerSearch.length > 0)}
-                        />
-                        
-                        {showCustomerDropdown && getFilteredCustomers().length > 0 && (
-                          <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                            {getFilteredCustomers().map((customer) => (
-                              <div
-                                key={customer.id}
-                                className="p-2 hover:bg-accent cursor-pointer"
-                                onClick={() => selectCustomer(customer)}
-                              >
-                                <div className="flex justify-between items-center">
-                                  <div>
-                                    <p className="text-sm font-medium">{customer.name}</p>
-                                    {customer.phone && (
-                                      <p className="text-xs text-muted-foreground">{customer.phone}</p>
-                                    )}
-                                  </div>
-                                  {customer.groups.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {customer.groups.map((group) => (
-                                        <Badge key={group.id} variant="secondary" className="text-xs">
-                                          {group.discount_percentage > 0 && `${group.discount_percentage}%`}
-                                          {group.discount_amount > 0 && `R$ ${group.discount_amount}`}
-                                        </Badge>
-                                      ))}
-                                    </div>
+                  {/* Customer Search - Unified */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Cliente</Label>
+                    <div className="relative">
+                      <Input
+                        placeholder="Nome do cliente ou buscar cadastrado..."
+                        value={customerSearch}
+                        onChange={(e) => {
+                          setCustomerSearch(e.target.value);
+                          setCustomerName(e.target.value);
+                          setShowCustomerDropdown(e.target.value.length > 0);
+                          if (e.target.value === "") {
+                            setSelectedCustomer(null);
+                          }
+                        }}
+                        onFocus={() => setShowCustomerDropdown(customerSearch.length > 0)}
+                      />
+
+                      {showCustomerDropdown && getFilteredCustomers().length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {getFilteredCustomers().map((customer) => (
+                            <div
+                              key={customer.id}
+                              className="p-2 hover:bg-accent cursor-pointer"
+                              onClick={() => selectCustomer(customer)}
+                            >
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <p className="text-sm font-medium">{customer.name}</p>
+                                  {customer.phone && (
+                                    <p className="text-xs text-muted-foreground">{customer.phone}</p>
                                   )}
                                 </div>
+                                {customer.groups.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {customer.groups.map((group) => (
+                                      <Badge key={group.id} variant="secondary" className="text-xs">
+                                        {group.discount_percentage > 0 && `${group.discount_percentage}%`}
+                                        {group.discount_amount > 0 && `R$ ${group.discount_amount}`}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {selectedCustomer && (
-                        <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                                {selectedCustomer.name}
-                              </p>
-                              {selectedCustomer.phone && (
-                                <p className="text-xs text-green-600 dark:text-green-400">{selectedCustomer.phone}</p>
-                              )}
                             </div>
-                            {selectedCustomer.groups.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {selectedCustomer.groups.map((group) => (
-                                  <Badge key={group.id} variant="secondary" className="text-xs">
-                                    {group.discount_percentage > 0 && `${group.discount_percentage}%`}
-                                    {group.discount_amount > 0 && `R$ ${group.discount_amount}`}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          ))}
                         </div>
                       )}
-                      
-                      {!selectedCustomer && customerPhone && (
-                        <Input
-                          placeholder="Telefone (opcional)"
-                          value={customerPhone}
-                          onChange={(e) => setCustomerPhone(e.target.value)}
-                        />
-                      )}
                     </div>
+
+                    {selectedCustomer && (
+                      <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                              {selectedCustomer.name}
+                            </p>
+                            {selectedCustomer.phone && (
+                              <p className="text-xs text-green-600 dark:text-green-400">{selectedCustomer.phone}</p>
+                            )}
+                          </div>
+                          {selectedCustomer.groups.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {selectedCustomer.groups.map((group) => (
+                                <Badge key={group.id} variant="secondary" className="text-xs">
+                                  {group.discount_percentage > 0 && `${group.discount_percentage}%`}
+                                  {group.discount_amount > 0 && `R$ ${group.discount_amount}`}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!selectedCustomer && customerPhone && (
+                      <Input
+                        placeholder="Telefone (opcional)"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                      />
+                    )}
+                  </div>
 
                   {/* Delivery Toggle */}
                   <div className="flex items-center justify-between p-3 border rounded">
@@ -2357,74 +2360,74 @@ const PDV = () => {
                         : '';
                       const itemKey = `${item.id}-${item.notes || ''}-${itemAddonsKey}-${idx}`;
                       return (
-                      <div key={itemKey} className="flex items-center justify-between p-2 border rounded">
-                         <div className="flex-1">
-                          <p className="text-sm font-medium">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.originalPrice ? (
-                              <>
-                                <span className="font-semibold text-green-700 dark:text-green-300">R$ {item.price.toFixed(2)}</span>
-                                <span className="ml-2 line-through">R$ {Number(item.originalPrice).toFixed(2)}</span>
-                              </>
-                            ) : (
-                              <>R$ {item.price.toFixed(2)}</>
-                            )}
-                            {item.saucePrice ? ` + R$ ${item.saucePrice.toFixed(2)} (molhos)` : ''}
-                            {item.addons && item.addons.length > 0 && (
-                              <>
-                                {' + R$ '}
-                                {item.addons.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0).toFixed(2)}
-                                {' (adicionais)'}
-                              </>
-                            )}
-                            {' cada'}
-                          </p>
-                          {item.addons && item.addons.length > 0 && (
-                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                              Adicionais: {item.addons.map(a => `${a.quantity}x ${a.name}`).join(', ')}
+                        <div key={itemKey} className="flex items-center justify-between p-2 border rounded">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.originalPrice ? (
+                                <>
+                                  <span className="font-semibold text-green-700 dark:text-green-300">R$ {item.price.toFixed(2)}</span>
+                                  <span className="ml-2 line-through">R$ {Number(item.originalPrice).toFixed(2)}</span>
+                                </>
+                              ) : (
+                                <>R$ {item.price.toFixed(2)}</>
+                              )}
+                              {item.saucePrice ? ` + R$ ${item.saucePrice.toFixed(2)} (molhos)` : ''}
+                              {item.addons && item.addons.length > 0 && (
+                                <>
+                                  {' + R$ '}
+                                  {item.addons.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0).toFixed(2)}
+                                  {' (adicionais)'}
+                                </>
+                              )}
+                              {' cada'}
                             </p>
-                          )}
-                          {item.promotionName && (
-                            <p className="text-[10px] text-green-700 dark:text-green-300">Promoção: {item.promotionName}</p>
-                          )}
-                           {item.notes && (
-                             <p className="text-xs text-orange-600 mt-1">
-                               {item.notes}
-                             </p>
-                           )}
-                         </div>
-                        
-                        <div className="flex items-center space-x-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => updateQuantity(item.id, item.notes, item.quantity - 1, item.addons)}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          
-                          <span className="text-sm w-8 text-center">{item.quantity}</span>
-                          
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => updateQuantity(item.id, item.notes, item.quantity + 1, item.addons)}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                          
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => removeFromCart(item.id, item.notes, item.addons)}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
+                            {item.addons && item.addons.length > 0 && (
+                              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                Adicionais: {item.addons.map(a => `${a.quantity}x ${a.name}`).join(', ')}
+                              </p>
+                            )}
+                            {item.promotionName && (
+                              <p className="text-[10px] text-green-700 dark:text-green-300">Promoção: {item.promotionName}</p>
+                            )}
+                            {item.notes && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                {item.notes}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => updateQuantity(item.id, item.notes, item.quantity - 1, item.addons)}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+
+                            <span className="text-sm w-8 text-center">{item.quantity}</span>
+
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => updateQuantity(item.id, item.notes, item.quantity + 1, item.addons)}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => removeFromCart(item.id, item.notes, item.addons)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
                       );
                     })}
                   </div>
@@ -2443,47 +2446,47 @@ const PDV = () => {
                           <span>Subtotal:</span>
                           <span>R$ {calculateSubtotal().toFixed(2)}</span>
                         </div>
-                         {includeDelivery && (
-                           <div className="flex justify-between">
-                             <span>Taxa de entrega:</span>
-                             <span>
-                               {freeDeliveryPromotionId ? (
-                                 <span className="text-green-600 font-semibold">Grátis</span>
-                               ) : (
-                                 `R$ ${deliveryFee.toFixed(2)}`
-                               )}
-                             </span>
-                           </div>
-                         )}
-                         {selectedCustomer && selectedCustomer.groups.length > 0 && (() => {
-                           const discount = getCustomerDiscount();
-                           const subtotal = calculateSubtotal();
-                           let discountValue = 0;
-                           if (discount.percentage > 0) {
-                             discountValue = subtotal * (discount.percentage / 100);
-                           }
-                           if (discount.amount > 0) {
-                             discountValue = Math.max(discountValue, discount.amount);
-                           }
-                           
-                           return discountValue > 0 ? (
-                             <div className="flex justify-between text-green-600">
-                               <span>Desconto do grupo:</span>
-                               <span>- R$ {discountValue.toFixed(2)}</span>
-                             </div>
-                           ) : null;
-                         })()}
-                         <div className="flex justify-between text-lg font-bold border-t pt-2">
-                           <span>Total:</span>
-                           <span>R$ {selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal().toFixed(2) : calculateTotal().toFixed(2)}</span>
-                         </div>
+                        {includeDelivery && (
+                          <div className="flex justify-between">
+                            <span>Taxa de entrega:</span>
+                            <span>
+                              {freeDeliveryPromotionId ? (
+                                <span className="text-green-600 font-semibold">Grátis</span>
+                              ) : (
+                                `R$ ${deliveryFee.toFixed(2)}`
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {selectedCustomer && selectedCustomer.groups.length > 0 && (() => {
+                          const discount = getCustomerDiscount();
+                          const subtotal = calculateSubtotal();
+                          let discountValue = 0;
+                          if (discount.percentage > 0) {
+                            discountValue = subtotal * (discount.percentage / 100);
+                          }
+                          if (discount.amount > 0) {
+                            discountValue = Math.max(discountValue, discount.amount);
+                          }
+
+                          return discountValue > 0 ? (
+                            <div className="flex justify-between text-green-600">
+                              <span>Desconto do grupo:</span>
+                              <span>- R$ {discountValue.toFixed(2)}</span>
+                            </div>
+                          ) : null;
+                        })()}
+                        <div className="flex justify-between text-lg font-bold border-t pt-2">
+                          <span>Total:</span>
+                          <span>R$ {selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal().toFixed(2) : calculateTotal().toFixed(2)}</span>
+                        </div>
                       </div>
-                      
-                      <Button 
-                        className="w-full" 
+
+                      <Button
+                        className="w-full"
                         onClick={() => {
                           // Se pagamento em dinheiro, abrir modal antes
-                          const total = selectedCustomer && selectedCustomer.groups.length > 0 ? 
+                          const total = selectedCustomer && selectedCustomer.groups.length > 0 ?
                             calculateDiscountedTotal() : calculateTotal();
                           if (paymentMethod === 'dinheiro') {
                             setCashGiven(Number(total));
@@ -2519,29 +2522,26 @@ const PDV = () => {
             <div className="space-y-3 max-h-96 overflow-y-auto">
               <Label className="text-sm font-medium">Bebidas disponíveis:</Label>
               {products.filter(p => isComboDrink(p)).map((drink) => (
-                <div 
-                  key={drink.id} 
-                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                    selectedDrink?.id === drink.id 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'hover:bg-accent'
-                  }`}
+                <div
+                  key={drink.id}
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${selectedDrink?.id === drink.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-accent'
+                    }`}
                   onClick={() => setSelectedDrink(drink)}
                 >
                   <div className="flex items-center space-x-3">
-                    <div className={`w-4 h-4 rounded-full border-2 ${
-                      selectedDrink?.id === drink.id 
-                        ? 'bg-primary-foreground border-primary-foreground' 
-                        : 'border-current'
-                    }`}>
+                    <div className={`w-4 h-4 rounded-full border-2 ${selectedDrink?.id === drink.id
+                      ? 'bg-primary-foreground border-primary-foreground'
+                      : 'border-current'
+                      }`}>
                       {selectedDrink?.id === drink.id && (
                         <div className="w-full h-full rounded-full bg-primary-foreground" />
                       )}
                     </div>
                     <div>
-                      <Label className={`text-sm font-medium cursor-pointer ${
-                        selectedDrink?.id === drink.id ? 'text-primary-foreground' : ''
-                      }`}>
+                      <Label className={`text-sm font-medium cursor-pointer ${selectedDrink?.id === drink.id ? 'text-primary-foreground' : ''
+                        }`}>
                         {drink.name}
                       </Label>
                       <p className={`text-xs ${selectedDrink?.id === drink.id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
@@ -2605,13 +2605,13 @@ const PDV = () => {
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm font-medium">Molhos selecionados: {selectedSauces.length}</p>
                 <p className="text-xs text-muted-foreground">
-                  Grátis: {isTriplo(selectedProduct) ? '2' : '1'} | 
-                  Pagos: {Math.max(0, selectedSauces.length - (isTriplo(selectedProduct) ? 2 : 1))} | 
+                  Grátis: {isTriplo(selectedProduct) ? '2' : '1'} |
+                  Pagos: {Math.max(0, selectedSauces.length - (isTriplo(selectedProduct) ? 2 : 1))} |
                   Valor extra: R$ {selectedProduct ? calculateSaucePrice(selectedProduct, selectedSauces).toFixed(2) : '0.00'}
                 </p>
               </div>
             )}
-            
+
             <div className="space-y-2">
               <Label htmlFor="custom-sauce">Observação adicional:</Label>
               <Textarea
@@ -2665,7 +2665,7 @@ const PDV = () => {
                   }}
                   onFocus={() => setShowWhatsappCustomerDropdown(whatsappCustomerSearch.length > 0)}
                 />
-                
+
                 {showWhatsappCustomerDropdown && getWhatsappFilteredCustomers().length > 0 && (
                   <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
                     {getWhatsappFilteredCustomers().map((customer) => (
@@ -2697,7 +2697,7 @@ const PDV = () => {
                   </div>
                 )}
               </div>
-              
+
               {whatsappSelectedCustomer && (
                 <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded">
                   <div className="flex justify-between items-center">

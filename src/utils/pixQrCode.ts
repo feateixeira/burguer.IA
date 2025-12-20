@@ -1,90 +1,139 @@
 import QRCode from 'qrcode';
+import { normalizePhoneBRToE164 } from './phoneNormalizer';
 
 /**
- * Gera o payload PIX no formato EMV (padrão brasileiro)
- * Implementação idêntica à que funcionava no PixPaymentModal
- * 
- * IMPORTANTE: Para chaves de telefone, o padrão PIX requer apenas dígitos (sem o +)
- * Formato E.164 para armazenamento: +5511999999999
- * Formato para payload PIX: 5511999999999 (sem o +)
+ * Classe utilitária para gerar payload PIX seguindo o padrão EMV QRCPS-MPM.
+ * Referência: Manual de Padrões para Iniciação do PIX - Banco Central do Brasil.
  */
-export const generatePixPayload = (key: string, name: string, amount: number): string => {
-  if (!key || !key.trim()) {
-    throw new Error('Chave PIX não pode estar vazia');
+class PixPayload {
+  private merchantName: string;
+  private merchantCity: string;
+  private pixKey: string;
+  private amount: string;
+  private txId: string;
+
+  constructor(key: string, name: string, city: string = 'SAO PAULO', amount: number = 0, txId: string = '***') {
+    this.merchantName = this.formatString(name, 25) || 'ESTABELECIMENTO';
+    this.merchantCity = this.formatString(city, 15) || 'SAO PAULO';
+    this.pixKey = this.normalizeKey(key);
+    this.amount = amount.toFixed(2);
+    this.txId = txId;
   }
 
-  // Sanitizar nome (máximo 25 caracteres, apenas alfanuméricos e espaços)
-  const sanitizedName = name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
-    .replace(/[^a-zA-Z0-9\s]/g, '') // Remove caracteres especiais
-    .slice(0, 25)
-    .trim()
-    .toUpperCase();
-
-  if (!sanitizedName) {
-    throw new Error('Nome do estabelecimento inválido');
+  /**
+   * Remove acentos e caracteres especiais, converte para maiúsculas e limita tamanho
+   */
+  private formatString(value: string, maxLength: number): string {
+    if (!value) return '';
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .toUpperCase()
+      .substring(0, maxLength)
+      .trim();
   }
 
-  if (amount <= 0 || amount > 999999.99) {
-    throw new Error('Valor inválido');
-  }
+  /**
+   * Normaliza a chave PIX, especificamente para telefones
+   */
+  private normalizeKey(key: string): string {
+    if (!key) return '';
 
-  const amountStr = amount.toFixed(2);
-  // Para chaves de telefone, remover o + do formato E.164 (o padrão PIX requer apenas dígitos)
-  // Exemplo: +5511999999999 -> 5511999999999
-  let cleanKey = key.trim();
-  if (cleanKey.startsWith('+')) {
-    cleanKey = cleanKey.substring(1);
-  }
-  
-  // Validar que a chave não está vazia após limpeza
-  if (!cleanKey) {
-    throw new Error('Chave PIX inválida após normalização');
-  }
+    let cleanKey = key.trim();
 
-  const tag = (id: string, value: string) => `${id}${value.length.toString().padStart(2, '0')}${value}`;
+    // Tenta detectar se é telefone pelo formato (apenas dígitos ou contém +)
+    // Se tiver caracteres de formatação de telefone ( ) - ou começar com +, ou ter 10-14 dígitos
+    const isLikelyPhone =
+      /^[0-9()-\s+]+$/.test(cleanKey) && // Apenas caracteres de telefone
+      (/[()-\s]/.test(cleanKey) || cleanKey.startsWith('+') || (cleanKey.length >= 10 && cleanKey.length <= 14));
 
-  // Merchant Account Information (ID 26)
-  const gui = tag('00', 'br.gov.bcb.pix');
-  const keyField = tag('01', cleanKey);
-  const mai = tag('26', `${gui}${keyField}`);
+    if (isLikelyPhone) {
+      // Remove tudo que não é dígito para análise
+      const digits = cleanKey.replace(/\D/g, '');
 
-  // Additional Data (ID 62) - Reference label
-  const additional = tag('62', tag('05', '***'));
+      // Se parece ser um telefone (tem entre 10 e 14 dígitos, ou começa com 55 e tem tamanho ok)
+      // A função normalizePhoneBRToE164 lida com a lógica de adicionar 55 e 9 dígitos
+      const normalized = normalizePhoneBRToE164(cleanKey);
 
-  // Build payload without CRC (ID 63)
-  const payloadNoCRC = [
-    tag('00', '01'), // Payload format indicator
-    tag('01', '11'), // POI Method (static)
-    mai,
-    tag('52', '0000'), // Merchant Category Code
-    tag('53', '986'), // Currency BRL
-    tag('54', amountStr), // Amount
-    tag('58', 'BR'), // Country Code
-    tag('59', sanitizedName), // Merchant Name
-    tag('60', 'SAO PAULO'), // Merchant City (fallback)
-    additional,
-    '6304', // CRC placeholder
-  ].join('');
+      // Se a normalização funcionar, retornamos sem o + (padrão do payload PIX para telefone é apenas dígitos??
+      // NÃO! O padrão para telefone no Dict é +55... mas no payload EMV o campo 01 aceita string.
+      // O manual diz: Key (Chave) pode ser email, CPF/CNPJ, ou telefone (com + e código país).
 
-  // CRC16-CCITT (False) - EXATAMENTE como estava no código que funcionava
-  const crc16 = (str: string) => {
-    let crc = 0xffff;
-    for (let i = 0; i < str.length; i++) {
-      crc ^= str.charCodeAt(i) << 8;
-      for (let j = 0; j < 8; j++) {
-        if ((crc & 0x8000) !== 0) crc = (crc << 1) ^ 0x1021;
-        else crc <<= 1;
-        crc &= 0xffff;
+      // IMPORTANTE: A implementação anterior adicionava '+' manualmente. Vamos manter isso se normalizado.
+      if (normalized) {
+        return `+${normalized}`; // E164 completo: +5511999999999
       }
     }
-    return crc.toString(16).toUpperCase().padStart(4, '0');
-  };
 
-  const crc = crc16(payloadNoCRC);
-  // EXATAMENTE como estava: adiciona o CRC no final (não substitui o placeholder)
-  return payloadNoCRC + crc;
+    // Se não for telefone ou falhar normalização, retorna limpo básico (sem espaços)
+    return cleanKey;
+  }
+
+  private generateTag(id: string, value: string): string {
+    const len = value.length.toString().padStart(2, '0');
+    return `${id}${len}${value}`;
+  }
+
+  private getCRC16(payload: string): string {
+    let crc = 0xFFFF;
+    const polynomial = 0x1021;
+
+    for (let i = 0; i < payload.length; i++) {
+      crc ^= payload.charCodeAt(i) << 8;
+      for (let j = 0; j < 8; j++) {
+        if ((crc & 0x8000) !== 0) {
+          crc = (crc << 1) ^ polynomial;
+        } else {
+          crc = crc << 1;
+        }
+      }
+    }
+
+    return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+  }
+
+  public toString(): string {
+    const payload = [
+      this.generateTag('00', '01'), // Payload Format Indicator
+      this.generateTag('01', '11'), // Point of Initiation Method (11 = Static)
+      this.generateTag('26', // Merchant Account Information
+        [
+          this.generateTag('00', 'br.gov.bcb.pix'), // GUI
+          this.generateTag('01', this.pixKey),      // Chave
+        ].join('')
+      ),
+      this.generateTag('52', '0000'), // Merchant Category Code
+      this.generateTag('53', '986'),  // Transaction Currency (BRL)
+      this.generateTag('54', this.amount), // Transaction Amount
+      this.generateTag('58', 'BR'),   // Country Code
+      this.generateTag('59', this.merchantName), // Merchant Name
+      this.generateTag('60', this.merchantCity), // Merchant City
+      this.generateTag('62', // Additional Data Field Template
+        this.generateTag('05', this.txId) // Reference Label
+      ),
+      '6304' // CRC16 (ID + Length)
+    ].join('');
+
+    return `${payload}${this.getCRC16(payload)}`;
+  }
+}
+
+/**
+ * Função exportada para manter compatibilidade com o código existente.
+ */
+export const generatePixPayload = (key: string, name: string, amount: number): string => {
+  const pix = new PixPayload(key, name, 'SAO PAULO', amount);
+  const payload = pix.toString();
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('--- PIX GENERATED ---');
+    console.log('Input Key:', key);
+    console.log('Result Key:', (pix as any).pixKey); // Hack to view private for debug
+    console.log('Payload:', payload);
+  }
+
+  return payload;
 };
 
 /**
@@ -92,18 +141,8 @@ export const generatePixPayload = (key: string, name: string, amount: number): s
  */
 export const generatePixQrCode = async (key: string, name: string, amount: number): Promise<string> => {
   try {
-    // Log para debug (apenas em desenvolvimento)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Gerando QR code PIX:', { key: key.substring(0, 5) + '...', name, amount });
-    }
-    
     const pixPayload = generatePixPayload(key, name, amount);
-    
-    // Log do payload (apenas primeiros caracteres para não expor dados sensíveis)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Payload PIX gerado (primeiros 50 chars):', pixPayload.substring(0, 50) + '...');
-    }
-    
+
     const qrUrl = await QRCode.toDataURL(pixPayload, {
       width: 300,
       margin: 2,
@@ -115,8 +154,6 @@ export const generatePixQrCode = async (key: string, name: string, amount: numbe
     return qrUrl;
   } catch (error: any) {
     console.error('Error generating PIX QR code:', error);
-    console.error('Detalhes:', { key: key?.substring(0, 10) + '...', name, amount, message: error?.message });
     throw new Error(`Erro ao gerar QR code PIX: ${error?.message || 'Erro desconhecido'}`);
   }
 };
-

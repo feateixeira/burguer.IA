@@ -131,29 +131,80 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
     if (!key || !type) return key;
     
     if (type === 'phone') {
-      // Se já começa com +, remover para normalizar
-      const keyWithoutPlus = key.startsWith('+') ? key.substring(1) : key;
+      // Remover espaços e caracteres especiais, mas manter dígitos e +
+      let cleaned = key.trim();
+      
+      // Se já começa com +, remover temporariamente para normalizar
+      const hasPlus = cleaned.startsWith('+');
+      const keyWithoutPlus = hasPlus ? cleaned.substring(1) : cleaned;
+      
       // Normalizar telefone para formato E.164 (sem +)
+      // A função normalizePhoneBRToE164 retorna apenas dígitos (ex: 5511999999999)
       const normalized = normalizePhoneBRToE164(keyWithoutPlus);
-      // Adicionar + no início (formato E.164 completo)
-      return normalized ? `+${normalized}` : key;
+      
+      // Validar se a normalização foi bem-sucedida
+      if (!normalized || normalized.length < 12) {
+        console.error('Erro ao normalizar chave PIX de telefone:', { key, normalized });
+        throw new Error('Número de telefone inválido. Use o formato (XX) XXXXX-XXXX ou +55XXXXXXXXXXX');
+      }
+      
+      // Adicionar + no início (formato E.164 completo para armazenamento)
+      // Exemplo: +5511999999999
+      return `+${normalized}`;
     }
     
-    return key;
+    return key.trim();
   };
 
   const saveConfig = async () => {
     setLoading(true);
     try {
+      // Validações básicas
+      if (!config.pix_key_type) {
+        toast.error('Selecione o tipo de chave PIX');
+        setLoading(false);
+        return;
+      }
+
+      if (!config.pix_key_value || !config.pix_key_value.trim()) {
+        toast.error('Digite a chave PIX');
+        setLoading(false);
+        return;
+      }
+
       // Normalizar chave PIX se for telefone
-      const normalizedKey = normalizePixKey(config.pix_key_value, config.pix_key_type);
+      let normalizedKey: string | null;
+      try {
+        normalizedKey = normalizePixKey(config.pix_key_value, config.pix_key_type);
+      } catch (error: any) {
+        toast.error(error.message || 'Erro ao normalizar chave PIX');
+        setLoading(false);
+        return;
+      }
+
+      if (!normalizedKey) {
+        toast.error('Chave PIX inválida após normalização');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Salvando chave PIX:', {
+        tipo: config.pix_key_type,
+        original: config.pix_key_value,
+        normalizada: normalizedKey
+      });
       
       // Get current values before update
-      const { data: currentData } = await supabase
+      const { data: currentData, error: fetchError } = await supabase
         .from('establishments')
         .select('pix_key_type, pix_key_value, pix_bank_name, pix_holder_name')
         .eq('id', establishmentId)
         .single();
+
+      if (fetchError) {
+        console.error('Erro ao buscar dados atuais:', fetchError);
+        throw new Error(`Erro ao buscar configurações: ${fetchError.message}`);
+      }
 
       const oldValues = currentData ? {
         pix_key_type: currentData.pix_key_type,
@@ -165,31 +216,26 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
       const newValues = {
         pix_key_type: config.pix_key_type,
         pix_key_value: normalizedKey,
-        pix_bank_name: config.pix_bank_name,
-        pix_holder_name: config.pix_holder_name,
+        pix_bank_name: config.pix_bank_name || null,
+        pix_holder_name: config.pix_holder_name || null,
       };
-
-      // Check if there are actual changes
-      const hasChanges = oldValues && (
-        oldValues.pix_key_type !== newValues.pix_key_type ||
-        oldValues.pix_key_value !== newValues.pix_key_value ||
-        oldValues.pix_bank_name !== newValues.pix_bank_name ||
-        oldValues.pix_holder_name !== newValues.pix_holder_name
-      );
 
       // Update establishment
       // O trigger audit_pix_changes irá registrar automaticamente na tabela pix_key_audit
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('establishments')
         .update({
           pix_key_type: config.pix_key_type,
           pix_key_value: normalizedKey,
-          pix_bank_name: config.pix_bank_name,
-          pix_holder_name: config.pix_holder_name,
+          pix_bank_name: config.pix_bank_name || null,
+          pix_holder_name: config.pix_holder_name || null,
         })
         .eq('id', establishmentId);
 
-      if (error) throw error;
+      if (updateError) {
+        console.error('Erro ao atualizar estabelecimento:', updateError);
+        throw new Error(`Erro ao salvar: ${updateError.message}`);
+      }
 
       toast.success('Configurações PIX salvas com sucesso!');
       
@@ -203,9 +249,10 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
       if (onSave) {
         onSave();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving PIX config:', error);
-      toast.error('Erro ao salvar configurações PIX');
+      const errorMessage = error?.message || 'Erro desconhecido ao salvar configurações PIX';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -331,8 +378,17 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
             </Label>
             <Input
               id="pix_key_value"
+              type={config.pix_key_type === 'phone' ? 'tel' : 'text'}
               value={config.pix_key_value || ''}
-              onChange={(e) => setConfig(prev => ({ ...prev, pix_key_value: e.target.value }))}
+              onChange={(e) => {
+                let value = e.target.value;
+                // Para telefone, permite apenas números, espaços, parênteses, traços e +
+                if (config.pix_key_type === 'phone') {
+                  // Permite números, espaços, parênteses, traços e +
+                  value = value.replace(/[^\d\s()\-+]/g, '');
+                }
+                setConfig(prev => ({ ...prev, pix_key_value: value }));
+              }}
               placeholder={
                 config.pix_key_type === 'phone' 
                   ? 'Ex: (11) 99999-9999 ou +5511999999999'
@@ -345,7 +401,23 @@ export const PixConfig = ({ establishmentId, onSave }: PixConfigProps) => {
                   : 'Digite a chave PIX'
               }
               disabled={config.pix_key_locked}
+              className={config.pix_key_type === 'phone' && config.pix_key_value && config.pix_key_value.length > 0 && !config.pix_key_value.match(/^(\+?55)?[\d\s()\-]{10,}$/) ? 'border-yellow-500' : ''}
             />
+            {config.pix_key_type === 'phone' && config.pix_key_value && config.pix_key_value.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {(() => {
+                  try {
+                    const normalized = normalizePixKey(config.pix_key_value, config.pix_key_type);
+                    if (normalized) {
+                      return `✓ Será salvo como: ${normalized}`;
+                    }
+                    return '⚠ Verifique o formato do número';
+                  } catch (error: any) {
+                    return `⚠ ${error.message || 'Formato inválido'}`;
+                  }
+                })()}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

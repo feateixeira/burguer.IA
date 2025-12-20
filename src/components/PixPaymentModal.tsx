@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import QRCode from 'qrcode';
 import { useNavigate } from 'react-router-dom';
 import { normalizePhoneBRToE164 } from '@/utils/phoneNormalizer';
+import { generatePixPayload } from '@/utils/pixQrCode';
 
 interface PixPaymentModalProps {
   open: boolean;
@@ -68,10 +69,11 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
 
       // Normalizar chave PIX se for telefone
       let normalizedPixKey = establishment.pix_key_value;
-      if (establishment.pix_key_type === 'phone') {
-        // Se não começa com +, normalizar para E.164
-        if (!normalizedPixKey.startsWith('+')) {
-          const normalized = normalizePhoneBRToE164(normalizedPixKey);
+      const type = establishment.pix_key_type?.toLowerCase().trim() || '';
+      if (['phone', 'celular', 'telefone', 'tel'].includes(type) && normalizedPixKey) {
+        // Sempre normalizar para garantir apenas dígitos (remove formatação e garante +55)
+        const normalized = normalizePhoneBRToE164(normalizedPixKey);
+        if (normalized) {
           normalizedPixKey = `+${normalized}`;
         }
       }
@@ -86,10 +88,10 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
           establishment.pix_holder_name || 'Estabelecimento',
           amount
         );
-        
+
         const qrUrl = await QRCode.toDataURL(pixPayload);
         setQrCodeUrl(qrUrl);
-        
+
         // Criar registro de pagamento PIX
         const { data: pixPayment, error } = await supabase
           .from('pix_payments')
@@ -121,7 +123,7 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
 
   const validatePixKey = (key: string, type: string): boolean => {
     if (!key || !type) return false;
-    
+
     switch (type.toLowerCase()) {
       case 'cpf': {
         const cleanKey = key.replace(/\D/g, '');
@@ -153,74 +155,7 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
     }
   };
 
-  const generatePixPayload = (key: string, name: string, amount: number): string => {
-    // Sanitizar nome (máximo 25 caracteres, apenas alfanuméricos e espaços)
-    const sanitizedName = name
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove acentos
-      .replace(/[^a-zA-Z0-9\s]/g, '') // Remove caracteres especiais
-      .slice(0, 25)
-      .trim()
-      .toUpperCase();
 
-    if (!sanitizedName) {
-      throw new Error('Nome do estabelecimento inválido');
-    }
-
-    if (amount <= 0 || amount > 999999.99) {
-      throw new Error('Valor inválido');
-    }
-
-    const amountStr = amount.toFixed(2);
-    // Para chaves de telefone, remover o + do formato E.164 (o padrão PIX requer apenas dígitos)
-    // Exemplo: +5511999999999 -> 5511999999999
-    let cleanKey = key.trim();
-    if (cleanKey.startsWith('+')) {
-      cleanKey = cleanKey.substring(1);
-    }
-
-    const tag = (id: string, value: string) => `${id}${value.length.toString().padStart(2, '0')}${value}`;
-
-    // Merchant Account Information (ID 26)
-    const gui = tag('00', 'br.gov.bcb.pix');
-    const keyField = tag('01', cleanKey);
-    const mai = tag('26', `${gui}${keyField}`);
-
-    // Additional Data (ID 62) - Reference label
-    const additional = tag('62', tag('05', '***'));
-
-    // Build payload without CRC (ID 63)
-    const payloadNoCRC = [
-      tag('00', '01'), // Payload format indicator
-      tag('01', '11'), // POI Method (static)
-      mai,
-      tag('52', '0000'), // Merchant Category Code
-      tag('53', '986'), // Currency BRL
-      tag('54', amountStr), // Amount
-      tag('58', 'BR'), // Country Code
-      tag('59', sanitizedName), // Merchant Name
-      tag('60', 'SAO PAULO'), // Merchant City (fallback)
-      additional,
-      '6304', // CRC placeholder
-    ].join('');
-
-    // CRC16-CCITT (False)
-    const crc16 = (str: string) => {
-      let crc = 0xffff;
-      for (let i = 0; i < str.length; i++) {
-        crc ^= str.charCodeAt(i) << 8;
-        for (let j = 0; j < 8; j++) {
-          if ((crc & 0x8000) !== 0) crc = (crc << 1) ^ 0x1021;
-          else crc <<= 1;
-          crc &= 0xffff;
-        }
-      }
-      return crc.toString(16).toUpperCase().padStart(4, '0');
-    };
-
-    const crc = crc16(payloadNoCRC);
-    return payloadNoCRC + crc;
-  };
   const confirmPayment = async () => {
     try {
       if (!pixPaymentId) {
@@ -251,7 +186,7 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
 
       setPaymentStatus('paid');
       toast.success('Pagamento confirmado!');
-      
+
       setTimeout(() => {
         onPaymentConfirmed();
         onClose();
@@ -318,7 +253,7 @@ export const PixPaymentModal = ({ open, onClose, orderId, amount, onPaymentConfi
                 {qrCodeUrl && (
                   <img src={qrCodeUrl} alt="QR Code PIX" className="w-64 h-64 border-2 border-border rounded-lg" />
                 )}
-                
+
                 <Alert>
                   <AlertDescription>
                     <div className="space-y-2 text-sm">

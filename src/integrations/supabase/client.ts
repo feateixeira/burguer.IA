@@ -43,5 +43,14 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false, // Evitar detecção automática de sessão na URL
-  }
+    flowType: 'pkce', // Usar PKCE flow para melhor segurança sem captcha
+    // Desabilitar captcha não é possível via código, mas essas configurações ajudam
+    // O captcha é controlado pelo Supabase Dashboard → Authentication → Settings
+  },
+  global: {
+    // Headers que podem ajudar a reduzir detecção de spam
+    headers: {
+      'X-Client-Info': 'burguer-ia-web',
+    },
+  },
 });

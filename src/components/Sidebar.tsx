@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag, UtensilsCrossed, Wallet, ChevronDown, FileText, AlertTriangle, Brain, MessageCircle
+  BarChart3, Package, Receipt, Settings, Users, Menu, X, LogOut, Calculator, ChevronLeft, ChevronRight, Truck, Smartphone, Tag, ShoppingBag, UtensilsCrossed, Wallet, ChevronDown, FileText, AlertTriangle, Brain, MessageCircle, CreditCard
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +16,7 @@ import { usePlanAccess } from "@/hooks/usePlanAccess";
 const items = [
   { name: "PDV", href: "/pdv", icon: Receipt, show: ["master", "admin", "atendente"] },
   { name: "Pedidos", href: "/orders", icon: ShoppingBag, show: ["master", "admin", "atendente", "cozinha"] },
+  { name: "Vendas Fiado", href: "/credit-sales", icon: CreditCard, show: ["master", "admin", "atendente"] },
   { name: "Cardápio Online", href: "/menu", icon: UtensilsCrossed, show: ["master", "admin"], excludeAdmin: true },
   { name: "Apps", href: "/apps", icon: Smartphone, show: ["master", "admin"] },
   { name: "Configurações", href: "/settings", icon: Settings, show: ["master", "admin"] },

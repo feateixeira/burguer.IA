@@ -100,7 +100,21 @@ const Auth = () => {
 
       if (error) {
         // Mensagens mais amigáveis para diferentes tipos de erro
-        // PRIMEIRO verificar se é erro de credenciais (mais comum)
+        // PRIMEIRO verificar se é erro de captcha
+        if (error.message?.toLowerCase().includes('captcha') || 
+            error.message?.toLowerCase().includes('verification process failed')) {
+          throw new Error(
+            '⚠️ Verificação de segurança falhou.\n\n' +
+            'Isso pode acontecer quando há muitas tentativas de login.\n\n' +
+            '💡 Soluções:\n' +
+            '1. Aguarde alguns minutos e tente novamente\n' +
+            '2. Limpe o cache do navegador\n' +
+            '3. Tente em uma aba anônima\n' +
+            '4. Verifique as configurações de segurança no Supabase Dashboard'
+          );
+        }
+        
+        // DEPOIS verificar se é erro de credenciais (mais comum)
         if (error.message?.includes('Invalid login credentials') || 
             error.message?.includes('Invalid credentials') ||
             error.message?.includes('Email not confirmed') ||
@@ -230,7 +244,21 @@ const Auth = () => {
 
       if (error) {
         // Mensagens mais amigáveis para diferentes tipos de erro
-        // PRIMEIRO verificar se é erro de credenciais (mais comum)
+        // PRIMEIRO verificar se é erro de captcha
+        if (error.message?.toLowerCase().includes('captcha') || 
+            error.message?.toLowerCase().includes('verification process failed')) {
+          throw new Error(
+            '⚠️ Verificação de segurança falhou.\n\n' +
+            'Isso pode acontecer quando há muitas tentativas de login.\n\n' +
+            '💡 Soluções:\n' +
+            '1. Aguarde alguns minutos e tente novamente\n' +
+            '2. Limpe o cache do navegador\n' +
+            '3. Tente em uma aba anônima\n' +
+            '4. Verifique as configurações de segurança no Supabase Dashboard'
+          );
+        }
+        
+        // DEPOIS verificar se é erro de credenciais (mais comum)
         if (error.message?.includes('Invalid login credentials') || 
             error.message?.includes('Invalid credentials') ||
             error.message?.includes('Email not confirmed') ||

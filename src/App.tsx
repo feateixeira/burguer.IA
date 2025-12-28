@@ -16,6 +16,7 @@ import Customers from "./pages/Customers";
 import Settings from "./pages/Settings";
 import Costs from "./pages/Costs";
 import Orders from "./pages/Orders";
+import CreditSales from "./pages/CreditSales";
 import Apps from "./pages/Apps";
 import PasswordPanel from "./pages/PasswordPanel";
 import PasswordDisplay from "./pages/PasswordDisplay";
@@ -74,6 +75,7 @@ const AppContent = () => {
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/pdv" element={<PDV />} />
                 <Route path="/orders" element={<Orders />} />
+                <Route path="/credit-sales" element={<CreditSales />} />
                 <Route path="/apps" element={<Apps />} />
                 <Route path="/password-panel" element={<PasswordPanel />} />
                 <Route path="/password-display" element={<PasswordDisplay />} />

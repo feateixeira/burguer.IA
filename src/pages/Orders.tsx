@@ -35,7 +35,10 @@ import {
   Truck,
   MessageCircle,
   SquarePen,
-  Monitor
+  Monitor,
+  Calendar,
+  CreditCard,
+  AlertCircle
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
@@ -106,6 +109,11 @@ interface Order {
   queued_until_next_open?: boolean;
   release_at?: string;
   meta?: any;
+  is_credit_sale?: boolean;
+  credit_due_date?: string;
+  credit_received_at?: string;
+  credit_interest_amount?: number;
+  credit_total_with_interest?: number;
   order_items?: {
     id: string;
     quantity: number;
@@ -347,9 +355,21 @@ const Orders = () => {
       filtered = filtered.filter(order => 
         order.status === "cancelled" && order.rejection_reason
       );
+    } else if (activeTab === "to_receive") {
+      // Aba "A RECEBER" - apenas pedidos fiado não recebidos
+      filtered = filtered.filter(order => 
+        order.is_credit_sale === true && 
+        !order.credit_received_at &&
+        order.payment_status !== 'cancelled'
+      );
     } else if (activeTab === "all") {
       filtered = filtered.filter(order => {
         if (order.status === "cancelled" && order.rejection_reason) return false;
+        
+        // Excluir pedidos fiado não recebidos da aba "Todos" (eles vão para "A RECEBER")
+        if (order.is_credit_sale === true && !order.credit_received_at) {
+          return false;
+        }
         
         const statusNormalized = String(order.status).trim().toLowerCase();
         const isStatusFinal = statusNormalized === "completed" || statusNormalized === "ready";
@@ -1569,7 +1589,7 @@ const Orders = () => {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className={`grid w-full ${isNaBrasa ? 'grid-cols-5' : 'grid-cols-4'}`}>
+            <TabsList className={`grid w-full ${isNaBrasa ? 'grid-cols-6' : 'grid-cols-5'}`}>
               <TabsTrigger value="pending" className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 Pendentes (Cardápio Online)
@@ -1581,6 +1601,15 @@ const Orders = () => {
               <TabsTrigger value="completed" className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
                 PDV / Concluídos
+              </TabsTrigger>
+              <TabsTrigger value="to_receive" className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                A RECEBER
+                {orders.filter(o => o.is_credit_sale === true && !o.credit_received_at && o.payment_status !== 'cancelled').length > 0 && (
+                  <Badge variant="destructive" className="ml-1">
+                    {orders.filter(o => o.is_credit_sale === true && !o.credit_received_at && o.payment_status !== 'cancelled').length}
+                  </Badge>
+                )}
               </TabsTrigger>
               {isNaBrasa && (
                 <TabsTrigger value="rejected" className="flex items-center gap-2">
@@ -1737,7 +1766,94 @@ const Orders = () => {
                 </Card>
               )}
               
-              {filteredOrders.length === 0 ? (
+              {activeTab === "to_receive" && (
+                <Card className="p-4">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">Pedidos Fiado a Receber</h3>
+                      <Badge variant="outline" className="text-sm">
+                        {filteredOrders.length} {filteredOrders.length === 1 ? 'pedido' : 'pedidos'}
+                      </Badge>
+                    </div>
+                    {filteredOrders.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">
+                        Não há pedidos fiado pendentes de recebimento
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredOrders.map((order) => {
+                          const dueDate = order.credit_due_date ? new Date(order.credit_due_date) : null;
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const dueDateOnly = dueDate ? new Date(dueDate) : null;
+                          if (dueDateOnly) dueDateOnly.setHours(0, 0, 0, 0);
+                          const daysOverdue = dueDateOnly ? Math.max(0, Math.floor((today.getTime() - dueDateOnly.getTime()) / (1000 * 60 * 60 * 24))) : 0;
+                          const isOverdue = daysOverdue > 0;
+                          
+                          return (
+                            <Card key={order.id} className={`p-4 ${isOverdue ? 'border-red-500 bg-red-50 dark:bg-red-950/20' : ''}`}>
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className="font-semibold">Pedido {order.order_number}</span>
+                                    {isOverdue && (
+                                      <Badge variant="destructive">
+                                        <AlertCircle className="h-3 w-3 mr-1" />
+                                        {daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'} em atraso
+                                      </Badge>
+                                    )}
+                                    {!isOverdue && dueDateOnly && dueDateOnly.getTime() === today.getTime() && (
+                                      <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900">
+                                        <Calendar className="h-3 w-3 mr-1" />
+                                        Vence hoje
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div>
+                                      <Label className="text-muted-foreground">Cliente</Label>
+                                      <p className="font-medium">{order.customer_name || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-muted-foreground">Vencimento</Label>
+                                      <p className="font-medium flex items-center gap-1">
+                                        <Calendar className="h-4 w-4" />
+                                        {dueDate ? dueDate.toLocaleDateString('pt-BR') : 'N/A'}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-muted-foreground">Valor</Label>
+                                      <p className="font-medium">{formatCurrencyBR(order.total_amount)}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-muted-foreground">Status</Label>
+                                      <p className="font-medium text-yellow-600 dark:text-yellow-400">
+                                        Aguardando Recebimento
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="ml-4">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => navigate(`/credit-sales`)}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <DollarSign className="h-4 w-4" />
+                                    Receber
+                                  </Button>
+                                </div>
+                              </div>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {filteredOrders.length === 0 && activeTab !== "to_receive" ? (
                 <Card className="p-12 text-center">
                   <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
                   <h3 className="text-lg font-semibold mb-2">Nenhum pedido encontrado</h3>
@@ -1752,12 +1868,15 @@ const Orders = () => {
                       ? "Não há pedidos recusados"
                       : activeTab === "all"
                       ? "Não há pedidos no momento"
+                      : activeTab === "to_receive"
+                      ? "Não há pedidos fiado a receber"
                       : "Não há pedidos do PDV ou concluídos"
                     }
                   </p>
                 </Card>
-              ) : (
-                filteredOrders.map((order) => {
+              ) : activeTab !== "to_receive" ? (
+                <>
+                {filteredOrders.map((order) => {
                   // Helper function to check if order is from hamburguerianabrasa.com.br
                   const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
                   
@@ -1804,6 +1923,12 @@ const Orders = () => {
                               {isFromTotem && (
                                 <Badge variant="outline" className="text-xs bg-orange-50 dark:bg-orange-950/20">
                                   TOTEM
+                                </Badge>
+                              )}
+                              {order.is_credit_sale && (
+                                <Badge variant="outline" className="text-xs bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500 text-yellow-700 dark:text-yellow-300">
+                                  <CreditCard className="h-3 w-3 mr-1" />
+                                  FIADO
                                 </Badge>
                               )}
                             </h3>
@@ -2503,8 +2628,9 @@ const Orders = () => {
                         )}
                       </Card>
                     );
-                  })
-                )}
+                  })}
+                </>
+              ) : null}
         </TabsContent>
       </Tabs>
           </div>

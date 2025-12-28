@@ -40,6 +40,9 @@ import { AddonsModal } from "@/components/AddonsModal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { checkFreeDeliveryPromotion, registerFreeDeliveryUsage } from "@/utils/freeDeliveryPromotion";
+import { CreditSaleModal } from "@/components/CreditSaleModal";
+import { useCreditDueDateAlerts } from "@/hooks/useCreditDueDateAlerts";
+import { CreditDueDateAlertModal } from "@/components/CreditDueDateAlertModal";
 
 interface Product {
   id: string;
@@ -147,6 +150,11 @@ const PDV = () => {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingOrderNumber, setEditingOrderNumber] = useState<string | null>(null);
   const [orderLoaded, setOrderLoaded] = useState(false);
+  const [showCreditSaleModal, setShowCreditSaleModal] = useState(false);
+  
+  // Alertas de vencimento de fiado
+  const { dueTodayOrders, hasAlerts, dismissAlert } = useCreditDueDateAlerts(establishmentId);
+  const [showDueDateAlert, setShowDueDateAlert] = useState(false);
 
   const sauceOptions = ["Mostarda e Mel", "Bacon", "Alho", "Ervas"];
 
@@ -167,10 +175,20 @@ const PDV = () => {
     initializeData();
 
     // F9 key listener for WhatsApp order modal
+    // F10 key listener for Credit sale modal
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.key === "F9") {
         e.preventDefault();
         setWhatsappDialogOpen(true);
+      }
+      if (e.key === "F10") {
+        e.preventDefault();
+        // Usar ref para obter valor atualizado do carrinho
+        if (cartRef.current.length === 0) {
+          toast.error("Adicione itens ao carrinho antes de fazer uma venda fiado");
+          return;
+        }
+        setShowCreditSaleModal(true);
       }
     };
 
@@ -205,6 +223,7 @@ const PDV = () => {
   const searchTermRef = useRef(searchTerm);
   const productsRef = useRef(products);
   const categoriesRef = useRef(categories);
+  const cartRef = useRef(cart);
 
   // Atualizar refs quando valores mudam
   useEffect(() => {
@@ -216,7 +235,8 @@ const PDV = () => {
     searchTermRef.current = searchTerm;
     productsRef.current = products;
     categoriesRef.current = categories;
-  }, [showSauceDialog, showPixModal, showCashModal, selectedCustomer, paymentMethod, searchTerm, products, categories]);
+    cartRef.current = cart;
+  }, [showSauceDialog, showPixModal, showCashModal, selectedCustomer, paymentMethod, searchTerm, products, categories, cart]);
 
   // Atalhos com Enter: Enter no campo de busca adiciona primeiro produto; Ctrl+Enter finaliza venda
   useEffect(() => {
@@ -248,6 +268,13 @@ const PDV = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []); // Sem dependências - usa refs para valores atualizados
+
+  // Mostrar modal de alerta quando houver pedidos vencendo hoje
+  useEffect(() => {
+    if (hasAlerts && dueTodayOrders.length > 0) {
+      setShowDueDateAlert(true);
+    }
+  }, [hasAlerts, dueTodayOrders]);
 
   // Real-time subscriptions para atualizar produtos, categorias, combos e promoções automaticamente
   useEffect(() => {
@@ -1612,6 +1639,212 @@ const PDV = () => {
     }
   };
 
+  const handleCreditSaleConfirm = async (data: {
+    customerId: string | null;
+    customerName: string;
+    customerPhone: string | null;
+    dueDate: string;
+    interestRate: number;
+  }) => {
+    if (cart.length === 0) {
+      toast.error("Carrinho vazio");
+      return;
+    }
+
+    try {
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Usuário não autenticado");
+        return;
+      }
+
+      // Get user profile to get establishment_id
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("establishment_id")
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (profileError || !profile?.establishment_id) {
+        toast.error("Estabelecimento não encontrado");
+        return;
+      }
+
+      const subtotal = calculateSubtotal();
+      const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
+      const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ?
+        calculateDiscountedTotal() : calculateTotal();
+      const discountAmount = selectedCustomer && selectedCustomer.groups.length > 0 ?
+        (subtotal + finalDeliveryFee - finalTotal) : 0;
+
+      // Preparar notes com instruções gerais se houver
+      const orderNotes = generalInstructions.trim()
+        ? `Instruções do Pedido: ${generalInstructions.trim()}`
+        : null;
+
+      // Gerar número de pedido sequencial
+      const { data: newOrderNumber, error: orderNumberError } = await supabase.rpc(
+        "get_next_order_number",
+        { p_establishment_id: profile.establishment_id }
+      );
+
+      if (orderNumberError || !newOrderNumber) {
+        toast.error("Erro ao gerar número do pedido");
+        return;
+      }
+
+      // Criar novo pedido fiado
+      const { data: newOrder, error: orderError } = await supabase
+        .from("orders")
+        .insert({
+          establishment_id: profile.establishment_id,
+          order_number: newOrderNumber,
+          customer_id: data.customerId,
+          customer_name: data.customerName,
+          customer_phone: data.customerPhone,
+          order_type: includeDelivery ? "delivery" : "balcao",
+          delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
+          status: "pending",
+          payment_status: "pending", // Fiado não é pago ainda
+          payment_method: null, // Será definido quando receber
+          subtotal: subtotal,
+          discount_amount: discountAmount,
+          delivery_fee: finalDeliveryFee,
+          total_amount: finalTotal,
+          notes: orderNotes,
+          free_delivery_promotion_id: freeDeliveryPromotionId || null,
+          // Campos de fiado
+          is_credit_sale: true,
+          credit_due_date: data.dueDate,
+          credit_interest_rate_per_day: data.interestRate,
+          credit_total_with_interest: finalTotal
+        })
+        .select()
+        .single();
+
+      if (orderError) throw orderError;
+
+      // Create order items (mesma lógica do handleCheckout)
+      const itemsToInsert = await Promise.all(
+        cart.map(async (item) => {
+          let productId = item.id;
+
+          const isComboItem = combos.some((c) => c.id === item.id);
+
+          if (isComboItem) {
+            const existingComboProduct = (products as any[]).find(
+              (p: any) => p?.is_combo && p?.name === item.name
+            );
+
+            if (existingComboProduct) {
+              productId = existingComboProduct.id;
+            } else {
+              const { data: newProduct, error: newProductError } = await supabase
+                .from("products")
+                .insert({
+                  establishment_id: profile.establishment_id,
+                  name: item.name,
+                  description: "Combo",
+                  is_combo: true,
+                  active: true,
+                  price: item.price,
+                } as any)
+                .select()
+                .single();
+
+              if (newProductError) throw newProductError;
+              productId = (newProduct as any).id;
+            }
+          }
+
+          const addonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
+          const unitPrice = item.price + (item.saucePrice || 0) + addonsPrice;
+
+          const customizations: any = {};
+          if (item.addons && item.addons.length > 0) {
+            customizations.addons = item.addons.map(addon => ({
+              id: addon.id,
+              name: addon.name,
+              quantity: addon.quantity,
+              price: addon.price
+            }));
+          }
+
+          let notes = item.notes || '';
+          if (item.addons && item.addons.length > 0) {
+            const addonsText = item.addons.map(a => `${a.quantity}x ${a.name}`).join(', ');
+            notes = notes ? `${notes} | Adicionais: ${addonsText}` : `Adicionais: ${addonsText}`;
+          }
+          if (item.promotionName) {
+            notes = `${notes ? notes + ' | ' : ''}Promoção: ${item.promotionName}${item.originalPrice ? ` (de R$ ${Number(item.originalPrice).toFixed(2)} por R$ ${Number(item.price).toFixed(2)})` : ''}`;
+          }
+
+          return {
+            order_id: newOrder.id,
+            product_id: productId,
+            quantity: item.quantity,
+            unit_price: unitPrice,
+            total_price: unitPrice * item.quantity,
+            notes: notes || null,
+            customizations: Object.keys(customizations).length > 0 ? customizations : null,
+            promotion_id: item.promotionId || null,
+            original_price: item.originalPrice || null,
+          };
+        })
+      );
+
+      const { error: itemsError } = await supabase
+        .from("order_items")
+        .insert(itemsToInsert);
+
+      if (itemsError) throw itemsError;
+
+      // Abater estoque de ingredientes automaticamente
+      try {
+        const { data: stockResult, error: stockError } = await supabase.rpc(
+          'apply_stock_deduction_for_order',
+          {
+            p_establishment_id: profile.establishment_id,
+            p_order_id: newOrder.id
+          }
+        );
+
+        if (stockError) {
+          // Erro ao abater estoque mas não interrompe a venda
+        } else if (stockResult && !stockResult.success) {
+          // Avisos no abatimento de estoque mas não bloqueia a venda
+        }
+      } catch (stockErr) {
+        // Não bloquear a venda se houver erro no estoque
+      }
+
+      // Registrar uso da promoção de frete grátis se aplicável
+      if (freeDeliveryPromotionId && newOrder?.id) {
+        await registerFreeDeliveryUsage(newOrder.id, freeDeliveryPromotionId);
+      }
+
+      // Limpar carrinho e dados
+      setCart([]);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerSearch("");
+      setSelectedCustomer(null);
+      setDeliveryFee((establishmentSettings as any)?.delivery_fee || 0);
+      setIncludeDelivery(false);
+      setFreeDeliveryPromotionId(null);
+      setSelectedDeliveryBoy("");
+      setPaymentMethod("");
+      setGeneralInstructions("");
+
+      toast.success(`Venda fiado finalizada! Pedido: ${newOrderNumber}`);
+    } catch (error) {
+      console.error("Erro ao finalizar venda fiado:", error);
+      toast.error("Erro ao finalizar venda fiado");
+      throw error;
+    }
+  };
+
   const handlePixPaymentConfirmed = async () => {
     // Imprimir comanda após confirmação do PIX
     if (pendingReceiptData) {
@@ -2833,6 +3066,31 @@ const PDV = () => {
         open={showCashRequiredModal}
         onClose={() => setShowCashRequiredModal(false)}
         onOpenCash={() => navigate("/finance/cash")}
+      />
+
+      {/* Credit Sale Modal */}
+      <CreditSaleModal
+        open={showCreditSaleModal}
+        onClose={() => setShowCreditSaleModal(false)}
+        cart={cart}
+        totalAmount={selectedCustomer && selectedCustomer.groups.length > 0 ?
+          calculateDiscountedTotal() : calculateTotal()}
+        subtotal={calculateSubtotal()}
+        discountAmount={selectedCustomer && selectedCustomer.groups.length > 0 ?
+          (calculateSubtotal() + ((includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0) - (selectedCustomer && selectedCustomer.groups.length > 0 ?
+            calculateDiscountedTotal() : calculateTotal())) : 0}
+        deliveryFee={(includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0}
+        onConfirm={handleCreditSaleConfirm}
+      />
+
+      {/* Credit Due Date Alert Modal */}
+      <CreditDueDateAlertModal
+        open={showDueDateAlert}
+        onClose={() => {
+          setShowDueDateAlert(false);
+          dismissAlert();
+        }}
+        orders={dueTodayOrders}
       />
     </div>
   );

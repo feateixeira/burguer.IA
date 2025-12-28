@@ -316,6 +316,7 @@ const Settings = () => {
         enable_notifications: formData.get("enable_notifications") === "on",
         tax_rate: parseFloat(formData.get("tax_rate") as string) || 0,
         delivery_fee: parseFloat(formData.get("delivery_fee") as string) || 0,
+        credit_interest_rate_per_day: parseFloat(formData.get("credit_interest_rate_per_day") as string) || 0,
       };
 
       const daily_goal = parseInt(formData.get("daily_goal") as string) || 0;
@@ -1034,6 +1035,26 @@ const Settings = () => {
                             placeholder="0.00"
                             className="h-11"
                           />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="credit_interest_rate_per_day" className="text-sm font-medium">
+                            Taxa de Juros por Dia - Vendas Fiado (%)
+                          </Label>
+                          <Input
+                            id="credit_interest_rate_per_day"
+                            name="credit_interest_rate_per_day"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            defaultValue={establishment?.settings?.credit_interest_rate_per_day || ""}
+                            placeholder="0.00"
+                            className="h-11"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Taxa de juros aplicada por dia de atraso em vendas fiado (ex: 1.0 = 1% ao dia)
+                          </p>
                         </div>
                       </div>
                     </div>

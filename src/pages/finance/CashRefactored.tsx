@@ -69,7 +69,12 @@ interface CashSessionHistory {
   opened_at: string;
   closed_at: string | null;
   opening_amount: number;
-  expected_amount: number | null;
+  // Totais esperados salvos na sessão (incluem vendas do período)
+  expected_cash: number | null;
+  expected_pix: number | null;
+  expected_debit: number | null;
+  expected_credit: number | null;
+  expected_total: number | null;
   difference_amount: number | null;
   closed_by: string | null;
 }
@@ -232,7 +237,19 @@ const CashRefactored = () => {
     try {
       const { data } = await supabase
         .from("cash_sessions")
-        .select("id, opened_at, closed_at, opening_amount, expected_amount, difference_amount, closed_by")
+        .select(`
+          id,
+          opened_at,
+          closed_at,
+          opening_amount,
+          expected_cash,
+          expected_pix,
+          expected_debit,
+          expected_credit,
+          expected_total,
+          difference_amount,
+          closed_by
+        `)
         .eq("establishment_id", profile.establishment_id)
         .order("opened_at", { ascending: false })
         .limit(10);
@@ -713,8 +730,16 @@ const CashRefactored = () => {
                   <TableHead>Data Abertura</TableHead>
                   <TableHead>Data Fechamento</TableHead>
                   <TableHead>Inicial</TableHead>
-                  {canViewTotals && <TableHead>Total Esperado</TableHead>}
-                  {canViewTotals && <TableHead>Diferença</TableHead>}
+                  {canViewTotals && (
+                    <>
+                      <TableHead>Total (R$)</TableHead>
+                      <TableHead>Dinheiro</TableHead>
+                      <TableHead>PIX</TableHead>
+                      <TableHead>Débito</TableHead>
+                      <TableHead>Crédito</TableHead>
+                      <TableHead>Diferença</TableHead>
+                    </>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -736,7 +761,22 @@ const CashRefactored = () => {
                     {canViewTotals && (
                       <>
                         <TableCell>
-                          {s.expected_amount !== null ? formatCurrency(s.expected_amount) : "-"}
+                          {s.expected_total !== null ? formatCurrency(s.expected_total) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {/* Em dinheiro, desconsiderar o valor de abertura para mostrar apenas as vendas */}
+                          {s.expected_cash !== null
+                            ? formatCurrency(s.expected_cash - s.opening_amount)
+                            : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {s.expected_pix !== null ? formatCurrency(s.expected_pix) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {s.expected_debit !== null ? formatCurrency(s.expected_debit) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {s.expected_credit !== null ? formatCurrency(s.expected_credit) : "-"}
                         </TableCell>
                         <TableCell>
                           {s.difference_amount !== null ? (

@@ -202,7 +202,9 @@ const PDV = () => {
   // Detectar parâmetro editOrder na URL e carregar pedido
   useEffect(() => {
     const editOrderId = searchParams.get('editOrder');
-    if (editOrderId && establishmentId && !loading && !orderLoaded && editOrderId !== editingOrderId) {
+    // Aguardar produtos serem carregados antes de tentar carregar pedido
+    if (editOrderId && establishmentId && !loading && products.length > 0 && !orderLoaded && editOrderId !== editingOrderId) {
+      console.log('🔄 Iniciando carregamento de pedido para edição:', editOrderId);
       setOrderLoaded(true);
       setEditingOrderId(editOrderId);
       loadOrderForEditing(editOrderId);
@@ -211,8 +213,10 @@ const PDV = () => {
       setOrderLoaded(false);
       setEditingOrderId(null);
       setEditingOrderNumber(null);
+    } else if (editOrderId && establishmentId && !loading && products.length === 0) {
+      console.warn('⚠️ Aguardando produtos serem carregados antes de carregar pedido...');
     }
-  }, [searchParams, establishmentId, loading, orderLoaded, editingOrderId]);
+  }, [searchParams, establishmentId, loading, orderLoaded, editingOrderId, products.length]);
 
   // Refs para acessar valores mais recentes sem causar re-renderizações
   const showSauceDialogRef = useRef(showSauceDialog);
@@ -653,6 +657,7 @@ const PDV = () => {
   const loadOrderForEditing = async (orderId: string) => {
     try {
       setLoading(true);
+      console.log('🔍 Carregando pedido para edição:', orderId);
 
       // Carregar pedido completo com itens
       const { data: order, error: orderError } = await supabase
@@ -674,10 +679,24 @@ const PDV = () => {
         .eq("id", orderId)
         .single();
 
-      if (orderError || !order) {
-        toast.error("Erro ao carregar pedido para edição");
+      if (orderError) {
+        console.error('❌ Erro ao carregar pedido:', orderError);
+        toast.error(`Erro ao carregar pedido: ${orderError.message}`);
         return;
       }
+
+      if (!order) {
+        console.error('❌ Pedido não encontrado');
+        toast.error("Pedido não encontrado");
+        return;
+      }
+
+      console.log('✅ Pedido carregado:', {
+        id: order.id,
+        order_number: order.order_number,
+        order_items_count: order.order_items?.length || 0,
+        order_items: order.order_items
+      });
 
       // Verificar se o pedido pertence ao estabelecimento correto
       if (order.establishment_id !== establishmentId) {
@@ -723,10 +742,158 @@ const PDV = () => {
 
       // Popular carrinho com itens do pedido
       const cartItems: CartItem[] = [];
+      
+      console.log('📦 Processando itens do pedido:', {
+        total_items: order.order_items?.length || 0,
+        items: order.order_items
+      });
 
-      for (const item of order.order_items || []) {
-        const product = item.products;
-        if (!product) continue;
+      if (!order.order_items || order.order_items.length === 0) {
+        console.warn('⚠️ Pedido não tem itens!');
+        toast.warning("Pedido não possui itens para carregar");
+        setLoading(false);
+        return;
+      }
+
+      for (const item of order.order_items) {
+        console.log('🛒 Processando item:', {
+          id: item.id,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          notes: item.notes,
+          has_product: !!item.products
+        });
+        let product = item.products;
+        
+        // Se o relacionamento não carregou, tentar buscar o produto diretamente
+        if (!product && item.product_id) {
+          // Buscar produto pelo ID na lista de produtos já carregados
+          product = products.find(p => p.id === item.product_id) || null;
+          
+          // Se não encontrou na lista, buscar no banco (incluindo inativos)
+          if (!product) {
+            const { data: productData } = await supabase
+              .from("products")
+              .select("id, name, price, description, image_url, category_id")
+              .eq("id", item.product_id)
+              .eq("establishment_id", establishmentId)
+              .single();
+            
+            if (productData) {
+              product = productData;
+            }
+          }
+        }
+        
+        // Se ainda não encontrou, tentar buscar por nome na lista de produtos já carregados
+        // (útil para pedidos do site onde o produto pode ter sido renomeado ou relacionamento quebrado)
+        if (!product) {
+          // Tentar buscar produto pelo nome nas notes ou usar a lista de produtos já carregados
+          const itemNotes = item.notes || "";
+          
+          // Primeiro, tentar na lista de produtos já carregados
+          if (products.length > 0 && itemNotes) {
+            // Procurar produto com nome que apareça nas notes
+            for (const p of products) {
+              // Buscar por correspondência parcial do nome
+              if (itemNotes.toLowerCase().includes(p.name.toLowerCase()) || 
+                  p.name.toLowerCase().includes(itemNotes.toLowerCase().split('\n')[0].trim())) {
+                product = p;
+                break;
+              }
+            }
+          }
+          
+          // Se ainda não encontrou, buscar no banco por nome similar
+          // Primeiro tentar com produtos ativos, depois com inativos também
+          if (!product && itemNotes) {
+            const firstLine = itemNotes.split('\n')[0].trim();
+            // Remover caracteres especiais e normalizar
+            const normalizedName = firstLine.replace(/[^\w\s]/gi, '').trim();
+            
+            if (normalizedName) {
+              // Tentar buscar produto ativo primeiro
+              let { data: matchedProducts } = await supabase
+                .from("products")
+                .select("id, name, price, description, image_url, category_id")
+                .eq("establishment_id", establishmentId)
+                .eq("active", true)
+                .ilike("name", `%${normalizedName}%`)
+                .limit(5);
+              
+              // Se não encontrou ativos, buscar também inativos
+              if (!matchedProducts || matchedProducts.length === 0) {
+                const { data: inactiveProducts } = await supabase
+                  .from("products")
+                  .select("id, name, price, description, image_url, category_id")
+                  .eq("establishment_id", establishmentId)
+                  .ilike("name", `%${normalizedName}%`)
+                  .limit(5);
+                
+                matchedProducts = inactiveProducts;
+              }
+              
+              // Fazer match mais preciso: encontrar produto com nome mais similar
+              if (matchedProducts && matchedProducts.length > 0) {
+                // Se houver apenas um, usar ele
+                if (matchedProducts.length === 1) {
+                  product = matchedProducts[0];
+                } else {
+                  // Se houver vários, tentar encontrar o mais similar
+                  const bestMatch = matchedProducts.find(p => 
+                    p.name.toLowerCase() === normalizedName.toLowerCase() ||
+                    normalizedName.toLowerCase().includes(p.name.toLowerCase()) ||
+                    p.name.toLowerCase().includes(normalizedName.toLowerCase())
+                  );
+                  
+                  product = bestMatch || matchedProducts[0];
+                }
+              }
+            }
+          }
+        }
+        
+        // Se ainda não encontrou o produto, criar um produto temporário usando dados do order_item
+        // Isso permite editar pedidos mesmo quando o produto foi deletado ou não existe mais
+        if (!product) {
+          const itemNotes = item.notes || "";
+          // Tentar extrair nome do produto das notes (primeira linha geralmente tem o nome)
+          let productName = itemNotes.split('\n')[0].trim();
+          
+          // Se não tem nome nas notes, tentar buscar na lista de produtos por preço similar
+          if (!productName || productName.length < 3) {
+            // Buscar produto com preço similar na lista já carregada
+            const similarProduct = products.find(p => 
+              Math.abs(p.price - (item.unit_price || 0)) < 0.01
+            );
+            
+            if (similarProduct) {
+              product = similarProduct;
+            } else {
+              productName = `Produto ${item.id.substring(0, 8)}`;
+            }
+          }
+          
+          // Se ainda não encontrou, criar produto temporário
+          if (!product) {
+            product = {
+              id: item.product_id || `temp-${item.id}`, // Usar product_id se existir, senão criar temp
+              name: productName,
+              price: item.unit_price || 0,
+              description: itemNotes || undefined,
+              image_url: null,
+              category_id: null
+            };
+            
+            console.warn(`Produto não encontrado, criando temporário: ${productName}`, {
+              order_item_id: item.id,
+              product_id: item.product_id,
+              unit_price: item.unit_price,
+              notes: itemNotes
+            });
+          }
+        }
 
         // Extrair adicionais do campo customizations
         let addons: Addon[] = [];
@@ -744,7 +911,7 @@ const PDV = () => {
         }
 
         // Extrair informações de molhos e promoção das notes
-        let notes = item.notes || "";
+        const notes = item.notes || "";
         let saucePrice = 0;
         let originalPrice: number | undefined = undefined;
         let promotionId: string | undefined = undefined;
@@ -794,12 +961,33 @@ const PDV = () => {
         };
 
         cartItems.push(cartItem);
+        console.log('✅ Item adicionado ao carrinho:', {
+          product_name: cartItem.name,
+          quantity: cartItem.quantity,
+          price: cartItem.price
+        });
       }
 
+      console.log('✅ Todos os itens processados:', {
+        total_cart_items: cartItems.length,
+        cart_items: cartItems.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price
+        }))
+      });
+
       setCart(cartItems);
-      toast.success(`Pedido #${order.order_number} carregado para edição`);
-    } catch (error) {
-      toast.error("Erro ao carregar pedido para edição");
+      
+      if (cartItems.length === 0) {
+        console.warn('⚠️ Nenhum item foi adicionado ao carrinho!');
+        toast.warning("Nenhum item pôde ser carregado. Verifique os produtos do pedido.");
+      } else {
+        toast.success(`Pedido #${order.order_number} carregado com ${cartItems.length} item(s)`);
+      }
+    } catch (error: any) {
+      console.error('❌ Erro ao carregar pedido para edição:', error);
+      toast.error(`Erro ao carregar pedido: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }

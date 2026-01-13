@@ -38,7 +38,9 @@ import {
   Monitor,
   Calendar,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  MoreVertical,
+  CheckCircle2 as CheckCircleIcon
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
@@ -71,6 +73,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Função para formatar valores monetários no padrão brasileiro
 const formatCurrencyBR = (value: number): string => {
@@ -138,6 +148,7 @@ const Orders = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isViewDetailsDialogOpen, setIsViewDetailsDialogOpen] = useState(false);
   const [establishment, setEstablishment] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<string>("pending");
   const [isNaBrasa, setIsNaBrasa] = useState(false);
@@ -435,6 +446,14 @@ const Orders = () => {
     return filtered;
   }, [orders, activeTab, isNaBrasa, showAllDates, showPDV, showSite, showDeliveries, selectedDate, selectedPaymentMethod, searchTerm, isFromNaBrasaSite, isFromOnlineMenu, isPDVOrder]);
 
+  const filteredOrdersTotal = useMemo(() => {
+    if (!filteredOrders.length) return 0;
+    return filteredOrders.reduce((sum, order) => {
+      const value = typeof order.total_amount === "number" ? order.total_amount : 0;
+      return sum + value;
+    }, 0);
+  }, [filteredOrders]);
+
   const checkAuth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -556,12 +575,15 @@ const Orders = () => {
     try {
       const formData = new FormData(e.target as HTMLFormElement);
       
+      const newPaymentMethod = editPaymentMethod || formData.get("payment_method") as string || selectedOrder.payment_method;
+      const paymentMethodChanged = newPaymentMethod !== selectedOrder.payment_method;
+      
       const updateData = {
         customer_name: formData.get("customer_name") as string,
         customer_phone: formData.get("customer_phone") as string,
         status: formData.get("status") as string,
         payment_status: formData.get("payment_status") as string,
-        payment_method: editPaymentMethod || formData.get("payment_method") as string || selectedOrder.payment_method,
+        payment_method: newPaymentMethod,
         notes: formData.get("notes") as string,
         table_number: formData.get("table_number") as string,
       };
@@ -573,13 +595,72 @@ const Orders = () => {
 
       if (error) throw error;
 
-      toast.success("Pedido atualizado com sucesso");
+      // Se o método de pagamento foi alterado, imprimir recibo
+      if (paymentMethodChanged) {
+        // Buscar o pedido atualizado com todos os dados necessários
+        const { data: updatedOrder, error: fetchError } = await supabase
+          .from("orders")
+          .select(`
+            *,
+            order_items (
+              *,
+              products (
+                id,
+                name,
+                price,
+                categories (
+                  name
+                )
+              )
+            )
+          `)
+          .eq("id", selectedOrder.id)
+          .single();
+
+        if (!fetchError && updatedOrder) {
+          // Criar um objeto Order completo para passar para handlePrintOrder
+          // Garantir que todos os campos necessários estejam presentes
+          const orderToPrint: Order = {
+            ...selectedOrder, // Manter dados originais como fallback
+            ...updatedOrder, // Sobrescrever com dados atualizados
+            payment_method: newPaymentMethod, // Garantir que o método de pagamento atualizado está presente
+            order_items: updatedOrder.order_items || selectedOrder.order_items || []
+          } as Order;
+
+          // Usar a função handlePrintOrder que já tem toda a lógica de impressão
+          try {
+            await handlePrintOrder(orderToPrint);
+            toast.success("Pedido atualizado e recibo impresso com sucesso");
+          } catch (printError: any) {
+            console.error('Erro ao imprimir recibo:', printError);
+            toast.warning("Pedido atualizado com sucesso, mas houve um erro ao imprimir o recibo");
+          }
+        } else {
+          console.error('Erro ao buscar pedido atualizado:', fetchError);
+          // Tentar imprimir mesmo assim com os dados do selectedOrder atualizado
+          try {
+            const orderToPrint: Order = {
+              ...selectedOrder,
+              payment_method: newPaymentMethod
+            } as Order;
+            await handlePrintOrder(orderToPrint);
+            toast.success("Pedido atualizado e recibo impresso com sucesso");
+          } catch (printError: any) {
+            console.error('Erro ao imprimir recibo:', printError);
+            toast.warning("Pedido atualizado com sucesso, mas não foi possível imprimir o recibo");
+          }
+        }
+      } else {
+        toast.success("Pedido atualizado com sucesso");
+      }
+
       setIsEditDialogOpen(false);
       setSelectedOrder(null);
       setEditPaymentMethod("");
       loadOrders();
-    } catch (error) {
-      toast.error("Erro ao atualizar pedido");
+    } catch (error: any) {
+      console.error('Erro ao atualizar pedido:', error);
+      toast.error(`Erro ao atualizar pedido: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -1751,6 +1832,16 @@ const Orders = () => {
                         {filteredOrders.length} {filteredOrders.length === 1 ? 'item' : 'itens'}
                       </span>
                     </div>
+                    {activeTab === "all" && (
+                      <div className="flex flex-col items-end text-right text-sm">
+                        <span className="font-medium text-muted-foreground">
+                          Total dos pedidos filtrados
+                        </span>
+                        <span className="font-semibold">
+                          {formatCurrencyBR(filteredOrdersTotal)}
+                        </span>
+                      </div>
+                    )}
                     {(showPDV || showSite || showDeliveries || selectedDate || selectedPaymentMethod || searchTerm) && (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                         <span className="font-medium">Filtros:</span>
@@ -2006,128 +2097,76 @@ const Orders = () => {
                         </div>
 
                         <div className="flex flex-col items-end gap-2 ml-4">
-                          <div className="flex items-center gap-1 flex-wrap">
-                          <TooltipProvider>
-                            {/* Botão Editar no PDV - disponível para todos os pedidos */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
+                          <div className="flex items-center gap-2">
+                            <TooltipProvider>
+                              {/* Botões principais - ações mais importantes visíveis */}
+                              
+                              {/* Para pedidos do site Na Brasa: Botão principal "Alterar Pagamento" */}
+                              {isFromNaBrasaSite && (
                                 <Button 
-                                  variant="outline" 
-                                  size="icon"
-                                  onClick={() => navigate(`/pdv?editOrder=${order.id}`)}
-                                  className="h-8 w-8 border-purple-500 text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                                  variant="default" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedOrder(order);
+                                    setEditPaymentMethod(order.payment_method || "");
+                                    setIsEditDialogOpen(true);
+                                  }}
+                                  className="h-9 px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-md hover:shadow-lg transition-all"
                                 >
-                                  <SquarePen className="h-4 w-4" />
+                                  <CreditCard className="h-4 w-4 mr-2" />
+                                  Alterar Pagamento
                                 </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Editar no PDV</p>
-                              </TooltipContent>
-                            </Tooltip>
+                              )}
 
-                            {/* Botões para pedidos do PDV */}
-                            {isPDVOrderCheck && (
-                              <>
+                              {/* Botão "Confirmar Pagamento" - aparece para TODOS os pedidos com pagamento pendente */}
+                              {order.payment_status === "pending" && (
+                                <Button 
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => handleMarkPaymentAsPaid(order.id)}
+                                  className="h-9 px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-md hover:shadow-lg transition-all"
+                                >
+                                  <CheckCircleIcon className="h-4 w-4 mr-2" />
+                                  Confirmar Pagamento
+                                </Button>
+                              )}
 
-                                {/* Botão de Confirmação de Pagamento */}
-                                {order.payment_status === "pending" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        variant="outline" 
-                                        size="icon"
-                                        onClick={() => handleMarkPaymentAsPaid(order.id)}
-                                        className="h-8 w-8 border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-                                      >
-                                        <DollarSign className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Confirmar Pagamento</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
+                              {/* Botão "Pronto Retirada/Entrega" - aparece quando aplicável */}
+                              {((order.status === "pending" || order.status === "preparing") && 
+                                (isPDVOrderCheck || order.accepted_and_printed_at || 
+                                 (activeTab === "totem" && order.status === "pending" && isFromTotem))) && (
+                                <Button 
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (order.status === "preparing" || (activeTab === "totem" && order.status === "pending")) {
+                                      handleMarkAsReady(order.id);
+                                    } else {
+                                      handleMarkDeliveryAsCompleted(order.id);
+                                    }
+                                  }}
+                                  className="h-9 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md hover:shadow-lg transition-all"
+                                >
+                                  <Truck className="h-4 w-4 mr-2" />
+                                  Pronto
+                                </Button>
+                              )}
 
-                                {/* Botão de Pronto para Retirada */}
-                                {(order.status === "pending" || order.status === "preparing") && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        variant="outline" 
-                                        size="icon"
-                                        onClick={() => handleMarkDeliveryAsCompleted(order.id)}
-                                        className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                                      >
-                                        <Truck className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Pronto Retirada/Entrega</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                              </>
-                            )}
-
-                            {/* Botões para pedidos online que já foram aceitos/impressos */}
-                            {!isPDVOrderCheck && order.accepted_and_printed_at && (
-                              <>
-                                {/* Botão de Confirmação de Pagamento */}
-                                {order.payment_status === "pending" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        variant="outline" 
-                                        size="icon"
-                                        onClick={() => handleMarkPaymentAsPaid(order.id)}
-                                        className="h-8 w-8 border-green-500 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/20"
-                                      >
-                                        <DollarSign className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Confirmar Pagamento</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-
-                                {/* Botão de Pronto para Retirada */}
-                                {order.status === "pending" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        variant="outline" 
-                                        size="icon"
-                                        onClick={() => handleMarkDeliveryAsCompleted(order.id)}
-                                        className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
-                                      >
-                                        <Truck className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Pronto Retirada/Entrega</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                              </>
-                            )}
-
-                            {/* Botões para pedidos online pendentes que ainda não foram aceitos */}
-                            {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
-                              <>
+                              {/* Botão "Recusar" para pedidos online pendentes */}
+                              {isPendingOnline && order.status === "pending" && !order.accepted_and_printed_at && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button 
                                       variant="destructive" 
-                                      size="icon"
+                                      size="sm"
                                       onClick={() => {
                                         setOrderToReject(order.id);
                                         setRejectionReason("");
                                       }}
-                                      className="h-8 w-8"
-                                      title="Recusar Pedido"
+                                      className="h-9 px-4 shadow-md hover:shadow-lg transition-all"
                                     >
-                                      <XCircle className="h-4 w-4" />
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Recusar
                                     </Button>
                                   </AlertDialogTrigger>
                                   <AlertDialogContent>
@@ -2166,414 +2205,284 @@ const Orders = () => {
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>
-                              </>
-                            )}
+                              )}
 
-                            {/* Botão de "Pronto para Retirada" - aparece quando status é "preparing" ou na aba Totem com status "pending" */}
-                            {(order.status === "preparing" || (activeTab === "totem" && order.status === "pending" && isFromTotem)) && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
+                              {/* Menu dropdown "Mais ações" */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
                                   <Button 
                                     variant="outline" 
                                     size="icon"
-                                    onClick={() => handleMarkAsReady(order.id)}
-                                    className="h-8 w-8 border-blue-500 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                    className="h-9 w-9 border-2 hover:bg-accent"
                                   >
-                                    <Truck className="h-4 w-4" />
+                                    <MoreVertical className="h-4 w-4" />
                                   </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Pronto Retirada/Entrega</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {/* Botão de Imprimir/Reimprimir */}
-                            {(activeTab === "all" || activeTab === "totem" || isFromTotem) && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon"
-                                    onClick={() => handlePrintOrder(order)}
-                                    className="h-8 w-8"
-                                  >
-                                    <Printer className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{activeTab === "all" ? "Reimprimir Pedido" : "Imprimir Pedido"}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {/* Botão Enviar PIX por WhatsApp */}
-                            {shouldShowWhatsButton(order) && establishment && (
-                              (establishment.pix_key_value || establishment.pix_key) ? (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <a
-                                      href={buildWhatsLink(order, establishment)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <Button 
-                                        variant="outline" 
-                                        size="icon"
-                                        className="h-8 w-8 bg-green-500 hover:bg-green-600 text-white border-green-600"
-                                      >
-                                        <MessageCircle className="h-4 w-4" />
-                                      </Button>
-                                    </a>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Enviar PIX por WhatsApp</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              ) : (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      disabled
-                                      className="h-8 w-8 bg-gray-400 cursor-not-allowed border-gray-400"
-                                    >
-                                      <MessageCircle className="h-4 w-4" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Configure sua chave PIX em Configurações</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              )
-                            )}
-
-                            {/* Botão Ver Detalhes */}
-                            <Dialog>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <DialogTrigger asChild>
-                                    <Button variant="outline" size="icon" className="h-8 w-8">
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                  </DialogTrigger>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Ver Detalhes</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            <DialogContent className="max-w-2xl">
-                              <DialogHeader>
-                                <DialogTitle>Detalhes do Pedido #{order.order_number}</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                  <div>
-                                    <strong>Cliente:</strong> {order.customer_name || "N/A"}
-                                  </div>
-                                  <div>
-                                    <strong>Telefone:</strong> {order.customer_phone || "N/A"}
-                                  </div>
-                                  <div>
-                                    <strong>Status:</strong> {getStatusText(order.status)}
-                                  </div>
-                                  <div>
-                                    <strong>Pagamento:</strong>{" "}
-                                    <Badge 
-                                      variant="outline"
-                                      className={order.payment_status === "paid" 
-                                        ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20 ml-2" 
-                                        : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20 ml-2"
-                                      }
-                                    >
-                                      {order.payment_status === "paid" ? "Pago" : "Pendente"}
-                                    </Badge>
-                                  </div>
-                                  <div>
-                                    <strong>Método:</strong>{" "}
-                                    <Badge variant="outline" className="ml-2">
-                                      {order.payment_method === 'dinheiro' ? 'Dinheiro' :
-                                       order.payment_method === 'pix' ? 'PIX' :
-                                       order.payment_method === 'cartao_debito' ? 'Débito' :
-                                       order.payment_method === 'cartao_credito' ? 'Crédito' :
-                                       order.payment_method || 'N/A'}
-                                    </Badge>
-                                  </div>
-                                  {order.source_domain && (
-                                    <div className="col-span-2">
-                                      <strong>Origem:</strong> {order.source_domain}
-                                    </div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-56">
+                                  <DropdownMenuLabel>Ações do Pedido</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  
+                                  {/* Editar no PDV - apenas para pedidos que não são do site Na Brasa */}
+                                  {!isFromNaBrasaSite && (
+                                    <DropdownMenuItem onClick={() => navigate(`/pdv?editOrder=${order.id}`)}>
+                                      <SquarePen className="h-4 w-4 mr-2" />
+                                      Editar no PDV
+                                    </DropdownMenuItem>
                                   )}
-                                </div>
-                                
-                                <div>
-                                  <strong>Itens:</strong>
-                                  <div className="mt-2 space-y-2">
-                                    {order.order_items?.map((item, index) => {
-                                      // Extrair adicionais do campo customizations
-                                      let addonsInfo = null;
-                                      try {
-                                        const customizations = item.customizations as any;
-                                        if (customizations && customizations.addons && Array.isArray(customizations.addons) && customizations.addons.length > 0) {
-                                          const addons = customizations.addons;
-                                          addonsInfo = addons.map((a: any) => {
-                                            const qty = a.quantity || 1;
-                                            const price = a.price || 0;
-                                            return `${qty}x ${a.name} (R$ ${(price * qty).toFixed(2)})`;
-                                          }).join(', ');
-                                        }
-                                      } catch (e) {
-                                        // Erro ao processar customizations - continuar silenciosamente
-                                      }
-                                      
-                                      return (
-                                        <div key={index} className="p-2 border rounded">
-                                          <div className="flex justify-between items-center">
-                                            <span className="font-medium">{item.quantity}x {item.products.name}</span>
-                                            <span className="font-semibold">{formatCurrencyBR(item.total_price)}</span>
-                                          </div>
-                                          {addonsInfo && (
-                                            <div className="mt-1.5 text-sm text-muted-foreground pl-2 border-l-2 border-primary/30">
-                                              <span className="font-medium">Adicionais: </span>
-                                              <span>{addonsInfo}</span>
-                                            </div>
-                                          )}
-                                          {item.notes && (
-                                            <div className="mt-1.5 text-sm text-muted-foreground pl-2 border-l-2 border-border">
-                                              <span className="font-medium">Obs: </span>
-                                              <span>{item.notes}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
 
-                                {order.notes && (
-                                  <div>
-                                    <strong>Observações:</strong>
-                                    <p className="text-sm text-muted-foreground mt-1">{order.notes}</p>
-                                  </div>
-                                )}
+                                  {/* Editar Pedido */}
+                                  <DropdownMenuItem onSelect={(e) => {
+                                    e.preventDefault();
+                                    setSelectedOrder(order);
+                                    setEditPaymentMethod(order.payment_method || "");
+                                    setIsEditDialogOpen(true);
+                                  }}>
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Editar Pedido
+                                  </DropdownMenuItem>
 
-                                {order.rejection_reason && (
-                                  <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
-                                    <strong className="text-red-900 dark:text-red-100">Motivo da Recusa:</strong>
-                                    <p className="text-sm text-red-800 dark:text-red-200 mt-1">{order.rejection_reason}</p>
-                                  </div>
-                                )}
-
-                                {/* Botões de Ação */}
-                                <div className="pt-4 border-t space-y-3">
-                                  {/* Botão Imprimir Cupom Não Fiscal */}
-                                  <Button
-                                    variant="outline"
-                                    className="w-full"
-                                    onClick={() => handlePrintNonFiscalReceipt(order)}
-                                  >
-                                    <Printer className="h-4 w-4 mr-2" />
-                                    Imprimir Cupom Não Fiscal
-                                  </Button>
-
-                                  {/* Botão Enviar PIX por WhatsApp */}
-                                  {shouldShowWhatsButton(order) && establishment && (
-                                    <div>
-                                      {establishment.pix_key ? (
-                                        <a
-                                          href={buildWhatsLink(order, establishment)}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors w-full justify-center"
-                                        >
-                                          <MessageCircle className="h-4 w-4" />
-                                          Enviar PIX por WhatsApp
-                                        </a>
-                                      ) : (
-                                        <div className="space-y-2">
-                                          <Button
-                                            disabled
-                                            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-400 cursor-not-allowed w-full"
-                                            title="Configure sua chave PIX em Configurações"
-                                          >
-                                            <MessageCircle className="h-4 w-4" />
-                                            Enviar PIX por WhatsApp
-                                          </Button>
-                                          <p className="text-xs text-muted-foreground">
-                                            Configure sua chave PIX em Configurações para habilitar esta função
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
+                                  {/* Confirmar Pagamento - no dropdown também para garantir acesso */}
+                                  {order.payment_status === "pending" && (
+                                    <DropdownMenuItem onClick={() => handleMarkPaymentAsPaid(order.id)}>
+                                      <CheckCircleIcon className="h-4 w-4 mr-2" />
+                                      Confirmar Pagamento
+                                    </DropdownMenuItem>
                                   )}
-                                </div>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
 
-                          {/* Edit button for all orders */}
-                          <Dialog 
-                            open={isEditDialogOpen} 
-                            onOpenChange={(open) => {
-                              setIsEditDialogOpen(open);
-                              if (!open) {
-                                setSelectedOrder(null);
-                                setEditPaymentMethod("");
-                              }
-                            }}
-                          >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <DialogTrigger asChild>
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon"
-                                    onClick={() => {
-                                      setSelectedOrder(order);
-                                      setEditPaymentMethod(order.payment_method || "");
+                                  {/* Ver Detalhes */}
+                                  <Dialog 
+                                    open={isViewDetailsDialogOpen && selectedOrder?.id === order.id}
+                                    onOpenChange={(open) => {
+                                      setIsViewDetailsDialogOpen(open);
+                                      if (open) {
+                                        setSelectedOrder(order);
+                                      } else {
+                                        setSelectedOrder(null);
+                                        // Prevenir scroll ao fechar o dialog
+                                        setTimeout(() => {
+                                          window.scrollTo({ top: 0, behavior: 'instant' });
+                                        }, 0);
+                                      }
                                     }}
-                                    className="h-8 w-8"
                                   >
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                </DialogTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Editar Pedido</p>
-                              </TooltipContent>
-                            </Tooltip>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Editar Pedido #{selectedOrder?.order_number || order.order_number}</DialogTitle>
-                          </DialogHeader>
-                          <form onSubmit={handleUpdateOrder} className="space-y-4">
-                            <div>
-                              <Label htmlFor="customer_name">Nome do Cliente</Label>
-                              <Input
-                                id="customer_name"
-                                name="customer_name"
-                                defaultValue={selectedOrder?.customer_name || ""}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="customer_phone">Telefone</Label>
-                              <Input
-                                id="customer_phone"
-                                name="customer_phone"
-                                defaultValue={selectedOrder?.customer_phone || ""}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="status">Status</Label>
-                              <select
-                                id="status"
-                                name="status"
-                                defaultValue={selectedOrder?.status || ""}
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                <option value="pending">Pendente</option>
-                                <option value="preparing">Preparando</option>
-                                <option value="ready">Pronto</option>
-                                <option value="completed">Concluído</option>
-                                <option value="cancelled">Cancelado</option>
-                              </select>
-                            </div>
-                            <div>
-                              <Label htmlFor="payment_status">Status do Pagamento</Label>
-                              <select
-                                id="payment_status"
-                                name="payment_status"
-                                defaultValue={selectedOrder?.payment_status || ""}
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                <option value="pending">Pendente</option>
-                                <option value="paid">Pago</option>
-                              </select>
-                            </div>
-                            <div>
-                              <Label htmlFor="payment_method">Método de Pagamento</Label>
-                              <Select
-                                value={editPaymentMethod || selectedOrder?.payment_method || ""}
-                                onValueChange={setEditPaymentMethod}
-                              >
-                                <SelectTrigger id="payment_method">
-                                  <SelectValue placeholder="Selecione o método de pagamento" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                                  <SelectItem value="pix">PIX</SelectItem>
-                                  <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                                  <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label htmlFor="table_number">Mesa</Label>
-                              <Input
-                                id="table_number"
-                                name="table_number"
-                                defaultValue={selectedOrder?.table_number || ""}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="notes">Observações</Label>
-                              <Textarea
-                                id="notes"
-                                name="notes"
-                                defaultValue={selectedOrder?.notes || ""}
-                              />
-                            </div>
-                            <div className="flex justify-end space-x-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setIsEditDialogOpen(false);
-                                    setSelectedOrder(null);
-                                    setEditPaymentMethod("");
-                                  }}
-                                >
-                                  Cancelar
-                                </Button>
-                              <Button type="submit">
-                                Atualizar
-                              </Button>
-                            </div>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
+                                    <DialogTrigger asChild>
+                                      <DropdownMenuItem onSelect={(e) => {
+                                        e.preventDefault();
+                                        setSelectedOrder(order);
+                                        setIsViewDetailsDialogOpen(true);
+                                      }}>
+                                        <Eye className="h-4 w-4 mr-2" />
+                                        Ver Detalhes
+                                      </DropdownMenuItem>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-2xl">
+                                      <DialogHeader>
+                                        <DialogTitle>Detalhes do Pedido #{order.order_number}</DialogTitle>
+                                      </DialogHeader>
+                                      <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4 text-sm">
+                                          <div>
+                                            <strong>Cliente:</strong> {order.customer_name || "N/A"}
+                                          </div>
+                                          <div>
+                                            <strong>Telefone:</strong> {order.customer_phone || "N/A"}
+                                          </div>
+                                          <div>
+                                            <strong>Status:</strong> {getStatusText(order.status)}
+                                          </div>
+                                          <div>
+                                            <strong>Pagamento:</strong>{" "}
+                                            <Badge 
+                                              variant="outline"
+                                              className={order.payment_status === "paid" 
+                                                ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20 ml-2" 
+                                                : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20 ml-2"
+                                              }
+                                            >
+                                              {order.payment_status === "paid" ? "Pago" : "Pendente"}
+                                            </Badge>
+                                          </div>
+                                          <div>
+                                            <strong>Método:</strong>{" "}
+                                            <Badge variant="outline" className="ml-2">
+                                              {order.payment_method === 'dinheiro' ? 'Dinheiro' :
+                                               order.payment_method === 'pix' ? 'PIX' :
+                                               order.payment_method === 'cartao_debito' ? 'Débito' :
+                                               order.payment_method === 'cartao_credito' ? 'Crédito' :
+                                               order.payment_method || 'N/A'}
+                                            </Badge>
+                                          </div>
+                                          {order.source_domain && (
+                                            <div className="col-span-2">
+                                              <strong>Origem:</strong> {order.source_domain}
+                                            </div>
+                                          )}
+                                        </div>
+                                        
+                                        <div>
+                                          <strong>Itens:</strong>
+                                          <div className="mt-2 space-y-2">
+                                            {order.order_items?.map((item, index) => {
+                                              // Extrair adicionais do campo customizations
+                                              let addonsInfo = null;
+                                              try {
+                                                const customizations = item.customizations as any;
+                                                if (customizations && customizations.addons && Array.isArray(customizations.addons) && customizations.addons.length > 0) {
+                                                  const addons = customizations.addons;
+                                                  addonsInfo = addons.map((a: any) => {
+                                                    const qty = a.quantity || 1;
+                                                    const price = a.price || 0;
+                                                    return `${qty}x ${a.name} (R$ ${(price * qty).toFixed(2)})`;
+                                                  }).join(', ');
+                                                }
+                                              } catch (e) {
+                                                // Erro ao processar customizations - continuar silenciosamente
+                                              }
+                                              
+                                              return (
+                                                <div key={index} className="p-2 border rounded">
+                                                  <div className="flex justify-between items-center">
+                                                    <span className="font-medium">{item.quantity}x {item.products.name}</span>
+                                                    <span className="font-semibold">{formatCurrencyBR(item.total_price)}</span>
+                                                  </div>
+                                                  {addonsInfo && (
+                                                    <div className="mt-1.5 text-sm text-muted-foreground pl-2 border-l-2 border-primary/30">
+                                                      <span className="font-medium">Adicionais: </span>
+                                                      <span>{addonsInfo}</span>
+                                                    </div>
+                                                  )}
+                                                  {item.notes && (
+                                                    <div className="mt-1.5 text-sm text-muted-foreground pl-2 border-l-2 border-border">
+                                                      <span className="font-medium">Obs: </span>
+                                                      <span>{item.notes}</span>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
 
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
-                            title="Excluir Pedido"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Tem certeza que deseja excluir o pedido #{order.order_number}? 
-                              Esta ação não pode ser desfeita.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDeleteOrder(order.id)}
-                              className="bg-red-600 hover:bg-red-700"
-                            >
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                                        {order.notes && (
+                                          <div>
+                                            <strong>Observações:</strong>
+                                            <p className="text-sm text-muted-foreground mt-1">{order.notes}</p>
+                                          </div>
+                                        )}
+
+                                        {order.rejection_reason && (
+                                          <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                            <strong className="text-red-900 dark:text-red-100">Motivo da Recusa:</strong>
+                                            <p className="text-sm text-red-800 dark:text-red-200 mt-1">{order.rejection_reason}</p>
+                                          </div>
+                                        )}
+
+                                        {/* Botões de Ação */}
+                                        <div className="pt-4 border-t space-y-3">
+                                          {/* Botão Imprimir Cupom Não Fiscal */}
+                                          <Button
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={() => handlePrintNonFiscalReceipt(order)}
+                                          >
+                                            <Printer className="h-4 w-4 mr-2" />
+                                            Imprimir Cupom Não Fiscal
+                                          </Button>
+
+                                          {/* Botão Enviar PIX por WhatsApp */}
+                                          {shouldShowWhatsButton(order) && establishment && (
+                                            <div>
+                                              {establishment.pix_key ? (
+                                                <a
+                                                  href={buildWhatsLink(order, establishment)}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors w-full justify-center"
+                                                >
+                                                  <MessageCircle className="h-4 w-4" />
+                                                  Enviar PIX por WhatsApp
+                                                </a>
+                                              ) : (
+                                                <div className="space-y-2">
+                                                  <Button
+                                                    disabled
+                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-400 cursor-not-allowed w-full"
+                                                    title="Configure sua chave PIX em Configurações"
+                                                  >
+                                                    <MessageCircle className="h-4 w-4" />
+                                                    Enviar PIX por WhatsApp
+                                                  </Button>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Configure sua chave PIX em Configurações para habilitar esta função
+                                                  </p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </DialogContent>
+                                  </Dialog>
+
+                                  <DropdownMenuSeparator />
+
+                                  {/* Imprimir/Reimprimir */}
+                                  {(activeTab === "all" || activeTab === "totem" || isFromTotem) && (
+                                    <DropdownMenuItem onClick={() => handlePrintOrder(order)}>
+                                      <Printer className="h-4 w-4 mr-2" />
+                                      {activeTab === "all" ? "Reimprimir Pedido" : "Imprimir Pedido"}
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {/* Enviar PIX por WhatsApp */}
+                                  {shouldShowWhatsButton(order) && establishment && (establishment.pix_key_value || establishment.pix_key) && (
+                                    <DropdownMenuItem asChild>
+                                      <a
+                                        href={buildWhatsLink(order, establishment)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center"
+                                      >
+                                        <MessageCircle className="h-4 w-4 mr-2" />
+                                        Enviar PIX por WhatsApp
+                                      </a>
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  <DropdownMenuSeparator />
+
+                                  {/* Excluir Pedido */}
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <DropdownMenuItem 
+                                        onSelect={(e) => e.preventDefault()}
+                                        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/20"
+                                      >
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Excluir Pedido
+                                      </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Tem certeza que deseja excluir o pedido #{order.order_number}? 
+                                          Esta ação não pode ser desfeita.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => handleDeleteOrder(order.id)}
+                                          className="bg-red-600 hover:bg-red-700"
+                                        >
+                                          Excluir
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TooltipProvider>
                           </div>
                           
@@ -2621,20 +2530,143 @@ const Orders = () => {
                         </div>
                       </div>
 
-                        {order.notes && (
-                          <div className="mt-4 p-3 bg-muted rounded-md">
-                            <p className="text-sm"><strong>Observações:</strong> {order.notes}</p>
-                          </div>
-                        )}
-                      </Card>
+                      {order.notes && (
+                        <div className="mt-4 p-3 bg-muted rounded-md">
+                          <p className="text-sm"><strong>Observações:</strong> {order.notes}</p>
+                        </div>
+                      )}
+                    </Card>
                     );
                   })}
                 </>
               ) : null}
-        </TabsContent>
-      </Tabs>
-          </div>
-        </main>
+
+              {/* Diálogo de Edição - Compartilhado para todos os pedidos */}
+              <Dialog 
+                open={isEditDialogOpen && !!selectedOrder} 
+                onOpenChange={(open) => {
+                  setIsEditDialogOpen(open);
+                  if (!open) {
+                    setSelectedOrder(null);
+                    setEditPaymentMethod("");
+                    // Prevenir scroll ao fechar o dialog
+                    setTimeout(() => {
+                      window.scrollTo({ top: 0, behavior: 'instant' });
+                    }, 0);
+                  }
+                }}
+              >
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Editar Pedido #{selectedOrder?.order_number}</DialogTitle>
+                    {selectedOrder?.source_domain?.toLowerCase().includes('hamburguerianabrasa') && (
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Ao alterar o método de pagamento, o recibo será impresso automaticamente.
+                      </p>
+                    )}
+                  </DialogHeader>
+                  {selectedOrder && (
+                    <form onSubmit={handleUpdateOrder} className="space-y-4">
+                      <div>
+                        <Label htmlFor="edit_customer_name">Nome do Cliente</Label>
+                        <Input
+                          id="edit_customer_name"
+                          name="customer_name"
+                          defaultValue={selectedOrder.customer_name || ""}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_customer_phone">Telefone</Label>
+                        <Input
+                          id="edit_customer_phone"
+                          name="customer_phone"
+                          defaultValue={selectedOrder.customer_phone || ""}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_status">Status</Label>
+                        <select
+                          id="edit_status"
+                          name="status"
+                          defaultValue={selectedOrder.status || ""}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="pending">Pendente</option>
+                          <option value="preparing">Preparando</option>
+                          <option value="ready">Pronto</option>
+                          <option value="completed">Concluído</option>
+                          <option value="cancelled">Cancelado</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_payment_status">Status do Pagamento</Label>
+                        <select
+                          id="edit_payment_status"
+                          name="payment_status"
+                          defaultValue={selectedOrder.payment_status || ""}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="pending">Pendente</option>
+                          <option value="paid">Pago</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_payment_method">Método de Pagamento</Label>
+                        <Select
+                          value={editPaymentMethod || selectedOrder.payment_method || ""}
+                          onValueChange={setEditPaymentMethod}
+                        >
+                          <SelectTrigger id="edit_payment_method">
+                            <SelectValue placeholder="Selecione o método de pagamento" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                            <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_table_number">Mesa</Label>
+                        <Input
+                          id="edit_table_number"
+                          name="table_number"
+                          defaultValue={selectedOrder.table_number || ""}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="edit_notes">Observações</Label>
+                        <Textarea
+                          id="edit_notes"
+                          name="notes"
+                          defaultValue={selectedOrder.notes || ""}
+                        />
+                      </div>
+                      <div className="flex justify-end space-x-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setIsEditDialogOpen(false);
+                            setSelectedOrder(null);
+                            setEditPaymentMethod("");
+                          }}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button type="submit">
+                          Atualizar
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </DialogContent>
+              </Dialog>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </main>
 
         {/* Modal para coletar dados do cliente para cupom não fiscal */}
         <Dialog open={showNonFiscalModal} onOpenChange={setShowNonFiscalModal}>

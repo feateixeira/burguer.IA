@@ -111,3 +111,4 @@ COMMENT ON FUNCTION public.get_auth_setting IS 'Retorna o valor de uma configura
 
 
 
+

@@ -8,6 +8,7 @@ export interface CashSessionTotals {
   expected_debit: number;
   expected_credit: number;
   expected_total: number;
+  rejected_total: number;
 }
 
 export interface CashSession {
@@ -99,6 +100,7 @@ export const useCashSession = (establishmentId: string | null) => {
           expected_debit: parseFloat(t.expected_debit || 0),
           expected_credit: parseFloat(t.expected_credit || 0),
           expected_total: parseFloat(t.expected_total || 0),
+          rejected_total: parseFloat(t.rejected_total || 0),
         });
       }
     } catch (error: any) {

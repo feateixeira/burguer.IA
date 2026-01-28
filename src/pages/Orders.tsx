@@ -454,6 +454,17 @@ const Orders = () => {
     }, 0);
   }, [filteredOrders]);
 
+  const rejectedOrdersTotal = useMemo(() => {
+    if (!filteredOrders.length || activeTab !== "rejected") return 0;
+    return filteredOrders.reduce((sum, order) => {
+      if (order.status === "cancelled" && order.rejection_reason) {
+        const value = typeof order.total_amount === "number" ? order.total_amount : 0;
+        return sum + value;
+      }
+      return sum;
+    }, 0);
+  }, [filteredOrders, activeTab]);
+
   const checkAuth = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -1590,8 +1601,55 @@ const Orders = () => {
     }
   };
 
+  /**
+   * Envia mensagem via WhatsApp API
+   */
+  const sendWhatsAppMessage = async (phone: string, message: string) => {
+    try {
+      // URL da API de WhatsApp (pode ser configurada via variável de ambiente)
+      const whatsappApiUrl = import.meta.env.VITE_WHATSAPP_API_URL || 'http://localhost:3000';
+      
+      // Usar o establishment.id como clientId (ou pode ser configurado separadamente)
+      const clientId = establishment?.id || 'default';
+      
+      const response = await fetch(`${whatsappApiUrl}/send-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: clientId,
+          phone: phone,
+          message: message
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Erro ao enviar mensagem');
+      }
+      
+      return data;
+    } catch (error: any) {
+      console.error('Erro ao enviar mensagem via WhatsApp:', error);
+      throw error;
+    }
+  };
+
   const handleMarkAsReady = async (orderId: string) => {
     try {
+      // Buscar o pedido completo para verificar se é entrega
+      const { data: order, error: fetchError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("id", orderId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!order) throw new Error("Pedido não encontrado");
+
+      // Atualizar status para "ready"
       const { error } = await supabase
         .from("orders")
         .update({ status: "ready" })
@@ -1599,9 +1657,29 @@ const Orders = () => {
 
       if (error) throw error;
 
-      toast.success("Pedido marcado como pronto para retirada");
+      // Se for entrega e tiver telefone do cliente, enviar mensagem
+      if (order.order_type === 'delivery' && order.customer_phone) {
+        try {
+          // Formatar telefone (remover caracteres não numéricos)
+          const phone = order.customer_phone.replace(/\D/g, '');
+          
+          // Mensagem personalizada
+          const message = `🍔 Olá ${order.customer_name || 'Cliente'}! Seu pedido #${order.order_number} está pronto e saiu para entrega! Em breve você receberá seu lanche. Obrigado pela preferência! 🚀`;
+          
+          await sendWhatsAppMessage(phone, message);
+          toast.success("Pedido marcado como pronto e mensagem enviada ao cliente!");
+        } catch (whatsappError: any) {
+          // Se falhar ao enviar WhatsApp, ainda marca como pronto
+          console.error('Erro ao enviar mensagem WhatsApp:', whatsappError);
+          toast.success("Pedido marcado como pronto (não foi possível enviar mensagem)");
+        }
+      } else {
+        toast.success("Pedido marcado como pronto para retirada");
+      }
+
       loadOrders();
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Erro ao marcar pedido como pronto:', error);
       toast.error("Erro ao marcar pedido como pronto");
     }
   };
@@ -1839,6 +1917,16 @@ const Orders = () => {
                         </span>
                         <span className="font-semibold">
                           {formatCurrencyBR(filteredOrdersTotal)}
+                        </span>
+                      </div>
+                    )}
+                    {activeTab === "rejected" && (
+                      <div className="flex flex-col items-end text-right text-sm">
+                        <span className="font-medium text-muted-foreground">
+                          Total em pedidos recusados
+                        </span>
+                        <span className="font-semibold text-red-600 dark:text-red-400">
+                          {formatCurrencyBR(rejectedOrdersTotal)}
                         </span>
                       </div>
                     )}
@@ -2138,9 +2226,9 @@ const Orders = () => {
                                 <Button 
                                   variant="default"
                                   size="sm"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     if (order.status === "preparing" || (activeTab === "totem" && order.status === "pending")) {
-                                      handleMarkAsReady(order.id);
+                                      await handleMarkAsReady(order.id);
                                     } else {
                                       handleMarkDeliveryAsCompleted(order.id);
                                     }

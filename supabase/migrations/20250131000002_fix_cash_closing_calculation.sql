@@ -16,7 +16,8 @@ RETURNS TABLE (
   expected_pix NUMERIC,
   expected_debit NUMERIC,
   expected_credit NUMERIC,
-  expected_total NUMERIC
+  expected_total NUMERIC,
+  rejected_total NUMERIC
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -49,7 +50,7 @@ BEGIN
 
   v_opening_amount := COALESCE(v_session.opening_amount, 0);
 
-  -- IMPORTANTE: Buscar TODOS os pedidos do período da sessão
+  -- IMPORTANTE: Buscar apenas pedidos efetivamente pagos (payment_status = 'paid')
   -- Aplicar filtro especial do Na Brasa se necessário
   -- Para Na Brasa: incluir apenas pedidos do site que foram aceitos/impressos OU pedidos que não são do site
   -- Para outros estabelecimentos: incluir TODOS os pedidos
@@ -66,6 +67,7 @@ BEGIN
   WHERE o.establishment_id = v_session.establishment_id
     AND o.status != 'cancelled'
     AND (o.payment_method = 'dinheiro' OR o.payment_method = 'cash')
+    AND o.payment_status = 'paid'
     AND o.created_at >= v_session.opened_at
     AND o.created_at < COALESCE(v_session.closed_at, now())
     -- Aplicar filtro do Na Brasa se necessário
@@ -87,6 +89,7 @@ BEGIN
   WHERE o.establishment_id = v_session.establishment_id
     AND o.status != 'cancelled'
     AND o.payment_method = 'pix' 
+    AND o.payment_status = 'paid'
     AND o.created_at >= v_session.opened_at
     AND o.created_at < COALESCE(v_session.closed_at, now())
     -- Aplicar filtro do Na Brasa se necessário
@@ -106,6 +109,7 @@ BEGIN
   WHERE o.establishment_id = v_session.establishment_id
     AND o.status != 'cancelled'
     AND (o.payment_method = 'cartao_debito' OR o.payment_method = 'cartao credito/debito')
+    AND o.payment_status = 'paid'
     AND o.created_at >= v_session.opened_at
     AND o.created_at < COALESCE(v_session.closed_at, now())
     -- Aplicar filtro do Na Brasa se necessário
@@ -125,6 +129,7 @@ BEGIN
   WHERE o.establishment_id = v_session.establishment_id
     AND o.status != 'cancelled'
     AND o.payment_method = 'cartao_credito'
+    AND o.payment_status = 'paid'
     AND o.created_at >= v_session.opened_at
     AND o.created_at < COALESCE(v_session.closed_at, now())
     -- Aplicar filtro do Na Brasa se necessário
@@ -144,10 +149,27 @@ BEGIN
     expected_credit := 0;
   END IF;
 
-  -- Calcular total esperado
+  -- Calcular total esperado (não inclui pedidos recusados)
   expected_total := expected_cash + expected_pix + expected_debit + expected_credit;
 
-  RETURN QUERY SELECT expected_cash, expected_pix, expected_debit, expected_credit, expected_total;
+  -- Calcular total de pedidos recusados (informativo)
+  SELECT 
+    COALESCE(SUM(o.total_amount), 0)
+  INTO rejected_total
+  FROM public.orders o
+  WHERE o.establishment_id = v_session.establishment_id
+    AND o.status = 'cancelled'
+    AND o.rejection_reason IS NOT NULL
+    AND o.created_at >= v_session.opened_at
+    AND o.created_at < COALESCE(v_session.closed_at, now());
+
+  RETURN QUERY SELECT 
+    expected_cash, 
+    expected_pix, 
+    expected_debit, 
+    expected_credit, 
+    expected_total,
+    rejected_total;
 END;
 $$;
 

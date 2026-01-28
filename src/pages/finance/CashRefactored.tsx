@@ -596,6 +596,14 @@ const CashRefactored = () => {
                       {formatCurrency(totals.expected_total)}
                     </p>
                   </div>
+                  <div className="col-span-2">
+                    <p className="text-sm text-muted-foreground">
+                      Total em pedidos recusados (não entra no caixa)
+                    </p>
+                    <p className="text-lg font-semibold text-red-600 dark:text-red-400">
+                      {formatCurrency(totals.rejected_total)}
+                    </p>
+                  </div>
                 </div>
               )}
 

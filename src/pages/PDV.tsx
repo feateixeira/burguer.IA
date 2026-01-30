@@ -128,6 +128,10 @@ const PDV = () => {
   const [whatsappCustomerSearch, setWhatsappCustomerSearch] = useState("");
   const [showWhatsappCustomerDropdown, setShowWhatsappCustomerDropdown] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [useSplitPayment, setUseSplitPayment] = useState(false);
+  const [paymentMethod2, setPaymentMethod2] = useState("");
+  const [paymentAmount1, setPaymentAmount1] = useState("");
+  const [paymentAmount2, setPaymentAmount2] = useState("");
   const [combosOpen, setCombosOpen] = useState(false);
   const [showPixModal, setShowPixModal] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState<string>("");
@@ -725,6 +729,17 @@ const PDV = () => {
 
       // Preencher forma de pagamento
       setPaymentMethod(order.payment_method || "");
+      if (order.payment_method_2 != null && order.payment_method_2 !== "" && order.payment_amount_1 != null && order.payment_amount_2 != null) {
+        setUseSplitPayment(true);
+        setPaymentMethod2(order.payment_method_2 || "");
+        setPaymentAmount1(String(order.payment_amount_1));
+        setPaymentAmount2(String(order.payment_amount_2));
+      } else {
+        setUseSplitPayment(false);
+        setPaymentMethod2("");
+        setPaymentAmount1("");
+        setPaymentAmount2("");
+      }
 
       // Preencher entrega
       const isDelivery = order.order_type === "delivery";
@@ -1482,6 +1497,25 @@ const PDV = () => {
       return;
     }
 
+    if (useSplitPayment) {
+      if (!paymentMethod2) {
+        toast.error("Selecione a segunda forma de pagamento");
+        return;
+      }
+      const amount1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
+      const amount2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
+      const sum = amount1 + amount2;
+      const diff = Math.abs(sum - finalTotal);
+      if (diff > 0.01) {
+        toast.error(`A soma dos valores (R$ ${sum.toFixed(2)}) deve ser igual ao total (R$ ${finalTotal.toFixed(2)})`);
+        return;
+      }
+      if (amount1 <= 0 || amount2 <= 0) {
+        toast.error("Informe os valores de cada forma de pagamento");
+        return;
+      }
+    }
+
     try {
       // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
@@ -1537,21 +1571,33 @@ const PDV = () => {
         orderNumber = editingOrderNumber;
 
         // Atualizar pedido existente
+        const updatePayload: Record<string, unknown> = {
+          customer_name: customerName || "Cliente Balcão",
+          customer_phone: customerPhone,
+          order_type: includeDelivery ? "delivery" : "balcao",
+          delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
+          payment_method: paymentMethod,
+          subtotal: subtotal,
+          discount_amount: discountAmount,
+          delivery_fee: finalDeliveryFee,
+          total_amount: finalTotal,
+          notes: orderNotes,
+          free_delivery_promotion_id: freeDeliveryPromotionId || null
+        };
+        if (useSplitPayment) {
+          const amount1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
+          const amount2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
+          updatePayload.payment_method_2 = paymentMethod2;
+          updatePayload.payment_amount_1 = amount1;
+          updatePayload.payment_amount_2 = amount2;
+        } else {
+          updatePayload.payment_method_2 = null;
+          updatePayload.payment_amount_1 = null;
+          updatePayload.payment_amount_2 = null;
+        }
         const { data: updatedOrder, error: orderError } = await supabase
           .from("orders")
-          .update({
-            customer_name: customerName || "Cliente Balcão",
-            customer_phone: customerPhone,
-            order_type: includeDelivery ? "delivery" : "balcao",
-            delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-            payment_method: paymentMethod,
-            subtotal: subtotal,
-            discount_amount: discountAmount,
-            delivery_fee: finalDeliveryFee,
-            total_amount: finalTotal,
-            notes: orderNotes,
-            free_delivery_promotion_id: freeDeliveryPromotionId || null
-          })
+          .update(updatePayload)
           .eq("id", editingOrderId)
           .select()
           .single();
@@ -1579,26 +1625,33 @@ const PDV = () => {
         }
         orderNumber = newOrderNumber;
 
-        // Criar novo pedido
+        const insertPayload: Record<string, unknown> = {
+          establishment_id: profile.establishment_id,
+          order_number: orderNumber,
+          customer_name: customerName || "Cliente Balcão",
+          customer_phone: customerPhone,
+          order_type: includeDelivery ? "delivery" : "balcao",
+          delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
+          status: "pending",
+          payment_status: "paid",
+          payment_method: paymentMethod,
+          subtotal: subtotal,
+          discount_amount: discountAmount,
+          delivery_fee: finalDeliveryFee,
+          total_amount: finalTotal,
+          notes: orderNotes,
+          free_delivery_promotion_id: freeDeliveryPromotionId || null
+        };
+        if (useSplitPayment) {
+          const amount1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
+          const amount2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
+          insertPayload.payment_method_2 = paymentMethod2;
+          insertPayload.payment_amount_1 = amount1;
+          insertPayload.payment_amount_2 = amount2;
+        }
         const { data: newOrder, error: orderError } = await supabase
           .from("orders")
-          .insert({
-            establishment_id: profile.establishment_id,
-            order_number: orderNumber,
-            customer_name: customerName || "Cliente Balcão",
-            customer_phone: customerPhone,
-            order_type: includeDelivery ? "delivery" : "balcao",
-            delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-            status: "pending",
-            payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
-            payment_method: paymentMethod,
-            subtotal: subtotal,
-            discount_amount: discountAmount,
-            delivery_fee: finalDeliveryFee,
-            total_amount: finalTotal,
-            notes: orderNotes,
-            free_delivery_promotion_id: freeDeliveryPromotionId || null
-          })
+          .insert(insertPayload)
           .select()
           .single();
 
@@ -1781,9 +1834,12 @@ const PDV = () => {
         establishmentAddress: establishmentInfo.address,
         establishmentPhone: establishmentInfo.phone,
         paymentMethod: paymentMethod,
+        paymentMethod2: useSplitPayment ? paymentMethod2 : undefined,
+        paymentAmount1: useSplitPayment ? (parseFloat(String(paymentAmount1).replace(",", ".")) || 0) : undefined,
+        paymentAmount2: useSplitPayment ? (parseFloat(String(paymentAmount2).replace(",", ".")) || 0) : undefined,
         orderType: includeDelivery ? "delivery" : "balcao",
-        cashGiven: paymentMethod === 'dinheiro' ? cashGiven : undefined,
-        cashChange: paymentMethod === 'dinheiro' ? Math.max(0, Number(cashGiven) - Number(finalTotal)) : undefined,
+        cashGiven: !useSplitPayment && paymentMethod === 'dinheiro' ? cashGiven : undefined,
+        cashChange: !useSplitPayment && paymentMethod === 'dinheiro' ? Math.max(0, Number(cashGiven) - Number(finalTotal)) : undefined,
         generalInstructions: generalInstructions.trim() || undefined,
         pixQrCode: pixQrCode,
         pixKey: pixKey,
@@ -1809,6 +1865,10 @@ const PDV = () => {
       setFreeDeliveryPromotionId(null);
       setSelectedDeliveryBoy("");
       setPaymentMethod("");
+      setUseSplitPayment(false);
+      setPaymentMethod2("");
+      setPaymentAmount1("");
+      setPaymentAmount2("");
       setGeneralInstructions("");
 
       // Limpar estados de edição
@@ -2760,6 +2820,106 @@ const PDV = () => {
                     </select>
                   </div>
 
+                  {/* Pagamento em duas formas */}
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="useSplitPayment"
+                      checked={useSplitPayment}
+                      onCheckedChange={(checked) => {
+                        setUseSplitPayment(checked === true);
+                        if (checked !== true) {
+                          setPaymentMethod2("");
+                          setPaymentAmount1("");
+                          setPaymentAmount2("");
+                        } else {
+                          const total = selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal() : calculateTotal();
+                          setPaymentAmount1("");
+                          setPaymentAmount2("");
+                        }
+                      }}
+                    />
+                    <Label htmlFor="useSplitPayment" className="text-sm font-normal cursor-pointer">
+                      Pagamento em duas formas (ex.: dinheiro + PIX)
+                    </Label>
+                  </div>
+
+                  {useSplitPayment && (
+                    <div className="space-y-3 p-3 border rounded-md bg-muted/40">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">1ª forma</Label>
+                          <select
+                            value={paymentMethod}
+                            onChange={(e) => setPaymentMethod(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                          >
+                            <option value="dinheiro">Dinheiro</option>
+                            <option value="cartao_debito">Débito</option>
+                            <option value="cartao_credito">Crédito</option>
+                            <option value="pix">PIX</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Valor 1 (R$)</Label>
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={paymentAmount1}
+                            onChange={(e) => {
+                              setPaymentAmount1(e.target.value);
+                              const total = selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal() : calculateTotal();
+                              const v1 = parseFloat(e.target.value.replace(",", ".")) || 0;
+                              if (v1 > 0 && v1 < total) setPaymentAmount2((total - v1).toFixed(2));
+                            }}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">2ª forma</Label>
+                          <select
+                            value={paymentMethod2}
+                            onChange={(e) => setPaymentMethod2(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                          >
+                            <option value="">Selecione...</option>
+                            <option value="dinheiro">Dinheiro</option>
+                            <option value="cartao_debito">Débito</option>
+                            <option value="cartao_credito">Crédito</option>
+                            <option value="pix">PIX</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Valor 2 (R$)</Label>
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={paymentAmount2}
+                            onChange={(e) => {
+                              setPaymentAmount2(e.target.value);
+                              const total = selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal() : calculateTotal();
+                              const v2 = parseFloat(e.target.value.replace(",", ".")) || 0;
+                              if (v2 > 0 && v2 < total) setPaymentAmount1((total - v2).toFixed(2));
+                            }}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                      {paymentAmount1 && paymentAmount2 && (() => {
+                        const total = selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal() : calculateTotal();
+                        const v1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
+                        const v2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
+                        const diff = Math.abs(v1 + v2 - total);
+                        return diff > 0.01 ? (
+                          <p className="text-xs text-red-600">Soma deve ser R$ {total.toFixed(2)}</p>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+
                   {/* General Instructions */}
                   <div className="space-y-2">
                     <Label htmlFor="general-instructions" className="text-sm font-medium">Instruções do Pedido</Label>
@@ -2906,10 +3066,9 @@ const PDV = () => {
                       <Button
                         className="w-full"
                         onClick={() => {
-                          // Se pagamento em dinheiro, abrir modal antes
                           const total = selectedCustomer && selectedCustomer.groups.length > 0 ?
                             calculateDiscountedTotal() : calculateTotal();
-                          if (paymentMethod === 'dinheiro') {
+                          if (!useSplitPayment && paymentMethod === 'dinheiro') {
                             setCashGiven(Number(total));
                             setCashChange(0);
                             setShowCashModal(true);

@@ -13,6 +13,9 @@ export interface ReceiptData {
   establishmentPhone?: string;
   establishmentCnpj?: string;
   paymentMethod?: string;
+  paymentMethod2?: string;
+  paymentAmount1?: number;
+  paymentAmount2?: number;
   orderType: string;
   cashGiven?: number;
   cashChange?: number;
@@ -110,13 +113,12 @@ export const printReceipt = async (r: ReceiptData) => {
       let trioFound = false; // Flag para garantir que pegamos apenas o primeiro trio
       
       for (const line of notesLines) {
-        // Se é a linha do trio, separa (apenas a primeira ocorrência)
-        if (!trioFound && line.match(/^Trio\s*:/i)) {
-          trioNote = line;
-          trioFound = true; // Marca que já encontramos o trio
-          continue; // Pula esta linha para não processar como outra nota
-        } else if (line.match(/^Trio\s*:/i)) {
-          // Ignora trios duplicados - já temos o primeiro
+        // Se é a linha do trio ou bebida (combo/trio Na Brasa), separa (apenas a primeira ocorrência)
+        if (!trioFound && (line.match(/^Trio\s*:/i) || line.match(/^Bebida\s*:/i))) {
+          trioNote = line.match(/^Trio\s*:/i) ? line : `Trio: ${line.replace(/^Bebida\s*:\s*/i, '').trim()}`;
+          trioFound = true;
+          continue;
+        } else if (line.match(/^Trio\s*:/i) || line.match(/^Bebida\s*:/i)) {
           continue;
         } else {
           // Processa outras notas normalmente
@@ -360,9 +362,14 @@ export const printReceipt = async (r: ReceiptData) => {
         <div class="sep"></div>
 
         <div class="row row--emph"><span class="left">TOTAL</span><span class="right">R$ ${r.totalAmount.toFixed(2)}</span></div>
-        ${r.paymentMethod ? `<div class="row"><span class="left">Pagamento</span><span class="right">${formatPaymentMethod(r.paymentMethod)}</span></div>` : ""}
+        ${r.paymentMethod && typeof r.paymentAmount1 === "number" && r.paymentMethod2 && typeof r.paymentAmount2 === "number"
+          ? `
+          <div class="row"><span class="left">Pagamento (1)</span><span class="right">${formatPaymentMethod(r.paymentMethod)} - R$ ${r.paymentAmount1.toFixed(2)}</span></div>
+          <div class="row"><span class="left">Pagamento (2)</span><span class="right">${formatPaymentMethod(r.paymentMethod2)} - R$ ${r.paymentAmount2.toFixed(2)}</span></div>
+        `
+          : r.paymentMethod ? `<div class="row"><span class="left">Pagamento</span><span class="right">${formatPaymentMethod(r.paymentMethod)}</span></div>` : ""}
 
-        ${r.paymentMethod?.toLowerCase() === "dinheiro" ? `
+        ${r.paymentMethod?.toLowerCase() === "dinheiro" && typeof r.paymentAmount2 !== "number" ? `
           ${typeof r.cashGiven === "number" ? `<div class="row"><span class="left">Recebido</span><span class="right">R$ ${r.cashGiven.toFixed(2)}</span></div>` : ""}
           ${typeof r.cashChange === "number" ? `<div class="row"><span class="left">Troco</span><span class="right">R$ ${r.cashChange.toFixed(2)}</span></div>` : ""}
         ` : ""}

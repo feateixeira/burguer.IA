@@ -1055,6 +1055,25 @@ const Orders = () => {
           : itemName;
         
         let finalNotes = item.notes ? removeDuplicateReceiptInfo(item.notes) || undefined : undefined;
+
+        // Extrair e garantir linha de Trio/Bebida para impressão (itens transformados em trio ou combo Na Brasa)
+        let trioLineForItem: string | null = null;
+        if (finalNotes) {
+          const bebidaMatch = finalNotes.match(/(?:Combo\s*-\s*)?Bebida\s*:\s*([^\n|]+)/i);
+          if (bebidaMatch && bebidaMatch[1]) {
+            trioLineForItem = `Trio: ${bebidaMatch[1].trim()}`;
+            finalNotes = finalNotes.replace(/(?:Combo\s*-\s*)?Bebida\s*:\s*[^\n|]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
+          } else {
+            const trioMatch = finalNotes.match(/Trio\s*:\s*([^\n\[\]]+)/i);
+            if (trioMatch && trioMatch[1]) {
+              trioLineForItem = `Trio: ${trioMatch[1].trim()}`;
+              finalNotes = finalNotes.replace(/Trio\s*:\s*[^\n\[\]]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
+            }
+          }
+        }
+        if (!trioLineForItem && hasTrioInName && trioInfo) {
+          trioLineForItem = `Trio: ${trioInfo}`;
+        }
         
         try {
           const customizations = item.customizations as any;
@@ -1098,10 +1117,21 @@ const Orders = () => {
           }
         }
         
-        if (hasTrioInName && trioInfo) {
+        if (trioLineForItem) {
+          const notesLower = (finalNotes || '').toLowerCase();
+          const trioLower = trioLineForItem.toLowerCase();
+          const alreadyHasTrio = notesLower.includes('trio:') || notesLower.includes('bebida:');
+          if (!alreadyHasTrio || !notesLower.includes(trioLower.slice(0, 15))) {
+            if (finalNotes) {
+              finalNotes = `${trioLineForItem}\n\n${finalNotes}`;
+            } else {
+              finalNotes = trioLineForItem;
+            }
+          }
+        } else if (hasTrioInName && trioInfo) {
           const trioNote = `Trio: ${trioInfo}`;
           if (finalNotes) {
-            finalNotes = `${finalNotes}\n\n${trioNote}`;
+            finalNotes = `${trioNote}\n\n${finalNotes}`;
           } else {
             finalNotes = trioNote;
           }

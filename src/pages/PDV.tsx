@@ -1492,12 +1492,21 @@ const PDV = () => {
       return;
     }
 
-    if (!paymentMethod) {
-      toast.error("Selecione uma forma de pagamento");
-      return;
-    }
+    // Calcular o total antes das validações de pagamento
+    const subtotal = calculateSubtotal();
+    const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
+    const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ?
+      calculateDiscountedTotal() : calculateTotal();
 
     if (useSplitPayment) {
+      // Validação para pagamento dividido: ambas as formas devem estar selecionadas
+      // Se paymentMethod estiver vazio, usar "dinheiro" como padrão (já que é o primeiro no select)
+      // e garantir que o estado seja atualizado
+      const firstPaymentMethod = paymentMethod || "dinheiro";
+      if (!firstPaymentMethod || firstPaymentMethod === "") {
+        toast.error("Selecione a primeira forma de pagamento");
+        return;
+      }
       if (!paymentMethod2) {
         toast.error("Selecione a segunda forma de pagamento");
         return;
@@ -1512,6 +1521,12 @@ const PDV = () => {
       }
       if (amount1 <= 0 || amount2 <= 0) {
         toast.error("Informe os valores de cada forma de pagamento");
+        return;
+      }
+    } else {
+      // Validação para pagamento único: apenas a primeira forma deve estar selecionada
+      if (!paymentMethod) {
+        toast.error("Selecione uma forma de pagamento");
         return;
       }
     }
@@ -1547,11 +1562,7 @@ const PDV = () => {
         return;
       }
 
-      const subtotal = calculateSubtotal();
-      // Calcular frete: se houver promoção de frete grátis, frete é 0
-      const finalDeliveryFee = (includeDelivery && !freeDeliveryPromotionId) ? deliveryFee : 0;
-      const finalTotal = selectedCustomer && selectedCustomer.groups.length > 0 ?
-        calculateDiscountedTotal() : calculateTotal();
+      // subtotal, finalDeliveryFee e finalTotal já foram calculados acima
       const discountAmount = selectedCustomer && selectedCustomer.groups.length > 0 ?
         (subtotal + finalDeliveryFee - finalTotal) : 0;
 
@@ -1576,7 +1587,7 @@ const PDV = () => {
           customer_phone: customerPhone,
           order_type: includeDelivery ? "delivery" : "balcao",
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-          payment_method: paymentMethod,
+          payment_method: useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod,
           subtotal: subtotal,
           discount_amount: discountAmount,
           delivery_fee: finalDeliveryFee,
@@ -1634,7 +1645,7 @@ const PDV = () => {
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
           status: "pending",
           payment_status: "paid",
-          payment_method: paymentMethod,
+          payment_method: useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod,
           subtotal: subtotal,
           discount_amount: discountAmount,
           delivery_fee: finalDeliveryFee,
@@ -1806,9 +1817,19 @@ const PDV = () => {
         items: cart.map(item => {
           // Incluir adicionais nas notes
           let notes = item.notes || '';
+          
+          // Adicionar hífen em Molhos e Trio para melhor visibilidade
+          if (notes.includes('Molhos:')) {
+            notes = notes.replace('Molhos:', '-Molhos:');
+          }
+          if (notes.includes('Trio:') || notes.includes('Bebida:')) {
+             notes = notes.replace(/Trio:/g, '- Trio:').replace(/Bebida:/g, '- Trio:');
+          }
+
           if (item.addons && item.addons.length > 0) {
-            const addonsText = item.addons.map(a => `${a.quantity}x ${a.name} (R$ ${(a.price * a.quantity).toFixed(2)})`).join(', ');
-            notes = notes ? `${notes} | Adicionais: ${addonsText}` : `Adicionais: ${addonsText}`;
+            // Format addons with hyphens and newlines for better visibility - cada adicional em uma linha separada
+            const addonsText = item.addons.map(a => `-${a.quantity}x ${a.name} (R$ ${(a.price * a.quantity).toFixed(2).replace('.', ',')})`).join('\n');
+            notes = notes ? `${notes}\nAdicionais:\n${addonsText}` : `Adicionais:\n${addonsText}`;
           }
           if (item.promotionName) {
             notes = `${notes ? notes + ' | ' : ''}Promoção: ${item.promotionName}${item.originalPrice ? ` (de R$ ${Number(item.originalPrice).toFixed(2)} por R$ ${Number(item.price).toFixed(2)})` : ''}`;
@@ -2804,21 +2825,23 @@ const PDV = () => {
                     </div>
                   )}
 
-                  {/* Payment Method */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">Forma de Pagamento</Label>
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="">Selecione...</option>
-                      <option value="dinheiro">Dinheiro</option>
-                      <option value="cartao_debito">Cartão de Débito</option>
-                      <option value="cartao_credito">Cartão de Crédito</option>
-                      <option value="pix">PIX</option>
-                    </select>
-                  </div>
+                  {/* Payment Method - apenas quando não está usando pagamento dividido */}
+                  {!useSplitPayment && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Forma de Pagamento</Label>
+                      <select
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Selecione...</option>
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="cartao_debito">Cartão de Débito</option>
+                        <option value="cartao_credito">Cartão de Crédito</option>
+                        <option value="pix">PIX</option>
+                      </select>
+                    </div>
+                  )}
 
                   {/* Pagamento em duas formas */}
                   <div className="flex items-center space-x-2">
@@ -2828,10 +2851,17 @@ const PDV = () => {
                       onCheckedChange={(checked) => {
                         setUseSplitPayment(checked === true);
                         if (checked !== true) {
+                          // Limpar campos de pagamento dividido ao desativar
+                          setPaymentMethod("");
                           setPaymentMethod2("");
                           setPaymentAmount1("");
                           setPaymentAmount2("");
                         } else {
+                          // Ao ativar pagamento dividido, definir dinheiro como padrão para a primeira forma
+                          if (!paymentMethod) {
+                            setPaymentMethod("dinheiro");
+                          }
+                          // Limpar valores ao ativar pagamento dividido
                           const total = selectedCustomer && selectedCustomer.groups.length > 0 ? calculateDiscountedTotal() : calculateTotal();
                           setPaymentAmount1("");
                           setPaymentAmount2("");
@@ -2849,7 +2879,7 @@ const PDV = () => {
                         <div>
                           <Label className="text-xs">1ª forma</Label>
                           <select
-                            value={paymentMethod}
+                            value={paymentMethod || "dinheiro"}
                             onChange={(e) => setPaymentMethod(e.target.value)}
                             className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                           >

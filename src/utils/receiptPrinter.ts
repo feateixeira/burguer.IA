@@ -91,20 +91,37 @@ export const printReceipt = async (r: ReceiptData) => {
     if (it.notes && it.notes.trim()) {
       const cleanNotes = it.notes.trim();
       
-      // Extrair adicionais antes de remover - procura em toda a string
-      // Procura por "Adicionais:" seguido de qualquer coisa até encontrar "|" ou fim da string/linha
-      const addonsPattern = /Adicionais:\s*([^|]+?)(?:\s*\||$)/i;
-      let addonsMatch = cleanNotes.match(addonsPattern);
-      if (!addonsMatch) {
-        // Tenta também quando está separado por quebra de linha
-        addonsMatch = cleanNotes.match(/Adicionais:\s*([^\n]+)/i);
-      }
+      // Extrair adicionais ANTES de processar outras notas - captura múltiplas linhas
+      // Procura por "Adicionais:" seguido de qualquer conteúdo até encontrar uma linha vazia ou outro marcador
+      const addonsPatternMultiLine = /Adicionais:\s*([\s\S]+?)(?:\n\n|\n(?!\s+\+)|$)/i;
+      let addonsMatch = cleanNotes.match(addonsPatternMultiLine);
+      
       if (addonsMatch && addonsMatch[1]) {
+        // Captura todo o conteúdo dos adicionais (pode ter múltiplas linhas)
         addonsNote = addonsMatch[1].trim();
+      } else {
+        // Fallback: procura por "Adicionais:" seguido de qualquer coisa até encontrar "|" ou fim da string/linha
+        const addonsPattern = /Adicionais:\s*([^|]+?)(?:\s*\||$)/i;
+        addonsMatch = cleanNotes.match(addonsPattern);
+        if (!addonsMatch) {
+          // Tenta também quando está separado por quebra de linha simples
+          addonsMatch = cleanNotes.match(/Adicionais:\s*([^\n]+)/i);
+        }
+        if (addonsMatch && addonsMatch[1]) {
+          addonsNote = addonsMatch[1].trim();
+        }
       }
       
+      // Remove adicionais do texto para processar o resto
+      // Remove tanto o padrão multi-linha quanto o padrão simples
+      let cleanedFromAddons = cleanNotes
+        .replace(/Adicionais:\s*([\s\S]+?)(?:\n\n|\n(?!\s+\+)|$)/i, '')
+        .replace(/Adicionais:\s*[^|]+?(?:\s*\||$)/i, '')
+        .replace(/Adicionais:\s*[^\n]+/i, '')
+        .trim();
+      
       // Remove partes que contêm "Adicionais:" quando separadas por "|"
-      const cleanedFromAddons = cleanNotes.split('|').map(part => part.trim()).filter(part => {
+      cleanedFromAddons = cleanedFromAddons.split('|').map(part => part.trim()).filter(part => {
         return !part.toLowerCase().includes('adicionais:');
       }).join(' | ').trim();
       
@@ -206,24 +223,45 @@ export const printReceipt = async (r: ReceiptData) => {
     // Formatar adicionais para exibir cada um em uma linha com seu valor
     let formattedAddonsNote = '';
     if (addonsNote) {
-      // Se addonsNote contém múltiplas linhas (formato "Adicionais:\n1x Nome - R$5,00")
-      const addonsLines = addonsNote.split('\n');
+      // Verifica se já começa com "Adicionais:" ou não
+      const hasAddonsLabel = addonsNote.toLowerCase().trim().startsWith('adicionais:');
+      
+      // Se addonsNote contém múltiplas linhas
+      const addonsLines = addonsNote.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      
       if (addonsLines.length > 1) {
-        // Primeira linha é "Adicionais:"
-        formattedAddonsNote = `<div class="notes"><strong>${addonsLines[0]}</strong></div>`;
-        // Linhas seguintes são os adicionais individuais - remover espaços extras e "+" se houver
-        addonsLines.slice(1).forEach(line => {
-          if (line.trim()) {
-            // Remove "+" no início e espaços extras
-            let cleanLine = line.trim().replace(/^\+\s*/, '').trim();
-            // Garante que R$ não tenha espaço antes do valor
-            cleanLine = cleanLine.replace(/R\$\s+/g, 'R$');
-            formattedAddonsNote += `<div class="notes">${cleanLine}</div>`;
-          }
-        });
+        // Se a primeira linha é "Adicionais:", usa ela como título
+        if (hasAddonsLabel) {
+          formattedAddonsNote = `<div class="notes"><strong>${addonsLines[0]}</strong></div>`;
+          // Processa as linhas seguintes
+          addonsLines.slice(1).forEach(line => {
+            if (line.trim()) {
+              // Remove "+" no início e espaços extras
+              let cleanLine = line.trim().replace(/^\+\s*/, '').trim();
+              // Garante que R$ não tenha espaço antes do valor
+              cleanLine = cleanLine.replace(/R\$\s+/g, 'R$');
+              formattedAddonsNote += `<div class="notes">${cleanLine}</div>`;
+            }
+          });
+        } else {
+          // Se não tem label, adiciona "Adicionais:" como título
+          formattedAddonsNote = `<div class="notes"><strong>Adicionais:</strong></div>`;
+          addonsLines.forEach(line => {
+            if (line.trim()) {
+              let cleanLine = line.trim().replace(/^\+\s*/, '').trim();
+              cleanLine = cleanLine.replace(/R\$\s+/g, 'R$');
+              formattedAddonsNote += `<div class="notes">${cleanLine}</div>`;
+            }
+          });
+        }
       } else {
-        // Formato antigo (tudo em uma linha) - limpar também
-        let cleanNote = addonsNote.replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
+        // Formato de uma linha apenas
+        let cleanNote = addonsNote.trim();
+        if (!hasAddonsLabel) {
+          // Se não tem label, adiciona
+          cleanNote = `Adicionais: ${cleanNote}`;
+        }
+        cleanNote = cleanNote.replace(/^\+\s*/, '').replace(/R\$\s+/g, 'R$');
         formattedAddonsNote = `<div class="notes">${cleanNote}</div>`;
       }
     }

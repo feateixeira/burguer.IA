@@ -109,6 +109,9 @@ interface Order {
   notes?: string;
   table_number?: string;
   payment_method?: string;
+  payment_method_2?: string;
+  payment_amount_1?: number;
+  payment_amount_2?: number;
   created_at: string;
   channel?: string;
   origin?: string;
@@ -1056,23 +1059,28 @@ const Orders = () => {
         
         let finalNotes = item.notes ? removeDuplicateReceiptInfo(item.notes) || undefined : undefined;
 
+        // Adicionar hífen para Molhos para melhor visibilidade
+        if (finalNotes && finalNotes.includes('Molhos:')) {
+          finalNotes = finalNotes.replace('Molhos:', '-Molhos:');
+        }
+
         // Extrair e garantir linha de Trio/Bebida para impressão (itens transformados em trio ou combo Na Brasa)
         let trioLineForItem: string | null = null;
         if (finalNotes) {
           const bebidaMatch = finalNotes.match(/(?:Combo\s*-\s*)?Bebida\s*:\s*([^\n|]+)/i);
           if (bebidaMatch && bebidaMatch[1]) {
-            trioLineForItem = `Trio: ${bebidaMatch[1].trim()}`;
+            trioLineForItem = `- Trio: ${bebidaMatch[1].trim()}`;
             finalNotes = finalNotes.replace(/(?:Combo\s*-\s*)?Bebida\s*:\s*[^\n|]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
           } else {
             const trioMatch = finalNotes.match(/Trio\s*:\s*([^\n\[\]]+)/i);
             if (trioMatch && trioMatch[1]) {
-              trioLineForItem = `Trio: ${trioMatch[1].trim()}`;
+              trioLineForItem = `- Trio: ${trioMatch[1].trim()}`;
               finalNotes = finalNotes.replace(/Trio\s*:\s*[^\n\[\]]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
             }
           }
         }
         if (!trioLineForItem && hasTrioInName && trioInfo) {
-          trioLineForItem = `Trio: ${trioInfo}`;
+          trioLineForItem = `- Trio: ${trioInfo}`;
         }
         
         try {
@@ -1083,10 +1091,11 @@ const Orders = () => {
               const qty = a.quantity || 1;
               const price = a.price || 0;
               const totalAddonPrice = price * qty;
-              return `${qty}x ${a.name} - R$${totalAddonPrice.toFixed(2).replace('.', ',')}`;
+              return `-${qty}x ${a.name} (R$${totalAddonPrice.toFixed(2).replace('.', ',')})`;
             });
             
             if (addonsLines.length > 0) {
+              // Formatar adicionais com cada item em uma linha separada
               const addonsText = `Adicionais:\n${addonsLines.join('\n')}`;
               if (finalNotes) {
                 if (!finalNotes.includes('Adicionais:')) {
@@ -1129,7 +1138,7 @@ const Orders = () => {
             }
           }
         } else if (hasTrioInName && trioInfo) {
-          const trioNote = `Trio: ${trioInfo}`;
+          const trioNote = `- Trio: ${trioInfo}`;
           if (finalNotes) {
             finalNotes = `${trioNote}\n\n${finalNotes}`;
           } else {
@@ -1384,6 +1393,9 @@ const Orders = () => {
       establishmentAddress: (establishment as any)?.address,
       establishmentPhone: (establishment as any)?.phone,
       paymentMethod: order.payment_method,
+      paymentMethod2: order.payment_method_2,
+      paymentAmount1: order.payment_amount_1,
+      paymentAmount2: order.payment_amount_2,
       orderType: receiptOrderType,
       generalInstructions: generalInstructions
     };

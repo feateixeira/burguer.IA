@@ -590,38 +590,45 @@ serve(async (req) => {
     
     const isPickupOrTakeout = isPickup || isTakeout;
     
+    // Sinais explícitos para evitar falso "COMER AQUI" quando o pedido é delivery com endereço
+    const explicitPickupFromDeliveryForm = !!(deliveryForm && (
+      deliveryForm.toLowerCase().includes('retirar') ||
+      deliveryForm.toLowerCase().includes('retirada') ||
+      deliveryForm.toLowerCase().includes('pickup')
+    ));
+    const explicitPickupFromConsumptionForm = !!(consumptionForm && (
+      consumptionForm.toLowerCase().includes('embalar') ||
+      consumptionForm.toLowerCase().includes('levar') ||
+      consumptionForm.toLowerCase().includes('comer no local') ||
+      consumptionForm.toLowerCase().includes('comer no estabelecimento') ||
+      consumptionForm.toLowerCase().includes('comer aqui')
+    ));
+    
     // Determinar o tipo final do pedido
     let finalOrderType: string;
     if (isNaBrasaSite) {
-      // Para Na Brasa: REGRA ABSOLUTA E RIGOROSA
-      // REGRA 0 (PRIORIDADE MÁXIMA ABSOLUTA): Se "Forma de entrega" diz "Retirar no local", SEMPRE é pickup
-      // Isso sobrescreve QUALQUER outro campo, incluindo order.order_type = 'delivery'
-      if (deliveryForm && deliveryForm.toLowerCase().includes('retirar')) {
+      // Para Na Brasa: prioridade corrigida para evitar falso "COMER AQUI" em pedidos delivery
+      // 1) Pickup explícito por campos de entrega/retirada sempre vence
+      if (explicitPickupFromDeliveryForm || isPickupExplicit) {
         finalOrderType = 'pickup';
       }
-      // REGRA 1: Se "Forma de consumo/embalagem" diz "Embalar pra levar", SEMPRE é pickup
-      else if (consumptionForm && (consumptionForm.toLowerCase().includes('embalar') || consumptionForm.toLowerCase().includes('levar'))) {
-        finalOrderType = 'pickup';
-      }
-      // REGRA 2: Se houver QUALQUER indicação de retirada/takeout, SEMPRE é pickup
-      // Isso inclui: serviceType, nome do cliente, deliveryType='pickup', etc.
-      else if (isTakeout || isPickup || indicatesPickup || serviceType) {
-        finalOrderType = 'pickup';
-      } 
-      // REGRA 3: Se NÃO tiver endereço válido, SEMPRE é pickup (mesmo que venha como "delivery")
-      else if (!hasValidAddress) {
-        // SEM endereço válido = SEMPRE pickup, independente de qualquer outro campo
-        finalOrderType = 'pickup';
-      }
-      // REGRA 4: Apenas se deliveryType for 'delivery' E tiver endereço válido E não for takeout
-      // E "Forma de entrega" NÃO for "Retirar no local"
-      // E "Forma de consumo/embalagem" NÃO for "Embalar pra levar"
-      else if (indicatesDelivery && hasValidAddress && !isTakeout && !isPickup && 
-               (!deliveryForm || !deliveryForm.toLowerCase().includes('retirar')) &&
-               (!consumptionForm || !consumptionForm.toLowerCase().includes('embalar'))) {
+      // 2) Se veio como delivery e tem endereço válido, deve ser delivery
+      else if (indicatesDelivery && hasValidAddress) {
         finalOrderType = 'delivery';
-      } 
-      // REGRA 5: Caso padrão = SEMPRE pickup (por segurança)
+      }
+      // 3) Pickup por consumo/embalagem explícito (quando não há delivery explícito válido)
+      else if (explicitPickupFromConsumptionForm) {
+        finalOrderType = 'pickup';
+      }
+      // 4) Sem endereço válido: pickup
+      else if (!hasValidAddress) {
+        finalOrderType = 'pickup';
+      }
+      // 5) Demais indícios de retirada/takeout
+      else if (isTakeout || isPickup || indicatesPickup) {
+        finalOrderType = 'pickup';
+      }
+      // 6) Fallback de segurança
       else {
         finalOrderType = 'pickup';
       }
@@ -682,8 +689,8 @@ serve(async (req) => {
         }
       }
       
-      // Adicionar ao nome se encontrou algum tipo
-      if (typeToAdd) {
+      // Adicionar ao nome somente para pedidos pickup/takeout
+      if (typeToAdd && finalOrderType === 'pickup') {
         // Verificar se já não está no nome (evitar duplicação)
         const customerNameLower = customerName.toLowerCase();
         const typeToAddLower = typeToAdd.toLowerCase();

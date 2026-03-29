@@ -2,16 +2,30 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.55.0';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://hamburguerianabrasa.com.br',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-estab-key, idempotency-key',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+/** Origens permitidas (site pode ser apex ou www — ambos precisam funcionar). */
+const ALLOWED_CORS_ORIGINS = [
+  'https://hamburguerianabrasa.com.br',
+  'https://www.hamburguerianabrasa.com.br',
+];
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin');
+  const allow =
+    origin && ALLOWED_CORS_ORIGINS.includes(origin)
+      ? origin
+      : ALLOWED_CORS_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type, x-estab-key, idempotency-key',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeadersFor(req) });
   }
 
   try {
@@ -35,7 +49,7 @@ serve(async (req) => {
         error: 'X-Estab-Key header obrigatório' 
       }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -45,7 +59,7 @@ serve(async (req) => {
         error: 'Idempotency-Key header obrigatório' 
       }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -63,7 +77,7 @@ serve(async (req) => {
         error: 'API Key inválida' 
       }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -82,7 +96,7 @@ serve(async (req) => {
         print_queued: true,
         idempotent: true
       }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -159,10 +173,10 @@ serve(async (req) => {
       orderNumber = `WEB-${Date.now()}`;
     }
 
-    // Calculate totals
-    const subtotal = order.totals?.subtotal || 0;
-    let deliveryFee = order.totals?.delivery_fee || 0;
-    const discountAmount = order.totals?.discount || 0;
+    // Calculate totals (garantir número válido — payload às vezes manda string)
+    const subtotal = Number(order.totals?.subtotal ?? 0) || 0;
+    let deliveryFee = Number(order.totals?.delivery_fee ?? 0) || 0;
+    const discountAmount = Number(order.totals?.discount ?? 0) || 0;
     
     // Verificar se há promoção de frete grátis ativa (apenas para pedidos de entrega)
     let freeDeliveryPromotionId: string | null = null;
@@ -186,7 +200,11 @@ serve(async (req) => {
       }
     }
     
-    const totalAmount = order.totals?.final_total || (subtotal + deliveryFee - discountAmount);
+    let totalAmount = subtotal + deliveryFee - discountAmount;
+    if (order.totals?.final_total !== undefined && order.totals?.final_total !== null) {
+      const n = Number(order.totals.final_total);
+      if (!Number.isNaN(n)) totalAmount = n;
+    }
 
     // Preparar nome do cliente ANTES de extrair serviceType (para poder verificar no nome)
     const customerNameRaw = order.customer?.name || 'Cliente Online';
@@ -529,6 +547,7 @@ serve(async (req) => {
     const addressFromDelivery = (order.delivery_address || '').trim();
     const addressFromMeta = (order.meta?.delivery_address || '').trim();
     const addressFromMetaCustomer = (order.meta?.customer?.address || '').trim();
+    const addressFromShipping = (order.shipping_address || order.meta?.shipping_address || '').toString().trim();
     const addressFromNotes = orderNotes ? ((orderNotes.match(/Endereço:\s*(.+?)(?:\n|$)/i)?.[1] || '').trim()) : '';
     
     // Verificar também em campos genéricos que possam conter endereço
@@ -537,35 +556,58 @@ serve(async (req) => {
       addressFromDelivery,
       addressFromMeta,
       addressFromMetaCustomer,
+      addressFromShipping,
       addressFromNotes,
       (order.customer?.street || '').trim(),
       (order.customer?.full_address || '').trim(),
       (order.meta?.address || '').trim()
     ].filter(addr => addr && addr.length > 0);
     
-    // Endereço válido = tem conteúdo real (não vazio, não só espaços, tem pelo menos 10 caracteres)
-    // E contém indicadores de endereço (rua, número, bairro, etc)
+    // Endereço válido = conteúdo suficiente + indicadores comuns (inclui DF: quadra/conjunto/casa)
     const hasValidAddress = allTextFields.some(addr => {
       const addrLower = addr.toLowerCase();
-      const hasMinLength = addr.length >= 10;
-      const hasAddressIndicators = addrLower.includes('rua') || 
-                                   addrLower.includes('avenida') || 
-                                   addrLower.includes('av.') ||
-                                   addrLower.includes('av ') ||
-                                   addrLower.includes('bairro') ||
-                                   addrLower.includes('número') ||
-                                   addrLower.includes('numero') ||
-                                   addrLower.includes('nº') ||
-                                   addrLower.includes('n°') ||
-                                   /\d/.test(addr); // Tem pelo menos um número
+      const hasMinLength = addr.length >= 8;
+      const hasAddressIndicators =
+        addrLower.includes('rua') ||
+        addrLower.includes('avenida') ||
+        addrLower.includes('av.') ||
+        addrLower.includes('av ') ||
+        addrLower.includes('bairro') ||
+        addrLower.includes('número') ||
+        addrLower.includes('numero') ||
+        addrLower.includes('nº') ||
+        addrLower.includes('n°') ||
+        addrLower.includes('quadra') ||
+        addrLower.includes('q.') ||
+        addrLower.includes(' q ') ||
+        addrLower.includes('conjunto') ||
+        addrLower.includes('cj.') ||
+        addrLower.includes('cj ') ||
+        addrLower.includes('casa') ||
+        addrLower.includes('lote') ||
+        addrLower.includes('setor') ||
+        addrLower.includes('vila') ||
+        addrLower.includes('chácara') ||
+        addrLower.includes('chacara') ||
+        addrLower.includes('condom') ||
+        addrLower.includes('apto') ||
+        addrLower.includes('apartamento') ||
+        addrLower.includes('bloco') ||
+        addrLower.includes('cep') ||
+        /\d/.test(addr);
       return hasMinLength && hasAddressIndicators;
     });
     
-    // Verificar se é pickup/retirada de várias formas
-    const isPickupExplicit = order.meta?.deliveryType === 'pickup' || 
-                            order.deliveryType === 'pickup' ||
-                            order.order_type === 'pickup' ||
-                            order.meta?.order_type === 'pickup';
+    // Verificar se é pickup/retirada de várias formas (camelCase e snake_case)
+    const isPickupExplicit =
+      order.meta?.deliveryType === 'pickup' ||
+      order.deliveryType === 'pickup' ||
+      order.delivery_type === 'pickup' ||
+      order.meta?.delivery_type === 'pickup' ||
+      order.order_type === 'pickup' ||
+      order.meta?.order_type === 'pickup' ||
+      order.orderType === 'pickup' ||
+      order.meta?.orderType === 'pickup';
     
     // Verificar no nome do cliente se indica retirada
     const customerNameLower = customerName.toLowerCase();
@@ -583,10 +625,30 @@ serve(async (req) => {
                      serviceType === 'retirar no local' ||
                      serviceType === 'comer aqui';
     
-    // Verificar se deliveryType indica delivery (pode vir como 'delivery' ou 'DELIVERY')
-    const deliveryTypeLower = (order.meta?.deliveryType || order.deliveryType || '').toLowerCase();
-    const orderTypeLower = (order.order_type || order.meta?.order_type || '').toLowerCase();
-    const indicatesDelivery = deliveryTypeLower === 'delivery' || orderTypeLower === 'delivery';
+    // Verificar se indica entrega (site pode enviar snake_case, camelCase ou só em meta)
+    const deliveryTypeLower = (
+      order.meta?.deliveryType ??
+      order.deliveryType ??
+      order.delivery_type ??
+      order.meta?.delivery_type ??
+      ''
+    )
+      .toString()
+      .toLowerCase();
+    const orderTypeLower = (
+      order.order_type ??
+      order.meta?.order_type ??
+      order.orderType ??
+      order.meta?.orderType ??
+      ''
+    )
+      .toString()
+      .toLowerCase();
+    const indicatesDelivery =
+      deliveryTypeLower === 'delivery' ||
+      orderTypeLower === 'delivery' ||
+      deliveryTypeLower === 'entrega' ||
+      orderTypeLower === 'entrega';
     
     const isPickupOrTakeout = isPickup || isTakeout;
     
@@ -676,8 +738,7 @@ serve(async (req) => {
           typeToAdd = 'Comer aqui';
         } else if (serviceType === 'retirar no local') {
           typeToAdd = 'Retirar no local';
-      } else {
-          // Formatar serviceType com primeira letra maiúscula
+        } else {
           typeToAdd = serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
         }
       }
@@ -753,6 +814,7 @@ serve(async (req) => {
       customer_name: customerName,
       customer_phone: order.customer?.phone || null,
       order_type: finalOrderType,
+      delivery_type: finalOrderType,
       subtotal: subtotal,
       delivery_fee: deliveryFee,
       discount_amount: discountAmount,
@@ -942,7 +1004,7 @@ serve(async (req) => {
       order_id: newOrder.id,
       print_queued: true
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {
@@ -952,7 +1014,7 @@ serve(async (req) => {
       error: error.message || 'Erro interno do servidor' 
     }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
     });
   }
 });

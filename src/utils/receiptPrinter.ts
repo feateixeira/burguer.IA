@@ -61,6 +61,131 @@ const formatPaymentMethod = (method: string | undefined) => {
   return methodMap[method.toLowerCase()] || method.toUpperCase();
 };
 
+/** Junta quebra de linha comum em preços: "(R$\n8.00)" → "(R$ 8.00)" */
+function joinBrokenPriceFragments(s: string): string {
+  return s
+    .replace(/\(\s*R\$\s*\r?\n\s*([\d.,]+)\s*\)/gi, "(R$ $1)")
+    .replace(/\(\s*R\$\s*\r?\n/gi, "(R$ ");
+}
+
+function normalizeAddonDedupKey(s: string): string {
+  return s
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Envolve (R$ x,xx) em span para não quebrar no meio na impressão */
+function nowrapPriceSegments(text: string): string {
+  return text.replace(/\(\s*R\$\s*[\d.,]+\s*\)/gi, (m) => {
+    const compact = m.replace(/\s+/g, "\u00a0");
+    return `<span style="white-space:nowrap">${compact}</span>`;
+  });
+}
+
+/**
+ * Separa observações (molho, trio, etc.) de adicionais, sem duplicar texto.
+ * Ordem desejada na impressão: infos primeiro (molho em cima), depois bloco Adicionais com linhas +.
+ */
+function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: string[] } {
+  const addonLines: string[] = [];
+  const infoLines: string[] = [];
+  if (!notes?.trim()) return { addonLines, infoLines };
+
+  const raw = joinBrokenPriceFragments(notes.replace(/\|/g, "\n"));
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const pushUniqueAddon = (text: string) => {
+    const t = text.replace(/^[-+]\s*/, "").trim();
+    if (!t) return;
+    const key = normalizeAddonDedupKey(t);
+    if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
+      addonLines.push(t);
+    }
+  };
+
+  let collectingAddons = false;
+
+  for (const originalLine of lines) {
+    let line = originalLine.replace(/^Obs:\s*/i, "").trim();
+    if (!line) continue;
+
+    if (/^Adicionais:\s*/i.test(line)) {
+      collectingAddons = true;
+      const rest = line.replace(/^Adicionais:\s*/i, "").trim();
+      if (rest) pushUniqueAddon(rest);
+      continue;
+    }
+
+    if (collectingAddons) {
+      if (/^[-+]\s/.test(line) || /^[-+]\d+\s*x/i.test(line)) {
+        pushUniqueAddon(line);
+        continue;
+      }
+      if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
+        collectingAddons = false;
+      } else if (addonLines.length > 0) {
+        addonLines[addonLines.length - 1] = `${addonLines[addonLines.length - 1]} ${line}`
+          .replace(/\s+/g, " ")
+          .trim();
+        continue;
+      } else {
+        collectingAddons = false;
+      }
+    }
+
+    if (/^[-+]\s*\d+\s*x/i.test(line)) {
+      pushUniqueAddon(line);
+      continue;
+    }
+    // Ex.: "+ Blend carne 130g (R$ 8,00)" sem padrão Nx
+    if (/^[-+]\s/.test(line)) {
+      pushUniqueAddon(line);
+      continue;
+    }
+
+    line = line.replace(/^(Molhos?)\s*:/i, "Molho:");
+    if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
+      infoLines.push(line);
+    } else if (!/^Adicionais:/i.test(line)) {
+      infoLines.push(line);
+    }
+  }
+
+  const addonKeys = new Set(addonLines.map(normalizeAddonDedupKey));
+  const filteredInfo = infoLines.filter((l) => {
+    if (addonKeys.has(normalizeAddonDedupKey(l))) return false;
+    const withoutMolho = l.replace(/^Molho:\s*/i, "").trim();
+    if (addonKeys.has(normalizeAddonDedupKey(withoutMolho))) return false;
+    return true;
+  });
+
+  const uniqueInfo = [...new Set(filteredInfo.map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean))];
+  const molhoFirst = [
+    ...uniqueInfo.filter((l) => /^Molho:/i.test(l)),
+    ...uniqueInfo.filter((l) => !/^Molho:/i.test(l)),
+  ];
+
+  return { addonLines, infoLines: molhoFirst };
+}
+
+function renderItemNotesBlock(addonLines: string[], infoLines: string[]): string {
+  const infoHtml = infoLines
+    .map((line) => `<div class="item-note item-note--info">&gt; ${nowrapPriceSegments(line)}</div>`)
+    .join("");
+  const addonsHtml =
+    addonLines.length > 0
+      ? `<div class="item-note item-note--addons-label">Adicionais:</div>${addonLines
+          .map(
+            (line) =>
+              `<div class="item-note item-note--addon">+ ${nowrapPriceSegments(line)}</div>`
+          )
+          .join("")}`
+      : "";
+  return `${infoHtml}${addonsHtml}`;
+}
+
 export const printReceipt = async (r: ReceiptData) => {
   const printersConfig = localStorage.getItem("printer_configs");
   let fontSize = 18;
@@ -89,57 +214,6 @@ export const printReceipt = async (r: ReceiptData) => {
       .filter(Boolean);
   };
 
-  const normalizeItemNotes = (notes?: string) => {
-    const addonLines: string[] = [];
-    const infoLines: string[] = [];
-    if (!notes || !notes.trim()) return { addonLines, infoLines };
-
-    const raw = notes.replace(/\|/g, "\n");
-    const inlineAddons = [...raw.matchAll(/Adicionais:\s*([^\n]+)/gi)];
-    inlineAddons.forEach((m) => {
-      const text = (m[1] || "").trim();
-      if (text) addonLines.push(text);
-    });
-
-    const lines = raw.split("\n").map((line) => line.trim()).filter(Boolean);
-    let collectingAddons = false;
-
-    for (const originalLine of lines) {
-      let line = originalLine.replace(/^Obs:\s*/i, "").trim();
-      if (!line) continue;
-
-      if (/^Adicionais:\s*/i.test(line)) {
-        collectingAddons = true;
-        const rest = line.replace(/^Adicionais:\s*/i, "").trim();
-        if (rest) addonLines.push(rest);
-        continue;
-      }
-
-      if (collectingAddons && /^[-+]\s*/.test(line)) {
-        addonLines.push(line.replace(/^[-+]\s*/, "").trim());
-        continue;
-      }
-
-      collectingAddons = false;
-      if (/^[-+]\s*\d+\s*x/i.test(line)) {
-        addonLines.push(line.replace(/^[-+]\s*/, "").trim());
-        continue;
-      }
-
-      line = line.replace(/^(Molhos?)\s*:/i, "Molho:");
-      if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
-        infoLines.push(line);
-      } else if (!/^Adicionais:/i.test(line)) {
-        infoLines.push(line);
-      }
-    }
-
-    const uniqueAddons = [...new Set(addonLines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean))];
-    const uniqueInfo = [...new Set(infoLines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean))];
-
-    return { addonLines: uniqueAddons, infoLines: uniqueInfo };
-  };
-
   const dateRef = r.createdAt ? new Date(r.createdAt) : new Date();
   const datePart = dateRef.toLocaleDateString("pt-BR");
   const timePart = dateRef.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -152,8 +226,7 @@ export const printReceipt = async (r: ReceiptData) => {
     return `
       <div class="item-block">
         <div class="item-title">[ ${it.quantity} ] ${itemName}</div>
-        ${addonLines.map((line) => `<div class="item-note item-note--addon">+ ${line}</div>`).join("")}
-        ${infoLines.map((line) => `<div class="item-note item-note--info">&gt; ${line}</div>`).join("")}
+        ${renderItemNotesBlock(addonLines, infoLines)}
         <div class="item-price">${formatCurrencyBR(it.totalPrice)}</div>
       </div>
       ${i < r.items.length - 1 ? `<div class="line-dash"></div>` : ""}
@@ -248,6 +321,7 @@ export const printReceipt = async (r: ReceiptData) => {
         }
         .item-note--addon { font-weight: 700; }
         .item-note--info { font-weight: 700; }
+        .item-note--addons-label { font-weight: 800; margin-top: 2px; }
         .item-price {
           text-align: right;
           font-weight: 800;
@@ -478,79 +552,15 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
 
   const formatCurrencyBR = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
 
-  // Montar HTML dos itens no novo padrão visual
+  // Mesmo padrão visual do printReceipt (molho primeiro, depois Adicionais: + linhas)
   const itemsHtml = r.items.map((item, index) => {
-    // Extrair adicionais das notes
-    let addonsNote = '';
-    let otherNotes = item.notes || '';
-    
-    if (item.notes) {
-      // Procura por "Adicionais:" seguido de múltiplas linhas
-      const addonsPattern = /Adicionais:\s*([\s\S]+?)(?:\n\n|\n(?!\s+\+)|$)/i;
-      let addonsMatch = item.notes.match(addonsPattern);
-      if (addonsMatch && addonsMatch[1]) {
-        addonsNote = `Adicionais:\n${addonsMatch[1].trim()}`;
-        // Remove adicionais das outras notes
-        otherNotes = item.notes.replace(addonsPattern, '').trim();
-        // Remove linhas vazias extras
-        otherNotes = otherNotes.replace(/\n\n+/g, '\n').trim();
-      } else {
-        // Fallback: formato antigo (tudo em uma linha)
-        const addonsPatternOld = /Adicionais:\s*([^|]+?)(?:\s*\||$)/i;
-        let addonsMatchOld = item.notes.match(addonsPatternOld);
-        if (!addonsMatchOld) {
-          addonsMatchOld = item.notes.match(/Adicionais:\s*([^\n]+)/i);
-        }
-        if (addonsMatchOld && addonsMatchOld[1]) {
-          addonsNote = addonsMatchOld[1].trim();
-          // Remove adicionais das outras notes
-          otherNotes = item.notes.split('|').map(part => part.trim()).filter(part => {
-            return !part.toLowerCase().includes('adicionais:');
-          }).join(' | ').trim();
-        }
-      }
-    }
-    
-    // Formatar adicionais para exibir cada um em uma linha
-    let formattedAddonsHtml = '';
-    if (addonsNote) {
-      const addonsLines = addonsNote.split('\n');
-      if (addonsLines.length > 1) {
-        formattedAddonsHtml = `<div style="margin-top: 4px;"><strong>${addonsLines[0]}</strong></div>`;
-        addonsLines.slice(1).forEach(line => {
-          if (line.trim()) {
-            // Remove "+" no início e espaços extras, garante R$ sem espaço antes do valor
-            let cleanLine = line.trim().replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
-            formattedAddonsHtml += `<div style="margin-left: 8px; margin-top: 2px;">${cleanLine}</div>`;
-          }
-        });
-      } else {
-        // Formato antigo - limpar também
-        let cleanNote = addonsNote.replace(/^\+\s*/, '').trim().replace(/R\$\s+/g, 'R$');
-        formattedAddonsHtml = `<div style="margin-top: 4px;">${cleanNote}</div>`;
-      }
-    }
-    
-    const itemNotesHtml = otherNotes
-      ? otherNotes
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .map((line) => `<div class="item-note item-note--info">&gt; ${line.replace(/^Obs:\s*/i, '')}</div>`)
-          .join('')
-      : "";
-    
+    const { addonLines, infoLines } = normalizeItemNotes(item.notes);
     return `
       <div class="item-block">
-        <div class="item-title">[ ${item.quantity} ] ${(item.name || '').toUpperCase()}</div>
-        ${itemNotesHtml}
-        ${formattedAddonsHtml
-          .replace(/<div style="margin-top: 4px;"><strong>Adicionais:<\/strong><\/div>/g, '')
-          .replace(/<div style="margin-left: 8px; margin-top: 2px;">/g, '<div class="item-note item-note--addon">+ ')
-          .replace(/<\/div>/g, '</div>')
-        }
+        <div class="item-title">[ ${item.quantity} ] ${(item.name || "").toUpperCase()}</div>
+        ${renderItemNotesBlock(addonLines, infoLines)}
         <div class="item-price">${formatCurrencyBR(item.totalPrice)}</div>
-        ${index < r.items.length - 1 ? '<div class="line-dash"></div>' : ''}
+        ${index < r.items.length - 1 ? '<div class="line-dash"></div>' : ""}
       </div>
     `;
   }).join("");
@@ -618,6 +628,7 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         .item-note { margin-top: 1px; padding-left: 6px; word-break: break-word; }
         .item-note--addon { font-weight: 700; }
         .item-note--info { font-weight: 700; }
+        .item-note--addons-label { font-weight: 800; margin-top: 2px; }
         .item-price { text-align: right; font-weight: 800; margin-top: 2px; white-space: nowrap; }
         .totals-row {
           display: grid;

@@ -76,6 +76,8 @@ interface Establishment {
       backgroundBlur?: number;
       cardOpacity?: number;
       headerStyle?: "default" | "gradient" | "solid";
+      /** always | when_available (sem placeholder) | never */
+      menuProductImagesMode?: "always" | "when_available" | "never";
     };
     delivery_fee?: number;
   };
@@ -114,7 +116,7 @@ const MenuPublic = () => {
   const [hasBusinessHoursConfig, setHasBusinessHoursConfig] = useState(false);
   
   // Menu customization
-  const menuCustomization = establishment?.settings?.menuCustomization || {
+  const menuCustomization = {
     primaryColor: "#3b82f6",
     secondaryColor: "#8b5cf6",
     backgroundColor: "#ffffff",
@@ -123,6 +125,20 @@ const MenuPublic = () => {
     backgroundBlur: 10,
     cardOpacity: 0.95,
     headerStyle: "default" as const,
+    menuProductImagesMode: "always" as const,
+    ...(establishment?.settings?.menuCustomization || {}),
+  };
+
+  const menuProductImagesMode =
+    menuCustomization.menuProductImagesMode ?? "always";
+
+  const productHasImage = (p: { image_url?: string | null }) =>
+    !!(p.image_url && String(p.image_url).trim());
+
+  const showProductImageStrip = (p: { image_url?: string | null }) => {
+    if (menuProductImagesMode === "never") return false;
+    if (menuProductImagesMode === "when_available") return productHasImage(p);
+    return true;
   };
 
   // Atualizar título da página quando o estabelecimento mudar
@@ -1235,20 +1251,21 @@ const MenuPublic = () => {
                 backdropFilter: "blur(10px)",
               }}
             >
-              {/* Sempre renderizar o espaço da imagem para manter altura consistente */}
-              <div className="aspect-video w-full overflow-hidden bg-muted flex-shrink-0">
-                {product.image_url ? (
-                  <img
-                    src={normalizeImageUrl(product.image_url) || product.image_url}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-muted/50">
-                    <Package className="h-12 w-12 text-muted-foreground/30" />
-                  </div>
-                )}
-              </div>
+              {showProductImageStrip(product) && (
+                <div className="aspect-video w-full overflow-hidden bg-muted flex-shrink-0">
+                  {productHasImage(product) ? (
+                    <img
+                      src={normalizeImageUrl(product.image_url!) || product.image_url!}
+                      alt={product.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                      <Package className="h-12 w-12 text-muted-foreground/30" />
+                    </div>
+                  )}
+                </div>
+              )}
               <CardContent className="p-4 flex flex-col flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-semibold text-lg">{product.name}</h3>

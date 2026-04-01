@@ -46,6 +46,8 @@ const Menu = () => {
     backgroundBlur: 10,
     cardOpacity: 0.95,
     headerStyle: "default" as "default" | "gradient" | "solid",
+    /** always: faixa + placeholder | when_available: só se tiver URL | never: sem faixa */
+    menuProductImagesMode: "always" as "always" | "when_available" | "never",
   });
   const [showCustomization, setShowCustomization] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -157,10 +159,14 @@ const Menu = () => {
           
           // Load menu customization from settings
           if (estabData.settings && estabData.settings.menuCustomization) {
-            setMenuCustomization({
-              ...menuCustomization,
-              ...estabData.settings.menuCustomization,
-            });
+            const mc = estabData.settings.menuCustomization as Record<string, unknown>;
+            setMenuCustomization((prev) => ({
+              ...prev,
+              ...mc,
+              menuProductImagesMode:
+                (mc.menuProductImagesMode as "always" | "when_available" | "never" | undefined) ??
+                prev.menuProductImagesMode,
+            }));
           }
         }
       }
@@ -991,6 +997,34 @@ const Menu = () => {
                   <option value="default">Padrão</option>
                   <option value="gradient">Gradiente</option>
                   <option value="solid">Sólido</option>
+                </select>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-4 bg-muted/30">
+                <Label htmlFor="menuProductImagesMode">Fotos dos produtos no cardápio</Label>
+                <p className="text-xs text-muted-foreground">
+                  Se você não usa fotos, escolha uma opção para evitar o espaço em branco no topo de cada item.
+                </p>
+                <select
+                  id="menuProductImagesMode"
+                  value={menuCustomization.menuProductImagesMode}
+                  onChange={(e) =>
+                    setMenuCustomization({
+                      ...menuCustomization,
+                      menuProductImagesMode: e.target.value as "always" | "when_available" | "never",
+                    })
+                  }
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="always">
+                    Padrão: sempre mostrar a faixa (placeholder quando não houver foto)
+                  </option>
+                  <option value="when_available">
+                    Só mostrar imagem quando o produto tiver foto cadastrada
+                  </option>
+                  <option value="never">
+                    Não mostrar fotos (card só com texto e preço)
+                  </option>
                 </select>
               </div>
             </TabsContent>

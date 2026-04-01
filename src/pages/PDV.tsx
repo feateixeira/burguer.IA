@@ -43,6 +43,11 @@ import { checkFreeDeliveryPromotion, registerFreeDeliveryUsage } from "@/utils/f
 import { CreditSaleModal } from "@/components/CreditSaleModal";
 import { useCreditDueDateAlerts } from "@/hooks/useCreditDueDateAlerts";
 import { CreditDueDateAlertModal } from "@/components/CreditDueDateAlertModal";
+import {
+  registerCachapaEstablishmentIfOwner,
+  shouldUsePdvCachapaCategoryOrder,
+  pdvCachapaCategoryRank,
+} from "@/config/pdvCachapa";
 
 interface Product {
   id: string;
@@ -105,6 +110,7 @@ const PDV = () => {
   const [establishmentSettings, setEstablishmentSettings] = useState<any>({});
   const [establishmentInfo, setEstablishmentInfo] = useState<{ name: string; address?: string; phone?: string; storeNumber?: string }>({ name: '' });
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
+  const [pdvAuthUserId, setPdvAuthUserId] = useState<string | null>(null);
   const [includeDelivery, setIncludeDelivery] = useState(false);
   const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
   const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
@@ -520,6 +526,8 @@ const PDV = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
+      setPdvAuthUserId(session.user.id);
+
       const { data: profile } = await supabase
         .from("profiles")
         .select("establishment_id")
@@ -527,6 +535,8 @@ const PDV = () => {
         .single();
 
       if (!profile?.establishment_id) return;
+
+      registerCachapaEstablishmentIfOwner(profile.establishment_id, session.user.id);
 
       // Só atualiza establishmentId se for diferente (evita loops)
       setEstablishmentId(prev => {
@@ -2159,63 +2169,58 @@ const PDV = () => {
       !(addonsCategoryId && product.category_id === addonsCategoryId) // Excluir produtos da categoria "Adicionais"
     );
 
-    const normalize = (s: string) =>
-      (s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{Diacritic}/gu, "");
-
-    // Desired order normalized
-    const categoryOrderKeys = ['hamburgueres', 'acompanhamentos', 'bebidas'];
-    const organizedProducts: { [key: string]: Product[] } = {};
-    const categoryDisplayNames: { [key: string]: string } = {};
-
-    // Initialize categories in order
-    categoryOrderKeys.forEach(key => {
-      organizedProducts[key] = [];
-    });
-
-    // Group products by category (case-insensitive and accent-insensitive)
+    // Agrupa por category_id (sem fuzzy match por nome — evita ordem errada e colisões)
+    const byCategoryId: Record<string, Product[]> = {};
     filteredProducts.forEach(product => {
-      const category = categories.find(cat => cat.id === product.category_id);
-      const categoryName = category?.name || 'OUTROS';
-      const categoryKey = normalize(categoryName);
-
-      // Find matching key from desired order
-      const matchedKey = categoryOrderKeys.find(key =>
-        categoryKey.includes(key) || key.includes(categoryKey)
-      );
-
-      const finalKey = matchedKey || categoryKey;
-
-      if (!organizedProducts[finalKey]) {
-        organizedProducts[finalKey] = [];
+      const cid = product.category_id;
+      if (!cid) {
+        if (!byCategoryId.__outros__) byCategoryId.__outros__ = [];
+        byCategoryId.__outros__.push(product);
+        return;
       }
-      organizedProducts[finalKey].push(product);
-
-      // Store display name for this key (first occurrence wins)
-      if (!categoryDisplayNames[finalKey]) {
-        categoryDisplayNames[finalKey] = categoryName;
+      const category = categories.find(cat => cat.id === cid);
+      if (!category) {
+        if (!byCategoryId.__outros__) byCategoryId.__outros__ = [];
+        byCategoryId.__outros__.push(product);
+        return;
       }
+      if (!byCategoryId[cid]) byCategoryId[cid] = [];
+      byCategoryId[cid].push(product);
     });
 
-    // Return categories in the correct order, only if they have products
     const finalOrganized: { [key: string]: Product[] } = {};
 
-    categoryOrderKeys.forEach(key => {
-      if (organizedProducts[key] && organizedProducts[key].length > 0) {
-        const displayName = categoryDisplayNames[key] || key.toUpperCase();
-        finalOrganized[displayName] = organizedProducts[key];
+    const sortedWithProducts = [...categories]
+      .filter(cat => (byCategoryId[cat.id]?.length ?? 0) > 0)
+      .sort((a, b) => {
+        const ao = a.sort_order ?? 0;
+        const bo = b.sort_order ?? 0;
+        if (ao !== bo) return ao - bo;
+        return (a.name || "").localeCompare(b.name || "", "pt-BR");
+      });
+
+    if (shouldUsePdvCachapaCategoryOrder(pdvAuthUserId, establishmentId)) {
+      sortedWithProducts.sort((a, b) => {
+        const ra = pdvCachapaCategoryRank(a.name || "", a.sort_order ?? 0);
+        const rb = pdvCachapaCategoryRank(b.name || "", b.sort_order ?? 0);
+        if (ra !== rb) return ra - rb;
+        const ao = a.sort_order ?? 0;
+        const bo = b.sort_order ?? 0;
+        if (ao !== bo) return ao - bo;
+        return (a.name || "").localeCompare(b.name || "", "pt-BR");
+      });
+    }
+
+    sortedWithProducts.forEach(cat => {
+      const list = byCategoryId[cat.id];
+      if (list?.length) {
+        finalOrganized[cat.name] = list;
       }
     });
 
-    // Add any other categories that might exist (preserving insertion order)
-    Object.keys(organizedProducts).forEach(key => {
-      if (!categoryOrderKeys.includes(key) && organizedProducts[key].length > 0) {
-        const displayName = categoryDisplayNames[key] || key.toUpperCase();
-        finalOrganized[displayName] = organizedProducts[key];
-      }
-    });
+    if (byCategoryId.__outros__?.length) {
+      finalOrganized["OUTROS"] = byCategoryId.__outros__;
+    }
 
     return finalOrganized;
   };

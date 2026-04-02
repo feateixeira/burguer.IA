@@ -35,20 +35,17 @@ export async function checkFreeDeliveryPromotion(
  * @param promotionId ID da promoção
  */
 export async function registerFreeDeliveryUsage(
-  orderId: string,
+  _orderId: string,
   promotionId: string
 ): Promise<void> {
   try {
-    // Atualizar o pedido com a promoção usada
-    await supabase
-      .from('orders')
-      .update({ free_delivery_promotion_id: promotionId })
-      .eq('id', orderId);
-
-    // Incrementar contador da promoção
-    await supabase.rpc('increment_free_delivery_usage', {
+    // O pedido já é criado com free_delivery_promotion_id; aqui só incrementa o contador (RPC com privilégio adequado para anon).
+    const { error } = await supabase.rpc('increment_free_delivery_usage', {
       p_promotion_id: promotionId
     });
+    if (error) {
+      console.error('Error registering free delivery usage:', error);
+    }
   } catch (error) {
     console.error('Error registering free delivery usage:', error);
   }

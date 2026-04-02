@@ -160,15 +160,13 @@ INSTRUÇÕES IMPORTANTES:
     const deliveryFee = parsedOrder.delivery_info?.delivery_fee || 0;
     const totalAmount = subtotal + deliveryFee;
 
-    // Gerar número de pedido sequencial usando função RPC
-    // Se não houver caixa aberto, a função retorna número com timestamp
     let orderNumber: string;
     try {
       const { data: generatedNumber, error: orderNumberError } = await supabase.rpc(
         'get_next_order_number',
         { p_establishment_id: establishmentId }
       );
-      
+
       if (orderNumberError || !generatedNumber) {
         console.warn('Error generating sequential order number, using fallback:', orderNumberError);
         orderNumber = `WA-${Date.now()}`;

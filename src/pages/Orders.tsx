@@ -280,14 +280,24 @@ const Orders = () => {
     if (isFromNaBrasaSite(order)) {
       return false;
     }
-    if (order.channel === "online" || order.origin === "site") {
+    if (
+      order.channel === "online" ||
+      order.origin === "site" ||
+      order.origin === "cardapio_online"
+    ) {
       return true;
     }
-    if (order.source_domain && String(order.source_domain).trim() !== '') {
+    if (order.source_domain && String(order.source_domain).trim() !== "") {
       return true;
     }
     return false;
   }, [isFromNaBrasaSite]);
+
+  /** Site Na Brasa ou cardápio online: aceitar/imprimir só com caixa aberto; número # vem na aceitação. */
+  const orderRequiresCashToAccept = useCallback(
+    (order: Order) => isFromNaBrasaSite(order) || isFromOnlineMenu(order),
+    [isFromNaBrasaSite, isFromOnlineMenu]
+  );
 
   const isPDVOrder = useCallback((order: Order) => {
     if (order.source_domain && String(order.source_domain).trim() !== '') {
@@ -427,14 +437,14 @@ const Orders = () => {
         filtered = filtered.filter(order => order.order_type === 'delivery');
       }
 
-      if (!showPDV && !showSite) {
-        filtered = [];
-      } else {
+      // Sem marcar PDV/Site: mostrar todos os canais (do dia). Com filtros: restringe ao marcado.
+      if (showPDV || showSite) {
         if (showPDV && !showSite) {
           filtered = filtered.filter(order => isPDVOrder(order));
         } else if (!showPDV && showSite) {
           filtered = filtered.filter(order => isFromNaBrasaSite(order) || isFromOnlineMenu(order));
         }
+        // showPDV && showSite: mesma lista (sem filtro extra de canal)
       }
     }
 
@@ -1526,33 +1536,39 @@ const Orders = () => {
   const handleAcceptAndPrintOrder = async (order: Order, deliveryBoyId?: string) => {
     try {
       const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
-      
-      if (isFromNaBrasaSite) {
+
+      if (orderRequiresCashToAccept(order)) {
+        if (cashLoading) {
+          toast.error("Verificando o caixa… tente novamente em instantes.");
+          return;
+        }
         if (!hasOpenSession) {
-          toast.error("Não é possível aceitar pedidos sem o caixa estar aberto. Por favor, abra o caixa primeiro.");
+          toast.error(
+            "Abra o caixa no PDV para aceitar este pedido. Sem caixa aberto o valor não entra no caixa do dia."
+          );
           return;
         }
       }
-      
+
       const updateData: any = {
         accepted_and_printed_at: new Date().toISOString()
       };
-      
-      if (isFromNaBrasaSite && establishment) {
+
+      if (orderRequiresCashToAccept(order) && establishment) {
         try {
           const { data: newOrderNumber, error: orderNumberError } = await supabase.rpc(
-            'get_next_order_number',
+            "get_next_order_number",
             { p_establishment_id: establishment.id }
           );
-          
+
           if (!orderNumberError && newOrderNumber) {
             updateData.order_number = newOrderNumber;
           }
-        } catch (error) {
-          // Se falhar ao gerar número sequencial, continuar com o número original
+        } catch {
+          // Mantém número provisório (ex.: ONLINE-…) se a RPC falhar
         }
       }
-      
+
       const isDelivery = order.order_type === 'delivery';
       const hasAddress = order.notes?.toLowerCase().includes('endereço:') || false;
       const hasDeliveryBoy = order.delivery_boy_id !== null && order.delivery_boy_id !== undefined;
@@ -2121,8 +2137,12 @@ const Orders = () => {
                   const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
                   
                   // Helper function to check if order is from online menu (cardápio online)
-                  const isFromOnlineMenu = (order.channel === "online" || order.origin === "site" || order.source_domain) &&
-                                           !isFromNaBrasaSite;
+                  const isFromOnlineMenu =
+                    !isFromNaBrasaSite &&
+                    (order.channel === "online" ||
+                      order.origin === "site" ||
+                      order.origin === "cardapio_online" ||
+                      (order.source_domain && String(order.source_domain).trim() !== ""));
                   
                   // Helper function to check if order is from Totem
                   const isFromTotem = order.channel === "totem" || order.origin === "totem";
@@ -2291,7 +2311,7 @@ const Orders = () => {
                                     if (order.status === "preparing" || (activeTab === "totem" && order.status === "pending")) {
                                       await handleMarkAsReady(order.id);
                                     } else {
-                                      handleMarkDeliveryAsCompleted(order.id);
+                                      await handleMarkDeliveryAsCompleted(order.id);
                                     }
                                   }}
                                   className="h-9 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-md hover:shadow-lg transition-all"

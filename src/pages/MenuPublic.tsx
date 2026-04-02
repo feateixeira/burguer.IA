@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, AlertTriangle, Settings, Circle, UtensilsCrossed, Sparkles, Package } from "lucide-react";
+import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, Settings, Circle, UtensilsCrossed, Sparkles, Package, Info } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +55,8 @@ interface CartItem extends Product {
   quantity: number;
   notes?: string;
   addons?: Addon[]; // adicionais selecionados
+  /** Linha adicionada a partir da lista de combos (id = combos.id, não products.id) */
+  isCombo?: boolean;
 }
 
 function createCartLineId(): string {
@@ -62,6 +64,116 @@ function createCartLineId(): string {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+type PublicMenuOrderItemRow = {
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  notes: string | null;
+  customizations: Record<string, unknown> | null;
+};
+
+/**
+ * order_items.product_id referencia products. Combos no carrinho usam combos.id — expande em uma linha por combo_item.
+ */
+function buildOrderItemRowsForPublicMenu(
+  cart: CartItem[],
+  combos: any[],
+  products: Product[],
+  orderId: string
+): PublicMenuOrderItemRow[] {
+  const rows: PublicMenuOrderItemRow[] = [];
+
+  for (const item of cart) {
+    const addonsPrice =
+      item.addons?.reduce((sum, addon) => sum + addon.price * addon.quantity, 0) || 0;
+    const lineTotal = (item.price + addonsPrice) * item.quantity;
+
+    const comboDef = combos.find((c: any) => c?.id === item.id);
+    const cis = comboDef?.combo_items as { product_id: string; quantity: number }[] | undefined;
+
+    if (item.isCombo && !comboDef) {
+      throw new Error("COMBO_SEM_ITENS");
+    }
+
+    if (comboDef) {
+      if (!cis?.length) {
+        throw new Error("COMBO_SEM_ITENS");
+      }
+      const weights = cis.map((ci) => {
+        const p = products.find((x) => x.id === ci.product_id);
+        const base = p ? Number(p.price) * Number(ci.quantity) : 0;
+        return base > 0 ? base : 1;
+      });
+      const sumW = weights.reduce((a, b) => a + b, 0) || cis.length;
+
+      cis.forEach((ci, idx) => {
+        const frac = (weights[idx] ?? 1) / sumW;
+        const subtotal = lineTotal * frac;
+        const qty = item.quantity * Number(ci.quantity);
+        const unitPrice = qty > 0 ? subtotal / qty : 0;
+        const noteBase = item.notes?.trim() || "";
+        const comboNote = `Combo: ${item.name}`;
+        const notesJoined = noteBase ? `${noteBase} · ${comboNote}` : comboNote;
+
+        rows.push({
+          order_id: orderId,
+          product_id: ci.product_id,
+          quantity: qty,
+          unit_price: unitPrice,
+          total_price: subtotal,
+          notes: notesJoined,
+          customizations:
+            idx === 0 && item.addons && item.addons.length > 0
+              ? { comboName: item.name, addons: item.addons }
+              : null,
+        });
+      });
+      continue;
+    }
+
+    rows.push({
+      order_id: orderId,
+      product_id: item.id,
+      quantity: item.quantity,
+      unit_price: item.price,
+      total_price: lineTotal,
+      notes: item.notes?.trim() || null,
+      customizations:
+        item.addons && item.addons.length > 0 ? { addons: item.addons } : null,
+    });
+  }
+
+  return rows;
+}
+
+/** Aviso único permitido no fluxo quando o cliente envia pedido fora do horário (pré-pedido). */
+const OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE =
+  "O estabelecimento vai receber seu pedido, mas não está em horário de funcionamento no momento. A preparação e a entrega provavelmente só ocorrerão após a abertura.";
+
+function mapPublicMenuCheckoutError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("foreign key") ||
+    lower.includes("order_items_product_id_fkey") ||
+    lower.includes("violates foreign key constraint")
+  ) {
+    return "Um item do pedido não está mais disponível no cardápio. Atualize a página e monte o carrinho de novo.";
+  }
+  if (raw.includes("COMBO_SEM_ITENS")) {
+    return "Este combo está incompleto no sistema. Escolha outro item ou avise o estabelecimento.";
+  }
+  if (lower.includes("permission denied") || raw.includes("42501")) {
+    return "Não foi possível concluir o pedido. Atualize a página e tente novamente.";
+  }
+  if (lower.includes("row-level security") || lower.includes("rls")) {
+    return "Não foi possível registrar o pedido. Atualize a página e tente de novo. Se continuar, avise o estabelecimento.";
+  }
+  const trimmed = raw.length > 160 ? `${raw.slice(0, 157)}…` : raw;
+  return `Erro ao realizar pedido: ${trimmed}`;
 }
 
 interface Establishment {
@@ -108,6 +220,8 @@ const MenuPublic = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState<string>("");
+  /** Pré-pedido enviado fora do horário — exibe aviso na tela de confirmação */
+  const [orderSuccessOutsideHours, setOrderSuccessOutsideHours] = useState(false);
   const [showAddonsModal, setShowAddonsModal] = useState(false);
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   
@@ -859,19 +973,8 @@ const MenuPublic = () => {
     const releaseAt = isQueued && nextOpenAt ? nextOpenAt.toISOString() : null;
 
     try {
-      // Gerar número de pedido sequencial (#00001, #00002, etc)
-      // Se não houver caixa aberto, retorna número com timestamp
-      const { data: orderNumber, error: orderNumberError } = await supabase.rpc(
-        "get_next_order_number",
-        { p_establishment_id: establishment.id }
-      );
-
-      if (orderNumberError || !orderNumber) {
-        // Fallback para número com timestamp se houver erro
-        const fallbackNumber = `ONLINE-${Date.now()}`;
-      }
-
-      const finalOrderNumber = orderNumber || `ONLINE-${Date.now()}`;
+      // Número provisório: o # sequencial do caixa é atribuído na loja ao aceitar o pedido (com caixa aberto).
+      const finalOrderNumber = `ONLINE-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
       // Prepare notes with address if delivery
       let finalNotes = orderNotes.trim() || "";
@@ -923,28 +1026,14 @@ const MenuPublic = () => {
         await registerFreeDeliveryUsage(newOrder.id, freeDeliveryPromotionId);
       }
 
-      // Create order items
-      const orderItems = cart.map(item => {
-        const addonsPrice = item.addons?.reduce((sum, addon) => 
-          sum + (addon.price * addon.quantity), 0) || 0;
-        const itemTotalPrice = (item.price + addonsPrice) * item.quantity;
-        
-        return {
-          order_id: newOrder.id,
-          product_id: item.id,
-          quantity: item.quantity,
-          unit_price: item.price,
-          total_price: itemTotalPrice,
-          notes: item.notes?.trim() || null,
-          customizations: item.addons && item.addons.length > 0 
-            ? { addons: item.addons } 
-            : null,
-        };
-      });
+      const orderItems = buildOrderItemRowsForPublicMenu(
+        cart,
+        combos,
+        products,
+        newOrder.id
+      );
 
-      const { error: itemsError } = await supabase
-        .from("order_items")
-        .insert(orderItems);
+      const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
 
       if (itemsError) {
         throw itemsError;
@@ -970,7 +1059,8 @@ const MenuPublic = () => {
       }
 
       // Success
-      setOrderNumber(orderNumber);
+      setOrderNumber(finalOrderNumber);
+      setOrderSuccessOutsideHours(isQueued);
       setOrderSuccess(true);
       setCart([]);
       setShowCheckout(false);
@@ -980,7 +1070,14 @@ const MenuPublic = () => {
       setCustomerAddress("");
       setOrderNotes("");
 
-      toast.success("Pedido realizado com sucesso!");
+      if (isQueued) {
+        toast.success("Pré-pedido enviado com sucesso!", {
+          description: OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE,
+          duration: 10000,
+        });
+      } else {
+        toast.success("Pedido realizado com sucesso!");
+      }
     } catch (error: any) {
       // Extrair mensagem de erro mais detalhada
       let errorMessage = "Erro desconhecido ao realizar pedido";
@@ -993,12 +1090,7 @@ const MenuPublic = () => {
         errorMessage = error;
       }
       
-      // Mensagem de erro amigável
-      if (errorMessage.includes("row-level security") || errorMessage.includes("RLS")) {
-        toast.error("Erro de segurança: Verifique se o estabelecimento está configurado corretamente para receber pedidos online.");
-      } else {
-        toast.error(`Erro ao realizar pedido: ${errorMessage}`);
-      }
+      toast.error(mapPublicMenuCheckoutError(errorMessage));
     }
   };
 
@@ -1039,6 +1131,14 @@ const MenuPublic = () => {
               <p className="text-muted-foreground mb-4">
                 Seu pedido foi recebido com sucesso.
               </p>
+              {orderSuccessOutsideHours && (
+                <p
+                  className="text-sm text-left rounded-lg border border-sky-500/40 bg-sky-500/10 dark:bg-sky-950/35 text-sky-950 dark:text-sky-100 p-3 mb-4 leading-snug"
+                  role="status"
+                >
+                  {OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}
+                </p>
+              )}
               <div className="bg-muted p-4 rounded-lg mb-4">
                 <p className="text-sm text-muted-foreground mb-1">Número do pedido</p>
                 <p className="text-xl font-bold">{orderNumber}</p>
@@ -1050,6 +1150,7 @@ const MenuPublic = () => {
                 onClick={() => {
                   setOrderSuccess(false);
                   setOrderNumber("");
+                  setOrderSuccessOutsideHours(false);
                 }}
                 className="w-full"
               >
@@ -1180,8 +1281,8 @@ const MenuPublic = () => {
                     </p>
                   )}
                   {establishment.allow_orders_when_closed && (
-                    <p className="text-sm text-red-700 dark:text-red-300 mt-1 italic">
-                      Você pode fazer um pré-pedido que será preparado quando abrirmos
+                    <p className="text-sm text-red-800 dark:text-red-200 mt-1 leading-snug">
+                      {OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}
                     </p>
                   )}
                 </>
@@ -1603,6 +1704,15 @@ const MenuPublic = () => {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 sm:px-6 py-4">
             <div className="space-y-4">
+            {!hoursLoading && !isOpen && establishment?.allow_orders_when_closed && (
+              <div
+                className="flex gap-3 rounded-lg border border-sky-500/45 bg-sky-500/10 dark:bg-sky-950/35 p-3 text-sm text-sky-950 dark:text-sky-100"
+                role="status"
+              >
+                <Info className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+                <p className="leading-snug">{OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}</p>
+              </div>
+            )}
             <div>
               <Label htmlFor="customerName">Nome *</Label>
               <Input
@@ -1817,15 +1927,21 @@ const MenuPublic = () => {
                 className="w-full min-h-[52px] touch-manipulation font-semibold shadow-lg hover:shadow-xl transition-shadow text-base"
                 size="lg"
                 disabled={
-                  !customerName.trim() || 
-                  !customerPhone.trim() || 
+                  !customerName.trim() ||
+                  !customerPhone.trim() ||
                   !paymentMethod ||
                   (!isOpen && !establishment?.allow_orders_when_closed)
                 }
-                style={{ 
+                style={{
                   backgroundColor: menuCustomization.primaryColor,
                   color: "#ffffff",
-                  opacity: (!customerName.trim() || !customerPhone.trim() || !paymentMethod || (!isOpen && !establishment?.allow_orders_when_closed)) ? 0.5 : 1
+                  opacity:
+                    !customerName.trim() ||
+                    !customerPhone.trim() ||
+                    !paymentMethod ||
+                    (!isOpen && !establishment?.allow_orders_when_closed)
+                      ? 0.5
+                      : 1,
                 }}
                 title={
                   !isOpen && !establishment?.allow_orders_when_closed

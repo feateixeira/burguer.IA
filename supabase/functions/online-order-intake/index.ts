@@ -152,16 +152,13 @@ serve(async (req) => {
       }
     }
 
-    // Generate order number
-    // Gerar número de pedido sequencial usando função RPC
-    // Se não houver caixa aberto, a função retorna número com timestamp
     let orderNumber: string;
     try {
       const { data: generatedNumber, error: orderNumberError } = await supabase.rpc(
         'get_next_order_number',
         { p_establishment_id: establishment.id }
       );
-      
+
       if (orderNumberError || !generatedNumber) {
         console.warn('Error generating sequential order number, using fallback:', orderNumberError);
         orderNumber = `WEB-${Date.now()}`;
@@ -1009,9 +1006,9 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Error in online-order-intake function:', error);
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       ok: false,
-      error: error.message || 'Erro interno do servidor' 
+      error: error?.message || 'Erro interno do servidor',
     }), {
       status: 500,
       headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },

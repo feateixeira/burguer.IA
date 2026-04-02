@@ -119,6 +119,8 @@ const MenuPublic = () => {
   const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
   const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_credito" | "cartao_debito" | "">("");
   const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
+  /** Taxa base de entrega (config + motoboys via RPC) — usada só no checkout / total final */
+  const [menuDeliveryBaseFee, setMenuDeliveryBaseFee] = useState(0);
 
   // Hook para verificar horário de funcionamento
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
@@ -401,6 +403,7 @@ const MenuPublic = () => {
   const loadEstablishmentData = async () => {
     try {
       setLoading(true);
+      setMenuDeliveryBaseFee(0);
 
       // Load establishment by slug (tentar com campos novos, se falhar tenta sem eles)
       let { data: estabData, error: estabError } = await supabase
@@ -445,6 +448,24 @@ const MenuPublic = () => {
       }
 
       setEstablishment(estabData as any);
+
+      const estabIdForFee = (estabData as any)?.id as string;
+      let resolvedDeliveryFee = Number((estabData as any)?.settings?.delivery_fee) || 0;
+      try {
+        const { data: rpcFee, error: rpcFeeError } = await supabase.rpc(
+          "get_online_menu_delivery_fee",
+          { p_establishment_id: estabIdForFee }
+        );
+        if (!rpcFeeError && rpcFee != null && rpcFee !== "") {
+          const n = Number(rpcFee);
+          if (!Number.isNaN(n)) {
+            resolvedDeliveryFee = n;
+          }
+        }
+      } catch {
+        // Migração ainda não aplicada ou RPC indisponível
+      }
+      setMenuDeliveryBaseFee(resolvedDeliveryFee);
 
       // Verificar se há horários de funcionamento configurados
       const { data: hoursData } = await supabase
@@ -797,12 +818,11 @@ const MenuPublic = () => {
   }, 0);
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   
-  // Calcular taxa de entrega se for pedido de entrega
-  // Se houver promoção de frete grátis ativa, não cobrar frete
-  const baseDeliveryFee = orderType === "delivery" && establishment?.settings?.delivery_fee 
-    ? Number(establishment.settings.delivery_fee) || 0 
-    : 0;
-  const deliveryFee = (orderType === "delivery" && freeDeliveryPromotionId) ? 0 : baseDeliveryFee;
+  // Taxa de entrega só entra no total na etapa "Finalizar pedido" (entrega vs retirada)
+  const baseDeliveryFee =
+    orderType === "delivery" ? (Number(menuDeliveryBaseFee) || 0) : 0;
+  const deliveryFee =
+    orderType === "delivery" && freeDeliveryPromotionId ? 0 : baseDeliveryFee;
   const finalTotal = cartTotal + deliveryFee;
 
   const handleCheckout = async () => {
@@ -888,7 +908,8 @@ const MenuPublic = () => {
           source_domain: window.location.hostname,
           queued_until_next_open: isQueued,
           release_at: releaseAt,
-          free_delivery_promotion_id: freeDeliveryPromotionId || null,
+          free_delivery_promotion_id:
+            orderType === "delivery" ? freeDeliveryPromotionId || null : null,
         })
         .select()
         .single();
@@ -1089,13 +1110,13 @@ const MenuPublic = () => {
       <div className="relative z-10">
       {/* Header */}
       <header 
-        className="sticky top-0 z-50 w-full border-b backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        className="sticky top-0 z-50 w-full border-b backdrop-blur supports-[backdrop-filter]:bg-background/60 pt-[max(0.75rem,env(safe-area-inset-top))]"
         style={getHeaderStyle()}
       >
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{establishment.name}</h1>
+        <div className="container max-w-screen-lg mx-auto px-3 sm:px-4 py-3 sm:py-4">
+          <div className="flex flex-wrap items-start sm:items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2">
+              <h1 className="text-xl sm:text-2xl font-bold leading-tight break-words">{establishment.name}</h1>
               {establishment.phone && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                   <Phone className="h-3 w-3" />
@@ -1105,7 +1126,7 @@ const MenuPublic = () => {
             </div>
             <Button
               onClick={() => setShowCart(true)}
-              className="relative"
+              className="relative shrink-0 min-h-[44px] touch-manipulation"
               size="lg"
               style={{
                 backgroundColor: menuCustomization.headerStyle === "default" 
@@ -1129,7 +1150,7 @@ const MenuPublic = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8 relative z-10">
+      <main className="container max-w-screen-lg mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-24 relative z-10">
         {/* Banner de Status do Estabelecimento - só mostrar se houver horário configurado */}
         {!hoursLoading && establishment && hasBusinessHoursConfig && (
           <div className={`mb-6 p-4 rounded-lg border flex items-center gap-3 ${
@@ -1251,7 +1272,7 @@ const MenuPublic = () => {
           }
           
           return (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
               {items.map((product: any, index: number) => {
             if (!product || !product.id || !product.name) {
               return null;
@@ -1343,28 +1364,35 @@ const MenuPublic = () => {
 
       {/* Cart Dialog */}
       <Dialog open={showCart} onOpenChange={setShowCart}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          {/* Header com gradiente */}
-          <DialogHeader 
-            className="px-6 pt-6 pb-4 relative overflow-hidden"
+        <DialogContent
+          className={
+            "w-[calc(100vw-0.75rem)] max-w-lg sm:max-w-2xl gap-0 p-0 " +
+            "max-h-[min(92dvh,calc(100vh-0.5rem))] h-auto flex flex-col overflow-hidden " +
+            "rounded-2xl sm:rounded-xl left-1/2 top-[50%] -translate-x-1/2 -translate-y-1/2 " +
+            "pb-[max(1rem,env(safe-area-inset-bottom))]"
+          }
+        >
+          {/* Header — sem overflow:hidden para não cortar a descrição */}
+          <DialogHeader
+            className="shrink-0 px-4 sm:px-6 pt-5 sm:pt-6 pb-3 text-left space-y-2 pr-12"
             style={{
               background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
             }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <ShoppingCart className="h-5 w-5" style={{ color: menuCustomization.primaryColor }} />
-              <DialogTitle className="text-2xl font-bold">
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-xl sm:text-2xl font-bold leading-snug tracking-tight">
                 Seu Carrinho
               </DialogTitle>
             </div>
-            <DialogDescription className="text-base text-muted-foreground">
-              {cart.length === 0 
+            <DialogDescription className="text-sm sm:text-base text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
+              {cart.length === 0
                 ? "Seu carrinho está esperando por delícias! 🛒"
-                : `${cartItemsCount} ${cartItemsCount === 1 ? 'item delicioso' : 'itens deliciosos'} no seu carrinho`}
+                : `${cartItemsCount} ${cartItemsCount === 1 ? "item delicioso" : "itens deliciosos"} no seu carrinho`}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-hidden flex flex-col px-6 py-4">
+          <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 py-3">
             {cart.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🛒</div>
@@ -1384,7 +1412,7 @@ const MenuPublic = () => {
                 </Button>
               </div>
             ) : (
-              <div className="space-y-3 overflow-y-auto flex-1 pr-2">
+              <div className="space-y-3 overflow-y-auto overflow-x-hidden min-h-0 flex-1 overscroll-y-contain touch-pan-y pr-1 sm:pr-2">
                 {cart.map((item) => {
                   const itemAddonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
                   const itemTotalPrice = (item.price + itemAddonsPrice) * item.quantity;
@@ -1490,52 +1518,39 @@ const MenuPublic = () => {
           </div>
 
           {cart.length > 0 && (
-            <div 
-              className="px-6 pb-6 pt-4 border-t space-y-4"
+            <div
+              className="shrink-0 px-4 sm:px-6 pt-3 pb-4 sm:pb-5 border-t space-y-3"
               style={{ borderColor: `${menuCustomization.primaryColor}20` }}
             >
-              <div 
-                className="p-4 rounded-lg"
+              <div
+                className="p-3 sm:p-4 rounded-xl"
                 style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
               >
-                {deliveryFee > 0 && (
-                  <div className="flex justify-between items-center mb-2 text-sm">
-                    <span>Subtotal:</span>
-                    <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
-                  </div>
-                )}
-                {orderType === "delivery" && (
-                  <div className="flex justify-between items-center mb-2 text-sm">
-                    <span>Taxa de Entrega:</span>
-                    <span>
-                      {freeDeliveryPromotionId ? (
-                        <span className="text-green-600 font-semibold">Grátis</span>
-                      ) : (
-                        `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`
-                      )}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-base">Total do Pedido:</span>
-                  <span 
-                    className="text-2xl font-bold"
+                <div className="flex justify-between items-baseline gap-3 mb-1">
+                  <span className="font-semibold text-base sm:text-lg leading-tight">
+                    Subtotal dos itens
+                  </span>
+                  <span
+                    className="text-xl sm:text-2xl font-bold tabular-nums shrink-0"
                     style={{ color: menuCustomization.primaryColor }}
                   >
-                    R$ {finalTotal.toFixed(2).replace('.', ',')}
+                    R$ {cartTotal.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {cartItemsCount} {cartItemsCount === 1 ? 'item' : 'itens'} no carrinho
+                <p className="text-xs sm:text-sm text-muted-foreground leading-snug">
+                  Taxa de entrega e total final aparecem na próxima etapa, ao escolher entrega ou retirada no local.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {cartItemsCount} {cartItemsCount === 1 ? "item" : "itens"} no carrinho
                 </p>
               </div>
 
-              <div className="flex gap-3">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowCart(false)} 
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCart(false)}
                   size="lg"
-                  className="flex-1"
+                  className="flex-1 min-h-[48px] touch-manipulation w-full sm:w-auto"
                 >
                   Continuar Comprando
                 </Button>
@@ -1545,13 +1560,13 @@ const MenuPublic = () => {
                     setShowCheckout(true);
                   }}
                   size="lg"
-                  className="flex-1 font-semibold shadow-lg hover:shadow-xl transition-shadow"
-                  style={{ 
+                  className="flex-1 min-h-[48px] touch-manipulation w-full sm:w-auto font-semibold shadow-lg hover:shadow-xl transition-shadow"
+                  style={{
                     backgroundColor: menuCustomization.primaryColor,
-                    color: "#ffffff"
+                    color: "#ffffff",
                   }}
                 >
-                  <Package className="h-4 w-4 mr-2" />
+                  <Package className="h-4 w-4 mr-2 shrink-0" />
                   Finalizar Pedido
                 </Button>
               </div>
@@ -1562,26 +1577,31 @@ const MenuPublic = () => {
 
       {/* Checkout Dialog */}
       <Dialog open={showCheckout} onOpenChange={setShowCheckout}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          {/* Header com gradiente */}
-          <DialogHeader 
-            className="px-6 pt-6 pb-4 relative overflow-hidden"
+        <DialogContent
+          className={
+            "w-[calc(100vw-0.75rem)] max-w-lg sm:max-w-2xl gap-0 p-0 " +
+            "max-h-[min(92dvh,calc(100vh-0.5rem))] flex flex-col overflow-hidden " +
+            "rounded-2xl sm:rounded-xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          }
+        >
+          <DialogHeader
+            className="shrink-0 px-4 sm:px-6 pt-5 sm:pt-6 pb-3 text-left space-y-2 pr-12"
             style={{
               background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
             }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle2 className="h-5 w-5" style={{ color: menuCustomization.primaryColor }} />
-              <DialogTitle className="text-2xl font-bold">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-xl sm:text-2xl font-bold leading-snug tracking-tight">
                 Finalizar Pedido
               </DialogTitle>
             </div>
-            <DialogDescription className="text-base text-muted-foreground">
-              Estamos quase lá! Preencha seus dados e finalize seu pedido delicioso 🍔
+            <DialogDescription className="text-sm sm:text-base text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
+              Preencha seus dados, escolha entrega ou retirada e confira o total com a taxa quando for o caso.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 sm:px-6 py-4">
             <div className="space-y-4">
             <div>
               <Label htmlFor="customerName">Nome *</Label>
@@ -1606,7 +1626,7 @@ const MenuPublic = () => {
 
             <div>
               <Label className="text-base font-medium">Tipo de Pedido *</Label>
-              <div className="flex gap-3 mt-2">
+              <div className="flex flex-col min-[380px]:flex-row gap-2 sm:gap-3 mt-2">
                 <Button
                   type="button"
                   variant={orderType === "delivery" ? "default" : "outline"}
@@ -1621,26 +1641,29 @@ const MenuPublic = () => {
                       }
                     }
                   }}
-                  className="flex-1 h-12"
+                  className="flex-1 min-h-[48px] touch-manipulation justify-center"
                   style={orderType === "delivery" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <MapPin className="h-4 w-4 mr-2" />
+                  <MapPin className="h-4 w-4 mr-2 shrink-0" />
                   Entrega
                 </Button>
                 <Button
                   type="button"
                   variant={orderType === "pickup" ? "default" : "outline"}
-                  onClick={() => setOrderType("pickup")}
-                  className="flex-1 h-12"
+                  onClick={() => {
+                    setOrderType("pickup");
+                    setFreeDeliveryPromotionId(null);
+                  }}
+                  className="flex-1 min-h-[48px] touch-manipulation justify-center"
                   style={orderType === "pickup" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <Clock className="h-4 w-4 mr-2" />
+                  <Clock className="h-4 w-4 mr-2 shrink-0" />
                   Retirada
                 </Button>
               </div>
@@ -1661,12 +1684,12 @@ const MenuPublic = () => {
 
             <div>
               <Label className="text-base font-medium">Forma de Pagamento *</Label>
-              <div className="grid grid-cols-2 gap-3 mt-2">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-2">
                 <Button
                   type="button"
                   variant={paymentMethod === "dinheiro" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("dinheiro")}
-                  className="flex items-center justify-center gap-2 h-12"
+                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
                   style={paymentMethod === "dinheiro" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1679,7 +1702,7 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "pix" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("pix")}
-                  className="flex items-center justify-center gap-2 h-12"
+                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
                   style={paymentMethod === "pix" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1692,7 +1715,7 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "cartao_debito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_debito")}
-                  className="flex items-center justify-center gap-2 h-12"
+                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
                   style={paymentMethod === "cartao_debito" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1705,7 +1728,7 @@ const MenuPublic = () => {
                   type="button"
                   variant={paymentMethod === "cartao_credito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_credito")}
-                  className="flex items-center justify-center gap-2 h-12"
+                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
                   style={paymentMethod === "cartao_credito" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1760,40 +1783,38 @@ const MenuPublic = () => {
               style={{ borderColor: `${menuCustomization.primaryColor}20` }}
             >
               <div 
-                className="p-4 rounded-lg mb-4"
+                className="p-3 sm:p-4 rounded-xl mb-4 space-y-2"
                 style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
               >
-                {deliveryFee > 0 && (
-                  <div className="flex justify-between items-center mb-2 text-sm">
-                    <span>Subtotal:</span>
-                    <span>R$ {cartTotal.toFixed(2).replace('.', ',')}</span>
-                  </div>
-                )}
+                <div className="flex justify-between items-center text-sm sm:text-base gap-2">
+                  <span className="text-muted-foreground">Subtotal dos itens</span>
+                  <span className="tabular-nums font-medium">R$ {cartTotal.toFixed(2).replace(".", ",")}</span>
+                </div>
                 {orderType === "delivery" && (
-                  <div className="flex justify-between items-center mb-2 text-sm">
-                    <span>Taxa de Entrega:</span>
-                    <span>
+                  <div className="flex justify-between items-center text-sm sm:text-base gap-2">
+                    <span className="text-muted-foreground">Taxa de entrega</span>
+                    <span className="tabular-nums">
                       {freeDeliveryPromotionId ? (
                         <span className="text-green-600 font-semibold">Grátis</span>
                       ) : (
-                        `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`
+                        `R$ ${deliveryFee.toFixed(2).replace(".", ",")}`
                       )}
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold text-base">Total do Pedido:</span>
+                <div className="flex justify-between items-baseline gap-2 pt-1 border-t border-black/5 dark:border-white/10">
+                  <span className="font-semibold text-base sm:text-lg">Total do pedido</span>
                   <span 
-                    className="text-2xl font-bold"
+                    className="text-xl sm:text-2xl font-bold tabular-nums"
                     style={{ color: menuCustomization.primaryColor }}
                   >
-                    R$ {finalTotal.toFixed(2).replace('.', ',')}
+                    R$ {finalTotal.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
               </div>
               <Button
                 onClick={handleCheckout}
-                className="w-full font-semibold shadow-lg hover:shadow-xl transition-shadow"
+                className="w-full min-h-[52px] touch-manipulation font-semibold shadow-lg hover:shadow-xl transition-shadow text-base"
                 size="lg"
                 disabled={
                   !customerName.trim() || 

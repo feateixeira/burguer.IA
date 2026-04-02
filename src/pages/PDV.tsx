@@ -754,9 +754,13 @@ const PDV = () => {
       // Preencher entrega
       const isDelivery = order.order_type === "delivery";
       setIncludeDelivery(isDelivery);
-      if (isDelivery && order.delivery_boy_id) {
-        setSelectedDeliveryBoy(order.delivery_boy_id);
-        loadDeliveryBoys();
+      if (isDelivery) {
+        const savedDeliveryFee = Number((order as { delivery_fee?: number }).delivery_fee);
+        setDeliveryFee(Number.isFinite(savedDeliveryFee) ? savedDeliveryFee : 0);
+        if (order.delivery_boy_id) {
+          setSelectedDeliveryBoy(order.delivery_boy_id);
+          loadDeliveryBoys();
+        }
       }
 
       // Preencher instruções gerais
@@ -2793,6 +2797,7 @@ const PDV = () => {
                           } else {
                             setSelectedDeliveryBoy("");
                             setFreeDeliveryPromotionId(null);
+                            setDeliveryFee(Number((establishmentSettings as any)?.delivery_fee) || 0);
                           }
                         }}
                       />
@@ -2812,7 +2817,15 @@ const PDV = () => {
                       ) : (
                         <Select
                           value={selectedDeliveryBoy || undefined}
-                          onValueChange={setSelectedDeliveryBoy}
+                          onValueChange={(boyId) => {
+                            setSelectedDeliveryBoy(boyId);
+                            const boy = deliveryBoys.find((b) => b.id === boyId);
+                            if (boy) {
+                              setDeliveryFee(Number(boy.delivery_fee) || 0);
+                            } else {
+                              setDeliveryFee(Number((establishmentSettings as any)?.delivery_fee) || 0);
+                            }
+                          }}
                         >
                           <SelectTrigger id="delivery-boy">
                             <SelectValue placeholder="Selecione o motoboy" />

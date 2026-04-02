@@ -50,9 +50,18 @@ interface Addon {
 }
 
 interface CartItem extends Product {
+  /** Identifica cada linha do carrinho (mesmo produto pode aparecer várias vezes com observações diferentes) */
+  lineId: string;
   quantity: number;
   notes?: string;
   addons?: Addon[]; // adicionais selecionados
+}
+
+function createCartLineId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 interface Establishment {
@@ -628,6 +637,7 @@ const MenuPublic = () => {
       if (selectedAddons !== undefined) {
         const cartItem: CartItem = {
           ...productWithPromotion,
+          lineId: createCartLineId(),
           quantity: 1,
           addons: selectedAddons.length > 0 ? selectedAddons : undefined,
         };
@@ -659,7 +669,10 @@ const MenuPublic = () => {
               : item
           ));
         } else {
-          setCart([...cart, { ...productWithPromotion, quantity: 1 }]);
+          setCart([
+            ...cart,
+            { ...productWithPromotion, lineId: createCartLineId(), quantity: 1 },
+          ]);
         }
         toast.success(`${productWithPromotion.name} adicionado ao carrinho`);
       }
@@ -673,6 +686,7 @@ const MenuPublic = () => {
     
     const cartItem: CartItem = {
       ...pendingProduct,
+      lineId: createCartLineId(),
       quantity: 1,
       addons: selectedAddons.length > 0 ? selectedAddons : undefined,
     };
@@ -683,20 +697,26 @@ const MenuPublic = () => {
     setShowAddonsModal(false);
   };
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = (lineId: string, quantity: number) => {
     if (quantity <= 0) {
-      removeFromCart(productId);
+      removeFromCart(lineId);
       return;
     }
-    setCart(cart.map(item =>
-      item.id === productId && !item.notes
-        ? { ...item, quantity }
-        : item
+    setCart(cart.map((item) =>
+      item.lineId === lineId ? { ...item, quantity } : item
     ));
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => !(item.id === productId && !item.notes)));
+  const removeFromCart = (lineId: string) => {
+    setCart(cart.filter((item) => item.lineId !== lineId));
+  };
+
+  const updateItemNotes = (lineId: string, notes: string) => {
+    setCart(cart.map((item) =>
+      item.lineId === lineId
+        ? { ...item, notes: notes.length > 0 ? notes : undefined }
+        : item
+    ));
   };
 
   const getProductsByCategory = () => {
@@ -894,7 +914,7 @@ const MenuPublic = () => {
           quantity: item.quantity,
           unit_price: item.price,
           total_price: itemTotalPrice,
-          notes: item.notes || null,
+          notes: item.notes?.trim() || null,
           customizations: item.addons && item.addons.length > 0 
             ? { addons: item.addons } 
             : null,
@@ -1365,13 +1385,13 @@ const MenuPublic = () => {
               </div>
             ) : (
               <div className="space-y-3 overflow-y-auto flex-1 pr-2">
-                {cart.map((item, index) => {
+                {cart.map((item) => {
                   const itemAddonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
                   const itemTotalPrice = (item.price + itemAddonsPrice) * item.quantity;
                   
                   return (
                     <div 
-                      key={`${item.id}-${item.notes || ''}-${index}`} 
+                      key={item.lineId} 
                       className="p-4 border-2 rounded-xl transition-all hover:shadow-md"
                       style={{ 
                         borderColor: `${menuCustomization.primaryColor}30`,
@@ -1412,12 +1432,26 @@ const MenuPublic = () => {
                               </p>
                             </div>
                           </div>
+
+                          <div className="mt-3 space-y-1.5">
+                            <Label htmlFor={`item-notes-${item.lineId}`} className="text-xs font-medium text-muted-foreground">
+                              Observações deste item (opcional)
+                            </Label>
+                            <Textarea
+                              id={`item-notes-${item.lineId}`}
+                              value={item.notes ?? ""}
+                              onChange={(e) => updateItemNotes(item.lineId, e.target.value)}
+                              placeholder="Ex.: sem alface, molho à parte, ponto bem passado…"
+                              rows={2}
+                              className="text-sm resize-none min-h-[60px]"
+                            />
+                          </div>
                           
                           <div className="flex items-center gap-2 mt-3">
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                              onClick={() => updateQuantity(item.lineId, item.quantity - 1)}
                               className="h-8 w-8 p-0 rounded-full"
                               style={{ borderColor: menuCustomization.primaryColor }}
                             >
@@ -1431,7 +1465,7 @@ const MenuPublic = () => {
                             </span>
                             <Button
                               size="sm"
-                              onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                              onClick={() => updateQuantity(item.lineId, item.quantity + 1)}
                               className="h-8 w-8 p-0 rounded-full"
                               style={{ backgroundColor: menuCustomization.primaryColor, color: "#ffffff" }}
                             >
@@ -1440,7 +1474,7 @@ const MenuPublic = () => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => removeFromCart(item.id)}
+                              onClick={() => removeFromCart(item.lineId)}
                               className="ml-auto text-muted-foreground hover:text-destructive"
                             >
                               <X className="h-4 w-4" />
@@ -1684,14 +1718,41 @@ const MenuPublic = () => {
             </div>
 
             <div>
-              <Label htmlFor="orderNotes">Observações (opcional)</Label>
+              <Label htmlFor="orderNotes">Observações gerais do pedido (opcional)</Label>
               <Textarea
                 id="orderNotes"
                 value={orderNotes}
                 onChange={(e) => setOrderNotes(e.target.value)}
-                placeholder="Alguma observação sobre o pedido?"
+                placeholder="Ex.: campainha quebrada, entregar na portaria…"
                 rows={3}
               />
+            </div>
+
+            <div
+              className="rounded-lg border p-3 space-y-2"
+              style={{ borderColor: `${menuCustomization.primaryColor}25` }}
+            >
+              <p className="text-sm font-semibold">Itens e observações por produto</p>
+              <ul className="text-sm space-y-2 max-h-44 overflow-y-auto pr-1">
+                {cart.map((item) => (
+                  <li
+                    key={item.lineId}
+                    className="border-b border-muted/50 pb-2 last:border-0 last:pb-0"
+                  >
+                    <span className="font-medium">
+                      {item.quantity}× {item.name}
+                    </span>
+                    {item.notes && (
+                      <p
+                        className="text-xs text-muted-foreground mt-1 pl-2 border-l-2"
+                        style={{ borderColor: menuCustomization.primaryColor }}
+                      >
+                        {item.notes}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div 

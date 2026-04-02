@@ -1036,11 +1036,27 @@ const Orders = () => {
       }
     }
     
+    // Pedidos atualizados via .select() sem join costumam vir sem order_items — buscar para o cupom
+    let orderItemsForPrint = order.order_items;
+    if ((!orderItemsForPrint || orderItemsForPrint.length === 0) && order.id) {
+      const { data: fetchedItems } = await supabase
+        .from("order_items")
+        .select(`
+          *,
+          products (name, categories(name))
+        `)
+        .eq("order_id", order.id);
+
+      if (fetchedItems && fetchedItems.length > 0) {
+        orderItemsForPrint = fetchedItems as Order["order_items"];
+      }
+    }
+
     // PRIORIDADE 2: Itens do banco de dados (order_items)
-    if (items.length === 0 && order.order_items && order.order_items.length > 0) {
+    if (items.length === 0 && orderItemsForPrint && orderItemsForPrint.length > 0) {
       const trioInfo = extractTrioInfo(order.notes || '');
       
-      items = (order.order_items || []).flatMap(item => {
+      items = (orderItemsForPrint || []).flatMap(item => {
         const itemName = item.products?.name || 'Item';
         const itemNameLower = itemName.toLowerCase();
         
@@ -1160,9 +1176,9 @@ const Orders = () => {
       items = [{ name: 'Pedido Online', quantity: 1, unitPrice: order.total_amount, totalPrice: order.total_amount, notes: order.notes }];
     }
 
-    if (items.length > 0 && items.some(item => !item.notes) && order.order_items) {
+    if (items.length > 0 && items.some(item => !item.notes) && orderItemsForPrint) {
       const itemsMap = new Map(items.map(item => [item.name.toLowerCase(), item]));
-      order.order_items.forEach(orderItem => {
+      orderItemsForPrint.forEach(orderItem => {
         const itemName = orderItem.products?.name?.toLowerCase() || '';
         const existingItem = itemsMap.get(itemName);
         if (existingItem && !existingItem.notes && orderItem.notes) {
@@ -1566,7 +1582,10 @@ const Orders = () => {
 
       if (error) throw error;
 
-      const orderToPrint = updatedOrder || order;
+      const orderToPrint = {
+        ...(updatedOrder || order),
+        order_items: order.order_items,
+      } as Order;
       
       if (establishment) {
         try {

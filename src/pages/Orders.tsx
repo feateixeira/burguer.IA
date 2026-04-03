@@ -92,6 +92,41 @@ const formatCurrencyBR = (value: number): string => {
   }).format(value);
 };
 
+/**
+ * Endereço para o cupom (receiptPrinter usa customerAddress no bloco ENDEREÇO:).
+ * Suporta texto após "Endereço:" em várias linhas até a próxima seção do pedido site/Na Brasa.
+ */
+function extractDeliveryAddressForReceipt(
+  orderType: string | undefined,
+  notes: string | null | undefined
+): string | undefined {
+  if (!notes?.trim() || orderType !== "delivery") return undefined;
+  const text = notes.replace(/\*/g, "");
+  const multiline = text.match(
+    /Endereç[oa]\s*:\s*([\s\S]*?)(?=\n\s*\n|\n(?:Instruções\s+do\s+Pedido|Forma\s+de\s+entrega|Forma\s+de\s+consumo|Trio\s*:|Cliente\s*:|Subtotal|Total|Taxa)|$)/i
+  );
+  if (multiline?.[1]) {
+    const addr = multiline[1]
+      .trim()
+      .split(/\n+/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(", ");
+    if (addr.length >= 4) return addr;
+  }
+  const oneLine = text.match(/Endereç[oa]\s*:\s*([^\n]+)/i);
+  if (oneLine?.[1]) {
+    const addr = oneLine[1].trim();
+    if (addr.length >= 4) return addr;
+  }
+  const en = text.match(/Delivery\s+address\s*:\s*([^\n]+)/i);
+  if (en?.[1]) {
+    const addr = en[1].trim();
+    if (addr.length >= 4) return addr;
+  }
+  return undefined;
+}
+
 interface Order {
   id: string;
   order_number: string;
@@ -1258,6 +1293,11 @@ const Orders = () => {
     let customerDisplay = order.customer_name || '';
     let generalInstructions: string | undefined = undefined;
 
+    const customerAddressForReceipt = extractDeliveryAddressForReceipt(
+      order.order_type,
+      order.notes
+    );
+
     // Verifica o tipo do pedido para adicionar ao lado do nome
     if (order.order_type === 'takeout') {
       customerDisplay = `${customerDisplay} - Embalar pra levar`;
@@ -1265,14 +1305,8 @@ const Orders = () => {
       customerDisplay = `${customerDisplay} - Comer aqui`;
     }
 
-    // Se for delivery, tenta extrair o endereço das notas
-    if (order.order_type === 'delivery' && order.notes) {
-      const text = order.notes.replace(/\*/g, '');
-      const mAddr = text.match(/Endereç[oa]:\s*([^*\n]+)/i);
-      if (mAddr && mAddr[1]) {
-        const addr = mAddr[1].trim();
-        if (addr) customerDisplay = `${customerDisplay} - ${addr}`.trim();
-      }
+    if (order.order_type === 'delivery' && customerAddressForReceipt) {
+      customerDisplay = `${customerDisplay} - ${customerAddressForReceipt}`.trim();
     }
     // ------------------ FIM DA ALTERAÇÃO ------------------
     
@@ -1410,6 +1444,7 @@ const Orders = () => {
       orderNumber: order.order_number,
       customerName: customerDisplay,
       customerPhone: order.customer_phone,
+      customerAddress: customerAddressForReceipt,
       items,
       subtotal: order.subtotal,
       discountAmount: order.discount_amount || 0,

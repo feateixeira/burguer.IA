@@ -803,7 +803,18 @@ serve(async (req) => {
     
     const rawPaymentMethod = order.payment?.method || order.payment_method || null;
     const normalizedPaymentMethod = normalizePaymentMethod(rawPaymentMethod);
-    
+
+    // Cupom no PDV: garantir "Endereço:" em notes quando a entrega veio só em campos JSON (comum no site Na Brasa)
+    if (finalOrderType === 'delivery' && hasValidAddress && allTextFields.length > 0) {
+      const enc = orderNotes || '';
+      if (!/\bendereç[oa]\s*:/i.test(enc)) {
+        const bestAddr = [...allTextFields].sort((a, b) => b.length - a.length)[0];
+        if (bestAddr && bestAddr.length >= 8) {
+          orderNotes = enc ? `Endereço: ${bestAddr}\n\n${enc}` : `Endereço: ${bestAddr}`;
+        }
+      }
+    }
+
     // Create order
     const orderData: any = {
       establishment_id: establishment.id,

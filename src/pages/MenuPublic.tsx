@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, Settings, Circle, UtensilsCrossed, Sparkles, Package, Info } from "lucide-react";
+import { ShoppingCart, Plus, Minus, X, MapPin, Phone, Clock, CheckCircle2, CreditCard, Wallet, Settings, Circle, UtensilsCrossed, Sparkles, Package, Info, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -235,6 +235,9 @@ const MenuPublic = () => {
   const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
   /** Taxa base de entrega (config + motoboys via RPC) — usada só no checkout / total final */
   const [menuDeliveryBaseFee, setMenuDeliveryBaseFee] = useState(0);
+  /** Evita duplo clique / envio repetido enquanto o checkout está em andamento */
+  const checkoutSubmitLockRef = useRef(false);
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
 
   // Hook para verificar horário de funcionamento
   const { isOpen, nextOpenAt, nextCloseAt, loading: hoursLoading } = useBusinessHours(establishment?.id || null);
@@ -972,6 +975,12 @@ const MenuPublic = () => {
     const isQueued = !isOpen && establishment?.allow_orders_when_closed;
     const releaseAt = isQueued && nextOpenAt ? nextOpenAt.toISOString() : null;
 
+    if (checkoutSubmitLockRef.current) {
+      return;
+    }
+    checkoutSubmitLockRef.current = true;
+    setCheckoutSubmitting(true);
+
     try {
       // Número provisório: o # sequencial do caixa é atribuído na loja ao aceitar o pedido (com caixa aberto).
       const finalOrderNumber = `ONLINE-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1091,6 +1100,9 @@ const MenuPublic = () => {
       }
       
       toast.error(mapPublicMenuCheckoutError(errorMessage));
+    } finally {
+      checkoutSubmitLockRef.current = false;
+      setCheckoutSubmitting(false);
     }
   };
 
@@ -1927,6 +1939,7 @@ const MenuPublic = () => {
                 className="w-full min-h-[52px] touch-manipulation font-semibold shadow-lg hover:shadow-xl transition-shadow text-base"
                 size="lg"
                 disabled={
+                  checkoutSubmitting ||
                   !customerName.trim() ||
                   !customerPhone.trim() ||
                   !paymentMethod ||
@@ -1936,6 +1949,7 @@ const MenuPublic = () => {
                   backgroundColor: menuCustomization.primaryColor,
                   color: "#ffffff",
                   opacity:
+                    checkoutSubmitting ||
                     !customerName.trim() ||
                     !customerPhone.trim() ||
                     !paymentMethod ||
@@ -1949,10 +1963,19 @@ const MenuPublic = () => {
                     : undefined
                 }
               >
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                {!isOpen && establishment?.allow_orders_when_closed
-                  ? "Confirmar Pré-Pedido"
-                  : "Confirmar Pedido"}
+                {checkoutSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Enviando pedido…
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    {!isOpen && establishment?.allow_orders_when_closed
+                      ? "Confirmar Pré-Pedido"
+                      : "Confirmar Pedido"}
+                  </>
+                )}
               </Button>
               {!isOpen && !establishment?.allow_orders_when_closed && (
                 <p className="text-sm text-muted-foreground text-center mt-3">

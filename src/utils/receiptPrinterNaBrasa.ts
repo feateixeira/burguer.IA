@@ -144,17 +144,23 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
   const infoLines: string[] = [];
   if (!notes?.trim()) return { addonLines, infoLines };
 
-  const raw = joinBrokenPriceFragments(notes.replace(/\|/g, "\n"));
-  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-
   const pushUniqueAddon = (text: string) => {
-    const t = text.replace(/^[-+]\s*/, "").trim();
+    let t = text.trim();
     if (!t) return;
+    t = t.replace(/^[-+]\s*/, "").trim();
+    if (!/^\(\d+\)/.test(t) && !/^\d+x/i.test(t)) {
+      t = `(1)${t}`;
+    } else {
+      t = t.replace(/^(\d+)x\s*/i, "($1)");
+    }
     const key = normalizeAddonDedupKey(t);
     if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
       addonLines.push(t);
     }
   };
+
+  const raw = joinBrokenPriceFragments(notes.replace(/\|/g, "\n"));
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
   let collectingAddons = false;
 
@@ -165,32 +171,28 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
     if (/^Adicionais:\s*/i.test(line)) {
       collectingAddons = true;
       const rest = line.replace(/^Adicionais:\s*/i, "").trim();
-      if (rest) pushUniqueAddon(rest);
+      if (rest) {
+        const parts = rest.split(/,\s*(?![^()]*\))/);
+        parts.forEach(p => pushUniqueAddon(p));
+      }
       continue;
     }
 
     if (collectingAddons) {
-      if (/^[-+]\s/.test(line) || /^[-+]\d+\s*x/i.test(line)) {
-        pushUniqueAddon(line);
-        continue;
-      }
       if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
         collectingAddons = false;
-      } else if (addonLines.length > 0) {
-        addonLines[addonLines.length - 1] = `${addonLines[addonLines.length - 1]} ${line}`
-          .replace(/\s+/g, " ")
-          .trim();
-        continue;
+        infoLines.push(line);
       } else {
-        collectingAddons = false;
+        const parts = line.split(/,\s*(?![^()]*\))/);
+        parts.forEach(p => pushUniqueAddon(p));
       }
+      continue;
     }
 
     if (/^[-+]\s*\d+\s*x/i.test(line)) {
       pushUniqueAddon(line);
       continue;
     }
-    // Ex.: "+ Blend carne 130g (R$ 8,00)" sem padrão Nx
     if (/^[-+]\s/.test(line)) {
       pushUniqueAddon(line);
       continue;
@@ -228,16 +230,16 @@ function renderItemNotesBlock(addonLines: string[], infoLines: string[]): string
   const addonsHtml =
     addonLines.length > 0
       ? `<div class="item-note item-note--addons-label">Adicionais:</div>${addonLines
-          .map(
-            (line) =>
-              `<div class="item-note item-note--addon">+ ${nowrapPriceSegments(line)}</div>`
-          )
+          .map((line, idx) => {
+            const trailing = idx < addonLines.length - 1 ? ',' : '';
+            return `<div class="item-note item-note--addon">${nowrapPriceSegments(line)}${trailing}</div>`;
+          })
           .join("")}`
       : "";
   return `${infoHtml}${addonsHtml}`;
 }
 
-export const printReceipt = async (r: ReceiptData) => {
+export const printReceiptNaBrasa = async (r: ReceiptData) => {
   const printersConfig = localStorage.getItem("printer_configs");
   let fontSize = 18;
   let paperWidth = 80; // mm
@@ -277,8 +279,7 @@ export const printReceipt = async (r: ReceiptData) => {
     return `
       <div class="item-block">
         <div class="item-row-main">
-          <span class="item-qty">[ ${qtyLabel} ]</span>
-          <span class="item-name">${itemName}</span>
+          <span class="item-name-group"><span class="item-qty">[ ${qtyLabel} ]</span><span class="item-name">${itemName}</span></span>
           <span class="item-price-num">${formatItemValue(it.totalPrice)}</span>
         </div>
         ${renderItemNotesBlock(addonLines, infoLines)}
@@ -383,19 +384,22 @@ export const printReceipt = async (r: ReceiptData) => {
         .cust-label { font-weight: 800; white-space: nowrap; }
         .cust-val { font-weight: 700; }
         .table-head {
-          display: grid;
-          grid-template-columns: 6.5ch 1fr auto;
-          gap: 8px;
+          display: flex;
+          justify-content: space-between;
           font-weight: 800;
           margin: 2px 0;
         }
-        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
         .item-row-main {
-          display: grid;
-          grid-template-columns: 6.5ch 1fr auto;
-          gap: 8px;
-          align-items: start;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          width: 100%;
+        }
+        .item-name-group {
+          flex: 1;
+          word-break: break-word;
+          padding-right: 4px;
         }
         .item-qty { font-weight: 800; white-space: nowrap; }
         .item-name { font-weight: 800; word-break: break-word; }
@@ -452,8 +456,7 @@ export const printReceipt = async (r: ReceiptData) => {
         ` : ""}
         <div class="line-solid"></div>
         <div class="table-head">
-          <span>QTD</span>
-          <span>ITEM</span>
+          <span>QTD / ITEM</span>
           <span>VALOR</span>
         </div>
         <div class="line-dash"></div>
@@ -591,7 +594,7 @@ export const printReceipt = async (r: ReceiptData) => {
   }
 };
 
-export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
+export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
   const printersConfig = localStorage.getItem("printer_configs");
   let fontSize = 18;
   let paperWidth = 80; // mm
@@ -656,8 +659,7 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
     return `
       <div class="item-block">
         <div class="item-row-main">
-          <span class="item-qty">[ ${qtyLabel} ]</span>
-          <span class="item-name">${(item.name || "").toUpperCase()}</span>
+          <span class="item-name-group"><span class="item-qty">[ ${qtyLabel} ]</span><span class="item-name">${(item.name || "").toUpperCase()}</span></span>
           <span class="item-price-num">${formatItemValue(item.totalPrice)}</span>
         </div>
         ${renderItemNotesBlock(addonLines, infoLines)}
@@ -743,19 +745,22 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         .cust-label { font-weight: 800; white-space: nowrap; }
         .cust-val { font-weight: 700; }
         .table-head {
-          display: grid;
-          grid-template-columns: 6.5ch 1fr auto;
-          gap: 8px;
+          display: flex;
+          justify-content: space-between;
           font-weight: 800;
           margin: 2px 0;
         }
-        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
         .item-row-main {
-          display: grid;
-          grid-template-columns: 6.5ch 1fr auto;
-          gap: 8px;
-          align-items: start;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          width: 100%;
+        }
+        .item-name-group {
+          flex: 1;
+          word-break: break-word;
+          padding-right: 4px;
         }
         .item-qty { font-weight: 800; white-space: nowrap; }
         .item-name { font-weight: 800; word-break: break-word; }
@@ -812,8 +817,7 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
 
         <div class="line-solid"></div>
         <div class="table-head">
-          <span>QTD</span>
-          <span>ITEM</span>
+          <span>QTD / ITEM</span>
           <span>VALOR</span>
         </div>
         <div class="line-dash"></div>

@@ -147,7 +147,7 @@ function extractDeliveryAddressForReceipt(
   orderType: string | undefined,
   notes: string | null | undefined
 ): string | undefined {
-  if (!notes?.trim() || orderType !== "delivery") return undefined;
+  if (!notes?.trim()) return undefined;
   const text = notes.replace(/\*/g, "");
   const multiline = text.match(
     /Endereç[oa]\s*:\s*([\s\S]*?)(?=\n\s*\n|\n(?:Instruções\s+do\s+Pedido|Forma\s+de\s+entrega|Forma\s+de\s+consumo|Forma\s+de\s+pagamento|Trio\s*:|Cliente\s*:|Subtotal|Total|Taxa)|$)/i
@@ -1504,8 +1504,35 @@ const Orders = () => {
       createdAt: order.created_at
     };
 
-    await printReceipt(receiptData);
+    const printReceiptHandler = isFromNaBrasaSite(order)
+      ? (await import("@/utils/receiptPrinterNaBrasa")).printReceiptNaBrasa
+      : printReceipt;
+
+    await printReceiptHandler(receiptData);
     toast.success("Pedido enviado para impressão");
+
+    if (isFromNaBrasaSite(order)) {
+      const accompaniments = items.filter(item => {
+        const lower = item.name.toLowerCase();
+        return lower.includes('batata') || 
+               lower.includes('frango') || 
+               lower.includes('acompanhamento') || 
+               lower.includes('cebolas') || 
+               lower.includes('mini chickens') || 
+               lower.includes('fritas');
+      });
+
+      if (accompaniments.length > 0) {
+        const accReceiptData = {
+          ...receiptData,
+          items: accompaniments,
+          generalInstructions: ">>> COZINHA 2: ACOMPANHAMENTOS <<<",
+        };
+        setTimeout(async () => {
+          await printReceiptHandler(accReceiptData);
+        }, 1500);
+      }
+    }
   };
 
   const formatCPF = (value: string): string => {

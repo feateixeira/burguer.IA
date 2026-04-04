@@ -1878,7 +1878,8 @@ const PDV = () => {
         generalInstructions: generalInstructions.trim() || undefined,
         pixQrCode: pixQrCode,
         pixKey: pixKey,
-        pixKeyType: pixKeyType
+        pixKeyType: pixKeyType,
+        createdAt: new Date().toISOString()
       };
 
       // Registrar uso da promoção de frete grátis se aplicável
@@ -2481,6 +2482,7 @@ const PDV = () => {
         establishmentPhone: establishmentInfo.phone,
         paymentMethod: parsed.paymentMethod,
         orderType: parsed.orderType === "delivery" ? "ENTREGA" : "BALCÃO",
+        createdAt: order?.created_at || new Date().toISOString(),
       };
 
       printReceipt(receiptData);

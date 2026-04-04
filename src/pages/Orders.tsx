@@ -92,8 +92,55 @@ const formatCurrencyBR = (value: number): string => {
   }).format(value);
 };
 
+/** Remove forma de pagamento colada no fim do endereço (texto vindo do site / notas). */
+function cleanAddressForReceipt(addr: string): string {
+  return addr
+    .replace(/,?\s*Forma\s+de\s+pagamento\s*:.*$/i, "")
+    .replace(/\s*-\s*Forma\s+de\s+pagamento\s*:.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeReceiptCompare(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]/g, "");
+}
+
 /**
- * Endereço para o cupom (receiptPrinter usa customerAddress no bloco ENDEREÇO:).
+ * Nome limpo para o cupom: não repetir endereço nem "Forma de pagamento" na linha do cliente.
+ */
+function receiptCustomerNameOnly(rawName: string | undefined, extractedAddress?: string): string {
+  if (!rawName?.trim()) return "";
+  let s = rawName.replace(/\s+/g, " ").trim();
+  s = cleanAddressForReceipt(s);
+
+  if (extractedAddress) {
+    const addrClean = cleanAddressForReceipt(extractedAddress);
+    if (addrClean.length >= 4) {
+      const a = normalizeReceiptCompare(addrClean);
+      const dashIdx = s.search(/\s+-\s+/);
+      if (dashIdx > 0) {
+        const head = s.slice(0, dashIdx).trim();
+        let tail = s.slice(dashIdx).replace(/^\s+-\s+/, "").trim();
+        tail = cleanAddressForReceipt(tail);
+        const t = normalizeReceiptCompare(tail);
+        if (t.length >= 8 && a.length >= 8) {
+          const prefix = 12;
+          if (
+            a.includes(t.slice(0, Math.min(prefix, t.length))) ||
+            t.includes(a.slice(0, Math.min(prefix, a.length)))
+          ) {
+            s = head;
+          }
+        }
+      }
+    }
+  }
+
+  return cleanAddressForReceipt(s);
+}
+
+/**
+ * Endereço para o cupom (receiptPrinter usa customerAddress no bloco Endereço:).
  * Suporta texto após "Endereço:" em várias linhas até a próxima seção do pedido site/Na Brasa.
  */
 function extractDeliveryAddressForReceipt(
@@ -103,25 +150,27 @@ function extractDeliveryAddressForReceipt(
   if (!notes?.trim() || orderType !== "delivery") return undefined;
   const text = notes.replace(/\*/g, "");
   const multiline = text.match(
-    /Endereç[oa]\s*:\s*([\s\S]*?)(?=\n\s*\n|\n(?:Instruções\s+do\s+Pedido|Forma\s+de\s+entrega|Forma\s+de\s+consumo|Trio\s*:|Cliente\s*:|Subtotal|Total|Taxa)|$)/i
+    /Endereç[oa]\s*:\s*([\s\S]*?)(?=\n\s*\n|\n(?:Instruções\s+do\s+Pedido|Forma\s+de\s+entrega|Forma\s+de\s+consumo|Forma\s+de\s+pagamento|Trio\s*:|Cliente\s*:|Subtotal|Total|Taxa)|$)/i
   );
   if (multiline?.[1]) {
-    const addr = multiline[1]
-      .trim()
-      .split(/\n+/)
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .join(", ");
+    const addr = cleanAddressForReceipt(
+      multiline[1]
+        .trim()
+        .split(/\n+/)
+        .map((l) => cleanAddressForReceipt(l))
+        .filter(Boolean)
+        .join(", ")
+    );
     if (addr.length >= 4) return addr;
   }
   const oneLine = text.match(/Endereç[oa]\s*:\s*([^\n]+)/i);
   if (oneLine?.[1]) {
-    const addr = oneLine[1].trim();
+    const addr = cleanAddressForReceipt(oneLine[1].trim());
     if (addr.length >= 4) return addr;
   }
   const en = text.match(/Delivery\s+address\s*:\s*([^\n]+)/i);
   if (en?.[1]) {
-    const addr = en[1].trim();
+    const addr = cleanAddressForReceipt(en[1].trim());
     if (addr.length >= 4) return addr;
   }
   return undefined;
@@ -1288,27 +1337,20 @@ const Orders = () => {
       return;
     }
 
-    // ------------------ INÍCIO DA ALTERAÇÃO ------------------
-    // Nome + endereço ou tipo de serviço ao lado do nome
-    let customerDisplay = order.customer_name || '';
-    let generalInstructions: string | undefined = undefined;
-
     const customerAddressForReceipt = extractDeliveryAddressForReceipt(
       order.order_type,
       order.notes
     );
 
-    // Verifica o tipo do pedido para adicionar ao lado do nome
-    if (order.order_type === 'takeout') {
-      customerDisplay = `${customerDisplay} - Embalar pra levar`;
-    } else if (order.order_type === 'dine_in') {
-      customerDisplay = `${customerDisplay} - Comer aqui`;
-    }
+    // Nome no cupom: só o nome (endereço vai em bloco separado; evita duplicar site Na Brasa + cardápio)
+    let customerDisplay = receiptCustomerNameOnly(order.customer_name, customerAddressForReceipt);
+    let generalInstructions: string | undefined = undefined;
 
-    if (order.order_type === 'delivery' && customerAddressForReceipt) {
-      customerDisplay = `${customerDisplay} - ${customerAddressForReceipt}`.trim();
+    if (order.order_type === 'takeout') {
+      customerDisplay = `${customerDisplay} - Embalar pra levar`.trim();
+    } else if (order.order_type === 'dine_in') {
+      customerDisplay = `${customerDisplay} - Comer aqui`.trim();
     }
-    // ------------------ FIM DA ALTERAÇÃO ------------------
     
     // Tratamento das instruções gerais (Mantendo a limpeza de texto original)
     if (order.notes) {
@@ -1458,7 +1500,8 @@ const Orders = () => {
       paymentAmount1: order.payment_amount_1,
       paymentAmount2: order.payment_amount_2,
       orderType: receiptOrderType,
-      generalInstructions: generalInstructions
+      generalInstructions: generalInstructions,
+      createdAt: order.created_at
     };
 
     await printReceipt(receiptData);

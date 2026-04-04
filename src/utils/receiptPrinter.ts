@@ -49,17 +49,68 @@ export interface NonFiscalReceiptData {
 // Formatar método de pagamento (função compartilhada)
 const formatPaymentMethod = (method: string | undefined) => {
   if (!method) return "";
+  const key = method.toLowerCase().trim();
   const methodMap: Record<string, string> = {
-    "dinheiro": "Dinheiro",
-    "pix": "PIX",
-    "cartao_credito": "Crédito",
-    "cartao_debito": "Débito",
-    "online": "Online",
-    "whatsapp": "WhatsApp",
-    "balcao": "Balcão"
+    dinheiro: "Dinheiro",
+    pix: "PIX",
+    cartao_credito: "Cartão de Crédito",
+    cartao_debito: "Cartão de Débito",
+    online: "Online",
+    whatsapp: "WhatsApp",
+    balcao: "Balcão",
+    credito: "Cartão de Crédito",
+    debito: "Cartão de Débito",
   };
-  return methodMap[method.toLowerCase()] || method.toUpperCase();
+  if (methodMap[key]) return methodMap[key];
+  if (key.includes("débito") || key.includes("debito")) return "Cartão de Débito";
+  if (key.includes("crédito") || key.includes("credito")) return "Cartão de Crédito";
+  if (key === "crédito" || key === "credito") return "Cartão de Crédito";
+  if (key === "débito" || key === "debito") return "Cartão de Débito";
+  return method.replace(/\s+/g, " ").trim();
 };
+
+/** Ex.: 61993709608 → (61) 99370-9608 */
+function formatPhoneBRDisplay(phone: string | undefined): string | undefined {
+  if (!phone?.trim()) return undefined;
+  const d = phone.replace(/\D/g, "");
+  if (d.length === 11) {
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  }
+  if (d.length === 10) {
+    return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  }
+  return phone.trim();
+}
+
+function receiptOrderLabel(orderNumber: string): string {
+  const n = (orderNumber || "").trim();
+  if (!n) return "#—";
+  return n.startsWith("#") ? n : `#${n}`;
+}
+
+/** Quebra endereço em linhas curtas (vírgulas), legível para motoboy */
+function addressToReceiptLines(address: string, maxChunk = 34): string[] {
+  const cleaned = address.replace(/\s+/g, " ").trim();
+  if (!cleaned) return [];
+  const parts = cleaned.split(/\s*,\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) {
+    if (cleaned.length <= maxChunk) return [cleaned];
+    const out: string[] = [];
+    let cur = "";
+    for (const w of cleaned.split(/\s+/)) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (next.length > maxChunk && cur) {
+        out.push(cur);
+        cur = w;
+      } else {
+        cur = next;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  return parts;
+}
 
 /** Junta quebra de linha comum em preços: "(R$\n8.00)" → "(R$ 8.00)" */
 function joinBrokenPriceFragments(s: string): string {
@@ -205,29 +256,36 @@ export const printReceipt = async (r: ReceiptData) => {
   const printableWidth = Math.max(56, paperWidth - sideMargin * 2);
 
   const formatCurrencyBR = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
-
-  const formatAddressLines = (address?: string) => {
-    if (!address || !address.trim()) return [];
-    return address
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-  };
+  const formatItemValue = (value: number) => value.toFixed(2).replace(".", ",");
 
   const dateRef = r.createdAt ? new Date(r.createdAt) : new Date();
   const datePart = dateRef.toLocaleDateString("pt-BR");
   const timePart = dateRef.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const customerAddressLines = formatAddressLines(r.customerAddress);
+  const addrLines = r.customerAddress ? addressToReceiptLines(r.customerAddress) : [];
+  const orderTypeLower = (r.orderType || "").toLowerCase();
+  const customerPhoneDisp = formatPhoneBRDisplay(r.customerPhone) || (r.customerPhone?.trim() ? r.customerPhone.trim() : "");
+  const showClienteBlock =
+    !!(r.customerName?.trim() || addrLines.length > 0 || (orderTypeLower === "delivery" && customerPhoneDisp));
+
+  const telLoja = formatPhoneBRDisplay(r.establishmentPhone) || r.establishmentPhone;
 
   const itemsHtml = r.items.map((it, i) => {
     const { addonLines, infoLines } = normalizeItemNotes(it.notes);
     const itemName = (it.name || "").toUpperCase();
+    const qtyLabel = String(Math.min(999, Math.max(0, it.quantity))).padStart(2, "0");
 
     return `
       <div class="item-block">
-        <div class="item-title">[ ${it.quantity} ] ${itemName}</div>
-        ${renderItemNotesBlock(addonLines, infoLines)}
-        <div class="item-price">${formatCurrencyBR(it.totalPrice)}</div>
+        <div class="item-block-inner">
+          <div class="item-main-col">
+            <div class="item-row-main">
+              <span class="item-qty">${qtyLabel}</span>
+              <span class="item-name">${itemName}</span>
+            </div>
+            ${renderItemNotesBlock(addonLines, infoLines)}
+          </div>
+          <div class="item-price-num">${formatItemValue(it.totalPrice)}</div>
+        </div>
       </div>
       ${i < r.items.length - 1 ? `<div class="line-dash"></div>` : ""}
     `;
@@ -302,32 +360,69 @@ export const printReceipt = async (r: ReceiptData) => {
           word-break: break-word;
           font-weight: 700;
         }
-        .table-head {
+        .section-title {
+          text-align: center;
+          font-weight: 900;
+          margin: 4px 0 6px;
+          letter-spacing: 0.2px;
+        }
+        .data-line {
           display: grid;
           grid-template-columns: auto 1fr auto;
+          gap: 8px;
+          align-items: baseline;
+          margin: 2px 0;
+        }
+        .data-date { font-weight: 700; }
+        .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
+        .cust-row {
+          display: grid;
+          grid-template-columns: 5.8ch 1fr;
           gap: 6px;
+          align-items: start;
+          margin: 2px 0;
+          word-break: break-word;
+        }
+        .cust-row--addr2 .cust-label { visibility: hidden; }
+        .cust-label { font-weight: 800; white-space: nowrap; }
+        .cust-val { font-weight: 700; }
+        .table-head {
+          display: grid;
+          grid-template-columns: 2.2ch 1fr auto;
+          gap: 8px;
           font-weight: 800;
           margin: 2px 0;
         }
+        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
-        .item-title {
+        .item-block-inner {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 6px;
+          align-items: end;
+        }
+        .item-main-col { min-width: 0; }
+        .item-row-main {
+          display: grid;
+          grid-template-columns: 2.2ch 1fr;
+          gap: 8px;
+          align-items: start;
+        }
+        .item-qty { font-weight: 800; white-space: nowrap; }
+        .item-name { font-weight: 800; word-break: break-word; }
+        .item-price-num {
           font-weight: 800;
-          word-break: break-word;
+          white-space: nowrap;
+          text-align: right;
         }
         .item-note {
           margin-top: 1px;
-          padding-left: 6px;
+          padding-left: calc(2.2ch + 8px);
           word-break: break-word;
         }
         .item-note--addon { font-weight: 700; }
         .item-note--info { font-weight: 700; }
         .item-note--addons-label { font-weight: 800; margin-top: 2px; }
-        .item-price {
-          text-align: right;
-          font-weight: 800;
-          margin-top: 2px;
-          white-space: nowrap;
-        }
         .totals-row {
           display: grid;
           grid-template-columns: 1fr auto;
@@ -347,17 +442,25 @@ export const printReceipt = async (r: ReceiptData) => {
       <div id="ticket">
         <div class="center" style="font-weight:900;">${r.establishmentName.toUpperCase()}</div>
         ${r.establishmentAddress ? `<div class="center">${r.establishmentAddress}</div>` : ""}
-        ${r.establishmentPhone ? `<div class="center">Tel: ${r.establishmentPhone}</div>` : ""}
+        ${telLoja ? `<div class="center">Tel: ${telLoja}</div>` : ""}
         <div class="center" style="font-size: ${Math.max(10, Math.round(fontSize * 0.8))}px;">Documento não fiscal</div>
 
         <div class="line-solid"></div>
-        <div class="info-row"><span class="label">PEDIDO:</span><span class="value">${r.orderNumber}</span></div>
+        <div class="info-row"><span class="label">PEDIDO:</span><span class="value">${receiptOrderLabel(r.orderNumber)}</span></div>
         <div class="info-row"><span class="label">TIPO:</span><span class="value">${(r.orderType || "").toUpperCase()}</span></div>
-        <div class="info-row"><span class="label">DATA:</span><span class="value">${datePart} - ${timePart}</span></div>
+        <div class="data-line">
+          <span class="label">DATA:</span>
+          <span class="data-date">${datePart}</span>
+          <span class="data-time">${timePart}</span>
+        </div>
+        ${showClienteBlock ? `
         <div class="line-dash"></div>
-        ${r.customerName ? `<div class="full-line"><span class="label">CLIENTE:</span> ${r.customerName}</div>` : ""}
-        ${customerAddressLines.length > 0 ? `<div class="full-line"><span class="label">ENDEREÇO:</span> ${customerAddressLines[0]}</div>` : ""}
-        ${customerAddressLines.slice(1).map((line) => `<div class="full-line">${line}</div>`).join("")}
+        <div class="section-title">DADOS DO CLIENTE</div>
+        ${r.customerName?.trim() ? `<div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName.trim()}</span></div>` : ""}
+        ${addrLines.length ? `<div class="cust-row cust-row--addr"><span class="cust-label">Endereço:</span><span class="cust-val">${addrLines[0]}</span></div>` : ""}
+        ${addrLines.slice(1).map((line) => `<div class="cust-row cust-row--addr2"><span class="cust-label"></span><span class="cust-val">${line}</span></div>`).join("")}
+        ${orderTypeLower === "delivery" && customerPhoneDisp ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${customerPhoneDisp}</span></div>` : ""}
+        ` : ""}
         <div class="line-solid"></div>
         <div class="table-head">
           <span>QTD</span>
@@ -408,7 +511,9 @@ export const printReceipt = async (r: ReceiptData) => {
           : ""}
 
         <div class="grow"></div>
+        <div class="line-dash"></div>
         <div class="footer">Obrigado pela preferência!</div>
+        <div class="line-solid"></div>
       </div>
     </body>
   </html>`;
@@ -551,17 +656,28 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
   // formatPaymentMethod já está definida no escopo global acima
 
   const formatCurrencyBR = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
+  const formatItemValue = (value: number) => value.toFixed(2).replace(".", ",");
+  const telLojaNf = formatPhoneBRDisplay(r.establishmentPhone) || r.establishmentPhone;
+  const custTelNf = formatPhoneBRDisplay(r.customerPhone) || r.customerPhone;
 
   // Mesmo padrão visual do printReceipt (molho primeiro, depois Adicionais: + linhas)
   const itemsHtml = r.items.map((item, index) => {
     const { addonLines, infoLines } = normalizeItemNotes(item.notes);
+    const qtyLabel = String(Math.min(999, Math.max(0, item.quantity))).padStart(2, "0");
     return `
       <div class="item-block">
-        <div class="item-title">[ ${item.quantity} ] ${(item.name || "").toUpperCase()}</div>
-        ${renderItemNotesBlock(addonLines, infoLines)}
-        <div class="item-price">${formatCurrencyBR(item.totalPrice)}</div>
-        ${index < r.items.length - 1 ? '<div class="line-dash"></div>' : ""}
+        <div class="item-block-inner">
+          <div class="item-main-col">
+            <div class="item-row-main">
+              <span class="item-qty">${qtyLabel}</span>
+              <span class="item-name">${(item.name || "").toUpperCase()}</span>
+            </div>
+            ${renderItemNotesBlock(addonLines, infoLines)}
+          </div>
+          <div class="item-price-num">${formatItemValue(item.totalPrice)}</div>
+        </div>
       </div>
+      ${index < r.items.length - 1 ? `<div class="line-dash"></div>` : ""}
     `;
   }).join("");
 
@@ -616,20 +732,64 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         .label { font-weight: 800; white-space: nowrap; }
         .value { text-align: right; white-space: nowrap; font-weight: 700; }
         .full-line { margin: 2px 0; word-break: break-word; font-weight: 700; }
-        .table-head {
+        .section-title {
+          text-align: center;
+          font-weight: 900;
+          margin: 4px 0 6px;
+          letter-spacing: 0.2px;
+        }
+        .data-line {
           display: grid;
           grid-template-columns: auto 1fr auto;
+          gap: 8px;
+          align-items: baseline;
+          margin: 2px 0;
+        }
+        .data-date { font-weight: 700; }
+        .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
+        .cust-row {
+          display: grid;
+          grid-template-columns: 5.8ch 1fr;
           gap: 6px;
+          align-items: start;
+          margin: 2px 0;
+          word-break: break-word;
+        }
+        .cust-label { font-weight: 800; white-space: nowrap; }
+        .cust-val { font-weight: 700; }
+        .table-head {
+          display: grid;
+          grid-template-columns: 2.2ch 1fr auto;
+          gap: 8px;
           font-weight: 800;
           margin: 2px 0;
         }
+        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
-        .item-title { font-weight: 800; word-break: break-word; }
-        .item-note { margin-top: 1px; padding-left: 6px; word-break: break-word; }
+        .item-block-inner {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 6px;
+          align-items: end;
+        }
+        .item-main-col { min-width: 0; }
+        .item-row-main {
+          display: grid;
+          grid-template-columns: 2.2ch 1fr;
+          gap: 8px;
+          align-items: start;
+        }
+        .item-qty { font-weight: 800; white-space: nowrap; }
+        .item-name { font-weight: 800; word-break: break-word; }
+        .item-price-num {
+          font-weight: 800;
+          white-space: nowrap;
+          text-align: right;
+        }
+        .item-note { margin-top: 1px; padding-left: calc(2.2ch + 8px); word-break: break-word; }
         .item-note--addon { font-weight: 700; }
         .item-note--info { font-weight: 700; }
         .item-note--addons-label { font-weight: 800; margin-top: 2px; }
-        .item-price { text-align: right; font-weight: 800; margin-top: 2px; white-space: nowrap; }
         .totals-row {
           display: grid;
           grid-template-columns: 1fr auto;
@@ -656,15 +816,21 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
       <div id="receipt">
         <div style="text-align:center;font-weight:900;">${r.establishmentName.toUpperCase()}</div>
         ${r.establishmentAddress ? `<div style="text-align:center;">${r.establishmentAddress}</div>` : ""}
-        ${r.establishmentPhone ? `<div style="text-align:center;">Tel: ${r.establishmentPhone}</div>` : ""}
+        ${telLojaNf ? `<div style="text-align:center;">Tel: ${telLojaNf}</div>` : ""}
         <div style="text-align:center;font-size:${Math.max(10, Math.round(fontSize * 0.8))}px;">Documento não fiscal</div>
 
         <div class="line-solid"></div>
-        <div class="info-row"><span class="label">PEDIDO:</span><span class="value">${r.orderNumber}</span></div>
-        <div class="info-row"><span class="label">DATA:</span><span class="value">${formattedDate} - ${formattedTime}</span></div>
-        <div class="full-line"><span class="label">CLIENTE:</span> ${r.customerName}</div>
-        ${r.customerCpf ? `<div class="full-line"><span class="label">CPF:</span> ${formatCPF(r.customerCpf)}</div>` : ""}
-        ${r.customerPhone ? `<div class="full-line"><span class="label">TEL:</span> ${r.customerPhone}</div>` : ""}
+        <div class="info-row"><span class="label">PEDIDO:</span><span class="value">${receiptOrderLabel(r.orderNumber)}</span></div>
+        <div class="data-line">
+          <span class="label">DATA:</span>
+          <span class="data-date">${formattedDate}</span>
+          <span class="data-time">${formattedTime}</span>
+        </div>
+        <div class="line-dash"></div>
+        <div class="section-title">DADOS DO CLIENTE</div>
+        <div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName}</span></div>
+        ${r.customerCpf ? `<div class="cust-row"><span class="cust-label">CPF:</span><span class="cust-val">${formatCPF(r.customerCpf)}</span></div>` : ""}
+        ${custTelNf ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${custTelNf}</span></div>` : ""}
 
         <div class="line-solid"></div>
         <div class="table-head">
@@ -685,10 +851,11 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
 
         <div class="grow"></div>
 
-        <!-- Rodapé -->
+        <div class="line-dash"></div>
         <div class="footer">
           Obrigado pela preferência!
         </div>
+        <div class="line-solid"></div>
       </div>
     </body>
   </html>`;

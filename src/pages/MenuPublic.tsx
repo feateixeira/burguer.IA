@@ -150,9 +150,9 @@ function buildOrderItemRowsForPublicMenu(
   return rows;
 }
 
-/** Aviso único permitido no fluxo quando o cliente envia pedido fora do horário (pré-pedido). */
+/** Aviso quando o cliente envia pedido fora do horário (sempre permitido no cardápio online). */
 const OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE =
-  "O estabelecimento vai receber seu pedido, mas não está em horário de funcionamento no momento. A preparação e a entrega provavelmente só ocorrerão após a abertura.";
+  "O estabelecimento está fechado no momento. Seu pedido será recebido e responderemos assim que possível.";
 
 function mapPublicMenuCheckoutError(raw: string): string {
   const lower = raw.toLowerCase();
@@ -965,14 +965,8 @@ const MenuPublic = () => {
       return;
     }
 
-    // Verificar se está aberto ou se permite pré-pedidos
-    if (!isOpen && !establishment?.allow_orders_when_closed) {
-      toast.error("Estamos fechados agora. Tente novamente quando estivermos abertos.");
-      return;
-    }
-
-    // Se está fechado mas permite pré-pedidos, será marcado como queued
-    const isQueued = !isOpen && establishment?.allow_orders_when_closed;
+    // Fora do horário: pedido continua permitido; fila até abrir (queued_until_next_open)
+    const isQueued = !isOpen;
     const releaseAt = isQueued && nextOpenAt ? nextOpenAt.toISOString() : null;
 
     if (checkoutSubmitLockRef.current) {
@@ -1080,9 +1074,9 @@ const MenuPublic = () => {
       setOrderNotes("");
 
       if (isQueued) {
-        toast.success("Pré-pedido enviado com sucesso!", {
+        toast.success("Pedido enviado!", {
           description: OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE,
-          duration: 10000,
+          duration: 12000,
         });
       } else {
         toast.success("Pedido realizado com sucesso!");
@@ -1292,11 +1286,9 @@ const MenuPublic = () => {
                       Próxima abertura: {formatDateTime(nextOpenAt, establishment.timezone || "America/Sao_Paulo")}
                     </p>
                   )}
-                  {establishment.allow_orders_when_closed && (
-                    <p className="text-sm text-red-800 dark:text-red-200 mt-1 leading-snug">
-                      {OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}
-                    </p>
-                  )}
+                  <p className="text-sm text-red-800 dark:text-red-200 mt-1 leading-snug">
+                    {OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}
+                  </p>
                 </>
               )}
             </div>
@@ -1487,25 +1479,25 @@ const MenuPublic = () => {
         >
           {/* Header — sem overflow:hidden para não cortar a descrição */}
           <DialogHeader
-            className="shrink-0 px-4 sm:px-6 pt-5 sm:pt-6 pb-3 text-left space-y-2 pr-12"
+            className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-2 text-left space-y-1 pr-12"
             style={{
               background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
             }}
           >
             <div className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
-              <DialogTitle className="text-xl sm:text-2xl font-bold leading-snug tracking-tight">
+              <ShoppingCart className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-lg sm:text-xl font-bold leading-tight tracking-tight">
                 Seu Carrinho
               </DialogTitle>
             </div>
-            <DialogDescription className="text-sm sm:text-base text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
+            <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
               {cart.length === 0
                 ? "Seu carrinho está esperando por delícias! 🛒"
-                : `${cartItemsCount} ${cartItemsCount === 1 ? "item delicioso" : "itens deliciosos"} no seu carrinho`}
+                : `${cartItemsCount} ${cartItemsCount === 1 ? "item" : "itens"} no carrinho`}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 py-3">
+          <div className="flex min-h-0 flex-1 flex-col px-3 sm:px-5 py-2">
             {cart.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🛒</div>
@@ -1525,7 +1517,7 @@ const MenuPublic = () => {
                 </Button>
               </div>
             ) : (
-              <div className="space-y-3 overflow-y-auto overflow-x-hidden min-h-0 flex-1 overscroll-y-contain touch-pan-y pr-1 sm:pr-2">
+              <div className="space-y-2 overflow-y-auto overflow-x-hidden min-h-0 flex-1 overscroll-y-contain touch-pan-y pr-0.5 sm:pr-1">
                 {cart.map((item) => {
                   const itemAddonsPrice = item.addons?.reduce((sum, addon) => sum + (addon.price * addon.quantity), 0) || 0;
                   const itemTotalPrice = (item.price + itemAddonsPrice) * item.quantity;
@@ -1533,29 +1525,29 @@ const MenuPublic = () => {
                   return (
                     <div 
                       key={item.lineId} 
-                      className="p-4 border-2 rounded-xl transition-all hover:shadow-md"
+                      className="p-2 sm:p-2.5 border rounded-lg transition-shadow"
                       style={{ 
-                        borderColor: `${menuCustomization.primaryColor}30`,
-                        backgroundColor: `${menuCustomization.primaryColor}05`
+                        borderColor: `${menuCustomization.primaryColor}28`,
+                        backgroundColor: `${menuCustomization.primaryColor}06`
                       }}
                     >
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-start gap-2 sm:gap-2.5">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <div>
-                              <p className="font-semibold text-base">{item.name}</p>
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-sm leading-tight line-clamp-2">{item.name}</p>
                               {item.addons && item.addons.length > 0 && (
-                                <div className="mt-2 space-y-1">
+                                <div className="mt-1 space-y-0.5">
                                   {item.addons.map((addon) => (
                                     <p 
                                       key={addon.id} 
-                                      className="text-xs pl-2 border-l-2"
+                                      className="text-[11px] sm:text-xs pl-1.5 border-l-2 leading-snug"
                                       style={{ 
                                         borderColor: `${menuCustomization.primaryColor}40`,
                                         color: menuCustomization.primaryColor
                                       }}
                                     >
-                                      + {addon.quantity}x {addon.name}
+                                      +{addon.quantity}× {addon.name}
                                     </p>
                                   ))}
                                 </div>
@@ -1563,43 +1555,43 @@ const MenuPublic = () => {
                             </div>
                             <div className="text-right flex-shrink-0">
                               <p 
-                                className="text-lg font-bold"
+                                className="text-sm sm:text-base font-bold tabular-nums leading-tight"
                                 style={{ color: menuCustomization.primaryColor }}
                               >
                                 R$ {itemTotalPrice.toFixed(2)}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                R$ {(item.price + itemAddonsPrice).toFixed(2)} cada
+                              <p className="text-[10px] sm:text-xs text-muted-foreground tabular-nums">
+                                R$ {(item.price + itemAddonsPrice).toFixed(2)} un.
                               </p>
                             </div>
                           </div>
 
-                          <div className="mt-3 space-y-1.5">
-                            <Label htmlFor={`item-notes-${item.lineId}`} className="text-xs font-medium text-muted-foreground">
-                              Observações deste item (opcional)
+                          <div className="mt-1.5 space-y-1">
+                            <Label htmlFor={`item-notes-${item.lineId}`} className="text-[11px] font-medium text-muted-foreground">
+                              Obs. do item (opcional)
                             </Label>
                             <Textarea
                               id={`item-notes-${item.lineId}`}
                               value={item.notes ?? ""}
                               onChange={(e) => updateItemNotes(item.lineId, e.target.value)}
-                              placeholder="Ex.: sem alface, molho à parte, ponto bem passado…"
+                              placeholder="Ex.: sem cebola, ponto da carne…"
                               rows={2}
-                              className="text-sm resize-none min-h-[60px]"
+                              className="text-xs leading-snug min-h-[2.75rem] max-h-24 py-1.5 px-2 resize-y"
                             />
                           </div>
                           
-                          <div className="flex items-center gap-2 mt-3">
+                          <div className="flex items-center gap-1.5 mt-2">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => updateQuantity(item.lineId, item.quantity - 1)}
-                              className="h-8 w-8 p-0 rounded-full"
+                              className="h-7 w-7 sm:h-8 sm:w-8 p-0 rounded-full shrink-0 touch-manipulation"
                               style={{ borderColor: menuCustomization.primaryColor }}
                             >
-                              <Minus className="h-4 w-4" style={{ color: menuCustomization.primaryColor }} />
+                              <Minus className="h-3.5 w-3.5 sm:h-4 sm:w-4" style={{ color: menuCustomization.primaryColor }} />
                             </Button>
                             <span 
-                              className="w-10 text-center font-bold text-base"
+                              className="w-7 sm:w-8 text-center font-bold text-sm tabular-nums"
                               style={{ color: menuCustomization.primaryColor }}
                             >
                               {item.quantity}
@@ -1607,16 +1599,17 @@ const MenuPublic = () => {
                             <Button
                               size="sm"
                               onClick={() => updateQuantity(item.lineId, item.quantity + 1)}
-                              className="h-8 w-8 p-0 rounded-full"
+                              className="h-7 w-7 sm:h-8 sm:w-8 p-0 rounded-full shrink-0 touch-manipulation"
                               style={{ backgroundColor: menuCustomization.primaryColor, color: "#ffffff" }}
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => removeFromCart(item.lineId)}
-                              className="ml-auto text-muted-foreground hover:text-destructive"
+                              className="ml-auto h-8 px-2 text-muted-foreground hover:text-destructive touch-manipulation"
+                              aria-label="Remover item"
                             >
                               <X className="h-4 w-4" />
                             </Button>
@@ -1632,55 +1625,52 @@ const MenuPublic = () => {
 
           {cart.length > 0 && (
             <div
-              className="shrink-0 px-4 sm:px-6 pt-3 pb-4 sm:pb-5 border-t space-y-3"
+              className="shrink-0 px-3 sm:px-5 pt-2 pb-3 sm:pb-4 border-t space-y-2"
               style={{ borderColor: `${menuCustomization.primaryColor}20` }}
             >
               <div
-                className="p-3 sm:p-4 rounded-xl"
+                className="p-2 sm:p-3 rounded-lg"
                 style={{ backgroundColor: `${menuCustomization.primaryColor}10` }}
               >
-                <div className="flex justify-between items-baseline gap-3 mb-1">
-                  <span className="font-semibold text-base sm:text-lg leading-tight">
-                    Subtotal dos itens
+                <div className="flex justify-between items-baseline gap-2 mb-0.5">
+                  <span className="font-semibold text-sm sm:text-base leading-tight">
+                    Subtotal
                   </span>
                   <span
-                    className="text-xl sm:text-2xl font-bold tabular-nums shrink-0"
+                    className="text-lg sm:text-xl font-bold tabular-nums shrink-0"
                     style={{ color: menuCustomization.primaryColor }}
                   >
                     R$ {cartTotal.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-snug">
-                  Taxa de entrega e total final aparecem na próxima etapa, ao escolher entrega ou retirada no local.
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {cartItemsCount} {cartItemsCount === 1 ? "item" : "itens"} no carrinho
+                <p className="text-[11px] sm:text-xs text-muted-foreground leading-snug">
+                  Taxa e total final na próxima etapa (entrega ou retirada).
                 </p>
               </div>
 
-              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3">
+              <div className="flex flex-col-reverse sm:flex-row gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setShowCart(false)}
-                  size="lg"
-                  className="flex-1 min-h-[48px] touch-manipulation w-full sm:w-auto"
+                  size="default"
+                  className="flex-1 min-h-[44px] touch-manipulation w-full sm:w-auto text-sm"
                 >
-                  Continuar Comprando
+                  Continuar
                 </Button>
                 <Button
                   onClick={() => {
                     setShowCart(false);
                     setShowCheckout(true);
                   }}
-                  size="lg"
-                  className="flex-1 min-h-[48px] touch-manipulation w-full sm:w-auto font-semibold shadow-lg hover:shadow-xl transition-shadow"
+                  size="default"
+                  className="flex-1 min-h-[44px] touch-manipulation w-full sm:w-auto font-semibold text-sm shadow-md"
                   style={{
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff",
                   }}
                 >
-                  <Package className="h-4 w-4 mr-2 shrink-0" />
-                  Finalizar Pedido
+                  <Package className="h-4 w-4 mr-1.5 shrink-0" />
+                  Finalizar pedido
                 </Button>
               </div>
             </div>
@@ -1698,57 +1688,59 @@ const MenuPublic = () => {
           }
         >
           <DialogHeader
-            className="shrink-0 px-4 sm:px-6 pt-5 sm:pt-6 pb-3 text-left space-y-2 pr-12"
+            className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-2 text-left space-y-1 pr-12"
             style={{
               background: `linear-gradient(135deg, ${menuCustomization.primaryColor}15 0%, ${menuCustomization.secondaryColor}15 100%)`,
             }}
           >
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
-              <DialogTitle className="text-xl sm:text-2xl font-bold leading-snug tracking-tight">
-                Finalizar Pedido
+              <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" style={{ color: menuCustomization.primaryColor }} />
+              <DialogTitle className="text-lg sm:text-xl font-bold leading-tight tracking-tight">
+                Finalizar pedido
               </DialogTitle>
             </div>
-            <DialogDescription className="text-sm sm:text-base text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
-              Preencha seus dados, escolha entrega ou retirada e confira o total com a taxa quando for o caso.
+            <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-snug break-words whitespace-normal !mt-0">
+              Dados, entrega ou retirada e forma de pagamento.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 sm:px-6 py-4">
-            <div className="space-y-4">
-            {!hoursLoading && !isOpen && establishment?.allow_orders_when_closed && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-3 sm:px-5 py-3">
+            <div className="space-y-3 sm:space-y-4">
+            {!hoursLoading && !isOpen && (
               <div
-                className="flex gap-3 rounded-lg border border-sky-500/45 bg-sky-500/10 dark:bg-sky-950/35 p-3 text-sm text-sky-950 dark:text-sky-100"
-                role="status"
+                className="flex gap-2.5 rounded-lg border border-amber-500/50 bg-amber-500/12 dark:bg-amber-950/40 p-2.5 sm:p-3 text-xs sm:text-sm text-amber-950 dark:text-amber-50"
+                role="alert"
               >
-                <Info className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
-                <p className="leading-snug">{OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}</p>
+                <Info className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-amber-700 dark:text-amber-400 mt-0.5" aria-hidden />
+                <p className="leading-snug font-medium">{OUTSIDE_BUSINESS_HOURS_ORDER_NOTICE}</p>
               </div>
             )}
             <div>
-              <Label htmlFor="customerName">Nome *</Label>
+              <Label htmlFor="customerName" className="text-sm">Nome *</Label>
               <Input
                 id="customerName"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Seu nome completo"
+                placeholder="Seu nome"
+                className="h-9 sm:h-10 text-sm"
               />
             </div>
 
             <div>
-              <Label htmlFor="customerPhone">Telefone *</Label>
+              <Label htmlFor="customerPhone" className="text-sm">Telefone *</Label>
               <Input
                 id="customerPhone"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(phoneMask(e.target.value))}
                 placeholder="(00) 00000-0000"
                 maxLength={15}
+                className="h-9 sm:h-10 text-sm"
               />
             </div>
 
             <div>
-              <Label className="text-base font-medium">Tipo de Pedido *</Label>
-              <div className="flex flex-col min-[380px]:flex-row gap-2 sm:gap-3 mt-2">
+              <Label className="text-sm font-medium">Tipo de pedido *</Label>
+              <div className="flex flex-col min-[380px]:flex-row gap-2 mt-1.5">
                 <Button
                   type="button"
                   variant={orderType === "delivery" ? "default" : "outline"}
@@ -1763,7 +1755,7 @@ const MenuPublic = () => {
                       }
                     }
                   }}
-                  className="flex-1 min-h-[48px] touch-manipulation justify-center"
+                  className="flex-1 min-h-[44px] touch-manipulation justify-center text-sm"
                   style={orderType === "delivery" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1779,7 +1771,7 @@ const MenuPublic = () => {
                     setOrderType("pickup");
                     setFreeDeliveryPromotionId(null);
                   }}
-                  className="flex-1 min-h-[48px] touch-manipulation justify-center"
+                  className="flex-1 min-h-[44px] touch-manipulation justify-center text-sm"
                   style={orderType === "pickup" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
@@ -1793,92 +1785,94 @@ const MenuPublic = () => {
 
             {orderType === "delivery" && (
               <div>
-                <Label htmlFor="customerAddress">Endereço de Entrega *</Label>
+                <Label htmlFor="customerAddress" className="text-sm">Endereço de entrega *</Label>
                 <Textarea
                   id="customerAddress"
                   value={customerAddress}
                   onChange={(e) => setCustomerAddress(e.target.value)}
-                  placeholder="Rua, número, bairro, complemento"
-                  rows={3}
+                  placeholder="Rua, número, bairro…"
+                  rows={2}
+                  className="text-sm min-h-[3rem] max-h-28 resize-y py-2"
                 />
               </div>
             )}
 
             <div>
-              <Label className="text-base font-medium">Forma de Pagamento *</Label>
-              <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-2">
+              <Label className="text-sm font-medium">Forma de pagamento *</Label>
+              <div className="grid grid-cols-2 gap-2 mt-1.5">
                 <Button
                   type="button"
                   variant={paymentMethod === "dinheiro" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("dinheiro")}
-                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
+                  className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
                   style={paymentMethod === "dinheiro" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <Wallet className="h-4 w-4" />
+                  <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                   Dinheiro
                 </Button>
                 <Button
                   type="button"
                   variant={paymentMethod === "pix" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("pix")}
-                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
+                  className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
                   style={paymentMethod === "pix" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <CreditCard className="h-4 w-4" />
+                  <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                   PIX
                 </Button>
                 <Button
                   type="button"
                   variant={paymentMethod === "cartao_debito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_debito")}
-                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
+                  className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
                   style={paymentMethod === "cartao_debito" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <CreditCard className="h-4 w-4" />
+                  <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                   Débito
                 </Button>
                 <Button
                   type="button"
                   variant={paymentMethod === "cartao_credito" ? "default" : "outline"}
                   onClick={() => setPaymentMethod("cartao_credito")}
-                  className="flex items-center justify-center gap-2 min-h-[48px] touch-manipulation text-sm sm:text-base px-2"
+                  className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
                   style={paymentMethod === "cartao_credito" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
-                  <CreditCard className="h-4 w-4" />
+                  <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                   Crédito
                 </Button>
               </div>
             </div>
 
             <div>
-              <Label htmlFor="orderNotes">Observações gerais do pedido (opcional)</Label>
+              <Label htmlFor="orderNotes" className="text-sm">Observações gerais (opcional)</Label>
               <Textarea
                 id="orderNotes"
                 value={orderNotes}
                 onChange={(e) => setOrderNotes(e.target.value)}
-                placeholder="Ex.: campainha quebrada, entregar na portaria…"
-                rows={3}
+                placeholder="Ex.: portaria, referência…"
+                rows={2}
+                className="text-sm min-h-[2.75rem] max-h-24 resize-y py-2"
               />
             </div>
 
             <div
-              className="rounded-lg border p-3 space-y-2"
+              className="rounded-lg border p-2 sm:p-2.5 space-y-1.5"
               style={{ borderColor: `${menuCustomization.primaryColor}25` }}
             >
-              <p className="text-sm font-semibold">Itens e observações por produto</p>
-              <ul className="text-sm space-y-2 max-h-44 overflow-y-auto pr-1">
+              <p className="text-xs sm:text-sm font-semibold">Resumo dos itens</p>
+              <ul className="text-xs sm:text-sm space-y-1.5 max-h-36 overflow-y-auto pr-0.5">
                 {cart.map((item) => (
                   <li
                     key={item.lineId}
@@ -1936,14 +1930,13 @@ const MenuPublic = () => {
               </div>
               <Button
                 onClick={handleCheckout}
-                className="w-full min-h-[52px] touch-manipulation font-semibold shadow-lg hover:shadow-xl transition-shadow text-base"
+                className="w-full min-h-[48px] touch-manipulation font-semibold shadow-md text-sm sm:text-base"
                 size="lg"
                 disabled={
                   checkoutSubmitting ||
                   !customerName.trim() ||
                   !customerPhone.trim() ||
-                  !paymentMethod ||
-                  (!isOpen && !establishment?.allow_orders_when_closed)
+                  !paymentMethod
                 }
                 style={{
                   backgroundColor: menuCustomization.primaryColor,
@@ -1952,36 +1945,23 @@ const MenuPublic = () => {
                     checkoutSubmitting ||
                     !customerName.trim() ||
                     !customerPhone.trim() ||
-                    !paymentMethod ||
-                    (!isOpen && !establishment?.allow_orders_when_closed)
+                    !paymentMethod
                       ? 0.5
                       : 1,
                 }}
-                title={
-                  !isOpen && !establishment?.allow_orders_when_closed
-                    ? "Estamos fechados agora. Tente novamente quando estivermos abertos."
-                    : undefined
-                }
               >
                 {checkoutSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Enviando pedido…
+                    Enviando…
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    {!isOpen && establishment?.allow_orders_when_closed
-                      ? "Confirmar Pré-Pedido"
-                      : "Confirmar Pedido"}
+                    <CheckCircle2 className="h-4 w-4 mr-2 shrink-0" />
+                    {!isOpen ? "Enviar pedido" : "Confirmar pedido"}
                   </>
                 )}
               </Button>
-              {!isOpen && !establishment?.allow_orders_when_closed && (
-                <p className="text-sm text-muted-foreground text-center mt-3">
-                  Estamos fechados agora. Tente novamente quando estivermos abertos.
-                </p>
-              )}
             </div>
             </div>
           </div>

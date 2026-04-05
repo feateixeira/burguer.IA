@@ -46,7 +46,7 @@ export interface NonFiscalReceiptData {
   createdAt: string;
 }
 
-// Formatar método de pagamento (função compartilhada)
+/** Texto no cupom: sem "Cartão" — só Débito / Crédito / PIX / Dinheiro */
 const formatPaymentMethod = (method: string | undefined) => {
   if (!method) return "";
   const key = method.toLowerCase().trim();
@@ -64,10 +64,16 @@ const formatPaymentMethod = (method: string | undefined) => {
   if (methodMap[key]) return methodMap[key];
   if (key.includes("débito") || key.includes("debito")) return "Débito";
   if (key.includes("crédito") || key.includes("credito")) return "Crédito";
-  if (key === "crédito" || key === "credito") return "Crédito";
-  if (key === "débito" || key === "debito") return "Débito";
   return method.replace(/\s+/g, " ").trim();
 };
+
+function escapeHtmlReceipt(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 /** Ex.: 61993709608 → (61) 99370-9608 */
 function formatPhoneBRDisplay(phone: string | undefined): string | undefined {
@@ -136,31 +142,33 @@ function nowrapPriceSegments(text: string): string {
 }
 
 /**
- * Separa observações (molho, trio, etc.) de adicionais, sem duplicar texto.
- * Ordem desejada na impressão: infos primeiro (molho em cima), depois bloco Adicionais com linhas +.
+ * Separa observações (molho, trio, etc.) de adicionais — mesmo critério do receiptPrinter padrão.
  */
 function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: string[] } {
   const addonLines: string[] = [];
   const infoLines: string[] = [];
   if (!notes?.trim()) return { addonLines, infoLines };
 
-  const pushUniqueAddon = (text: string) => {
-    let t = text.trim();
-    if (!t) return;
-    t = t.replace(/^[-+]\s*/, "").trim();
-    if (!/^\(\d+\)/.test(t) && !/^\d+x/i.test(t)) {
-      t = `(1)${t}`;
-    } else {
-      t = t.replace(/^(\d+)x\s*/i, "($1)");
-    }
-    const key = normalizeAddonDedupKey(t);
-    if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
-      addonLines.push(t);
-    }
-  };
-
   const raw = joinBrokenPriceFragments(notes.replace(/\|/g, "\n"));
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  const pushUniqueAddon = (text: string) => {
+    const parts = text.split(/,\s+/).map((p) => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      let t = part.replace(/^[-+]\s*/, "").trim();
+      if (!t) continue;
+
+      const qtyMatch = /^(\d+x)\s+(.*)/i.exec(t);
+      if (qtyMatch) {
+        t = `(${qtyMatch[1]}) ${qtyMatch[2]}`;
+      }
+
+      const key = normalizeAddonDedupKey(t);
+      if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
+        addonLines.push(t);
+      }
+    }
+  };
 
   let collectingAddons = false;
 
@@ -171,25 +179,28 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
     if (/^Adicionais:\s*/i.test(line)) {
       collectingAddons = true;
       const rest = line.replace(/^Adicionais:\s*/i, "").trim();
-      if (rest) {
-        const parts = rest.split(/,\s*(?![^()]*\))/);
-        parts.forEach(p => pushUniqueAddon(p));
-      }
+      if (rest) pushUniqueAddon(rest);
       continue;
     }
 
     if (collectingAddons) {
+      if (/^[-+]?\s*\d+\s*x/i.test(line) || /^\(\d+x\)/i.test(line) || /^[-+]\s/.test(line)) {
+        pushUniqueAddon(line);
+        continue;
+      }
       if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
         collectingAddons = false;
-        infoLines.push(line);
+      } else if (addonLines.length > 0) {
+        addonLines[addonLines.length - 1] = `${addonLines[addonLines.length - 1]} ${line}`
+          .replace(/\s+/g, " ")
+          .trim();
+        continue;
       } else {
-        const parts = line.split(/,\s*(?![^()]*\))/);
-        parts.forEach(p => pushUniqueAddon(p));
+        collectingAddons = false;
       }
-      continue;
     }
 
-    if (/^[-+]\s*\d+\s*x/i.test(line)) {
+    if (/^[-+]?\s*\d+\s*x/i.test(line) || /^\(\d+x\)/i.test(line)) {
       pushUniqueAddon(line);
       continue;
     }
@@ -230,11 +241,11 @@ function renderItemNotesBlock(addonLines: string[], infoLines: string[]): string
   const addonsHtml =
     addonLines.length > 0
       ? `<div class="item-note item-note--addons-label">Adicionais:</div>${addonLines
-          .map((line, idx) => {
-            const trailing = idx < addonLines.length - 1 ? ',' : '';
-            return `<div class="item-note item-note--addon">${nowrapPriceSegments(line)}${trailing}</div>`;
-          })
-          .join("")}`
+        .map(
+          (line) =>
+            `<div class="item-note item-note--addon">${nowrapPriceSegments(line)}</div>`
+        )
+        .join("")}`
       : "";
   return `${infoHtml}${addonsHtml}`;
 }
@@ -261,15 +272,40 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
   const formatItemValue = (value: number) => value.toFixed(2).replace(".", ",");
 
   const dateRef = r.createdAt ? new Date(r.createdAt) : new Date();
-  const datePart = dateRef.toLocaleDateString("pt-BR");
+  const datePart = dateRef.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
   const timePart = dateRef.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const addrLines = r.customerAddress ? addressToReceiptLines(r.customerAddress) : [];
-  const orderTypeLower = (r.orderType || "").toLowerCase();
   const customerPhoneDisp = formatPhoneBRDisplay(r.customerPhone) || (r.customerPhone?.trim() ? r.customerPhone.trim() : "");
   const showClienteBlock =
-    !!(r.customerName?.trim() || addrLines.length > 0 || (orderTypeLower === "delivery" && customerPhoneDisp));
+    !!(r.customerName?.trim() || addrLines.length > 0 || customerPhoneDisp);
 
   const telLoja = formatPhoneBRDisplay(r.establishmentPhone) || r.establishmentPhone;
+
+  const giRaw = r.generalInstructions?.trim() || "";
+  const obsPedidoHtml =
+    giRaw.length > 0 &&
+      !giRaw.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+      giRaw.replace(/\s/g, "").length > 0
+      ? `<div class="line-dash"></div>
+        <div class="obs-pedido-wrap">
+          <span class="cust-label">Obs Pedido: </span>
+          <span class="obs-pedido-lines">${escapeHtmlReceipt(giRaw).replace(/\n/g, "<br/>")}</span>
+        </div>`
+      : "";
+
+  const nameLine = r.customerName?.trim()
+    ? `<div class="cust-row"><span class="cust-label">Nome: </span><span class="cust-val">${escapeHtmlReceipt(r.customerName.trim())}</span></div>`
+    : "";
+  const telLine = customerPhoneDisp
+    ? `<div class="cust-row"><span class="cust-label">Tel: </span><span class="cust-val">${escapeHtmlReceipt(customerPhoneDisp)}</span></div>`
+    : "";
+  const addrBlock = addrLines.length
+    ? `<div class="cust-block"><span class="cust-label">Endereço: </span><span class="cust-val-stack">${addrLines.map((l) => escapeHtmlReceipt(l)).join(" ")}</span></div>`
+    : "";
 
   const itemsHtml = r.items.map((it, i) => {
     const { addonLines, infoLines } = normalizeItemNotes(it.notes);
@@ -279,7 +315,8 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
     return `
       <div class="item-block">
         <div class="item-row-main">
-          <span class="item-name-group"><span class="item-qty">[ ${qtyLabel} ]</span><span class="item-name">${itemName}</span></span>
+          <span class="item-qty">[ ${qtyLabel} ]</span>
+          <span class="item-name">${escapeHtmlReceipt(itemName)}</span>
           <span class="item-price-num">${formatItemValue(it.totalPrice)}</span>
         </div>
         ${renderItemNotesBlock(addonLines, infoLines)}
@@ -373,36 +410,47 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
         .data-date { font-weight: 700; }
         .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
         .cust-row {
-          display: grid;
-          grid-template-columns: 9.8ch 1fr;
-          gap: 6px;
-          align-items: start;
-          margin: 2px 0;
+          margin: 3px 0;
+          width: 100%;
+        }
+        .cust-block {
+          margin: 3px 0;
+          width: 100%;
+        }
+        .cust-label { font-weight: 800; }
+        .cust-val {
+          font-weight: 700;
           word-break: break-word;
         }
-        .cust-row--addr2 .cust-label { visibility: hidden; }
-        .cust-label { font-weight: 800; white-space: nowrap; }
-        .cust-val { font-weight: 700; }
+        .cust-val-stack {
+          font-weight: 700;
+          word-break: break-word;
+        }
+        .obs-pedido-wrap {
+          margin: 4px 0;
+          width: 100%;
+        }
+        .obs-pedido-lines {
+          font-weight: 700;
+          word-break: break-word;
+        }
         .table-head {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: 6.5ch 1fr auto;
+          gap: 6px;
           font-weight: 800;
           margin: 2px 0;
         }
+        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
         .item-row-main {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          width: 100%;
-        }
-        .item-name-group {
-          flex: 1;
-          word-break: break-word;
-          padding-right: 4px;
+          display: grid;
+          grid-template-columns: 6.5ch 1fr auto;
+          gap: 6px;
+          align-items: start;
         }
         .item-qty { font-weight: 800; white-space: nowrap; }
-        .item-name { font-weight: 800; word-break: break-word; }
+        .item-name { font-weight: 800; word-break: break-word; min-width: 0; }
         .item-price-num {
           font-weight: 800;
           white-space: nowrap;
@@ -449,14 +497,14 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
         ${showClienteBlock ? `
         <div class="line-dash"></div>
         <div class="section-title">DADOS DO CLIENTE</div>
-        ${r.customerName?.trim() ? `<div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName.trim()}</span></div>` : ""}
-        ${addrLines.length ? `<div class="cust-row cust-row--addr"><span class="cust-label">Endereço:</span><span class="cust-val">${addrLines[0]}</span></div>` : ""}
-        ${addrLines.slice(1).map((line) => `<div class="cust-row cust-row--addr2"><span class="cust-label"></span><span class="cust-val">${line}</span></div>`).join("")}
-        ${orderTypeLower === "delivery" && customerPhoneDisp ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${customerPhoneDisp}</span></div>` : ""}
+        ${nameLine}
+        ${telLine}
+        ${addrBlock}
         ` : ""}
         <div class="line-solid"></div>
         <div class="table-head">
-          <span>QTD / ITEM</span>
+          <span>QTD</span>
+          <span>ITEM</span>
           <span>VALOR</span>
         </div>
         <div class="line-dash"></div>
@@ -468,16 +516,18 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
         <div class="line-dash"></div>
         <div class="totals-row total-final"><span class="totals-label">TOTAL:</span><span class="totals-value">${formatCurrencyBR(r.totalAmount)}</span></div>
         ${r.paymentMethod && typeof r.paymentAmount1 === "number" && r.paymentMethod2 && typeof r.paymentAmount2 === "number"
-          ? `
+      ? `
           <div class="totals-row"><span class="totals-label">Pagamento (1):</span><span class="totals-value">${formatPaymentMethod(r.paymentMethod)} - ${formatCurrencyBR(r.paymentAmount1)}</span></div>
           <div class="totals-row"><span class="totals-label">Pagamento (2):</span><span class="totals-value">${formatPaymentMethod(r.paymentMethod2)} - ${formatCurrencyBR(r.paymentAmount2)}</span></div>
         `
-          : r.paymentMethod ? `<div class="totals-row"><span class="totals-label">Pagamento:</span><span class="totals-value">${formatPaymentMethod(r.paymentMethod)}</span></div>` : ""}
+      : r.paymentMethod ? `<div class="totals-row"><span class="totals-label">Pagamento:</span><span class="totals-value">${formatPaymentMethod(r.paymentMethod)}</span></div>` : ""}
 
         ${r.paymentMethod?.toLowerCase() === "dinheiro" && typeof r.paymentAmount2 !== "number" ? `
           ${typeof r.cashGiven === "number" ? `<div class="totals-row"><span class="totals-label">Recebido:</span><span class="totals-value">${formatCurrencyBR(r.cashGiven)}</span></div>` : ""}
           ${typeof r.cashChange === "number" ? `<div class="totals-row"><span class="totals-label">Troco:</span><span class="totals-value">${formatCurrencyBR(r.cashChange)}</span></div>` : ""}
         ` : ""}
+
+        ${obsPedidoHtml}
 
         ${r.paymentMethod?.toLowerCase() === "pix" && r.pixQrCode ? `
           <div class="line-dash"></div>
@@ -495,13 +545,6 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
           </div>
         ` : ""}
 
-        ${r.generalInstructions &&
-          r.generalInstructions.trim().length > 0 &&
-          !r.generalInstructions.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
-          r.generalInstructions.replace(/\s/g, "").length > 0
-          ? `<div class="item-note item-note--info">&gt; ${r.generalInstructions}</div>`
-          : ""}
-
         <div class="grow"></div>
         <div class="line-dash"></div>
         <div class="footer">Obrigado pela preferência!</div>
@@ -513,7 +556,7 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
   // Impressão usando iframe/popup (compatível com modo silencioso do Firefox)
   // Flag para garantir que só imprime uma vez
   let hasPrinted = false;
-  
+
   try {
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
@@ -526,25 +569,25 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
     const doc = iframe.contentWindow?.document || iframe.contentDocument;
     if (!doc) throw new Error("IFRAME_DOC_UNAVAILABLE");
     doc.open(); doc.write(html); doc.close();
-    
+
     const printFromIframe = () => {
       // Garantir que só imprime uma vez
       if (hasPrinted) return;
       hasPrinted = true;
-      
+
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
-      setTimeout(() => { 
-        try { 
-          document.body.removeChild(iframe); 
-        } catch {} 
+      setTimeout(() => {
+        try {
+          document.body.removeChild(iframe);
+        } catch { }
       }, 300);
     };
-    
+
     // Aguardar o documento estar pronto antes de imprimir
     const checkReady = () => {
       if (hasPrinted) return;
-      
+
       if (doc.readyState === "complete" || doc.readyState === "interactive") {
         // Usar setTimeout para garantir que o conteúdo está renderizado
         setTimeout(printFromIframe, 100);
@@ -553,17 +596,17 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
         setTimeout(checkReady, 50);
       }
     };
-    
+
     // Aguardar um pouco antes de começar a verificar
     setTimeout(checkReady, 100);
-    
+
     // Fallback: se o onload não disparar, tentar após um tempo
     iframe.onload = () => {
       if (!hasPrinted) {
         setTimeout(printFromIframe, 100);
       }
     };
-    
+
   } catch (e1) {
     // Fallback com popup se iframe falhar
     try {
@@ -572,25 +615,25 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
       if (!w) throw new Error("POPUP_BLOCKED");
       w.document.write(html);
       w.document.close();
-      const doPrint = () => { 
+      const doPrint = () => {
         if (popupHasPrinted) return;
         popupHasPrinted = true;
-        w.focus(); 
-        w.print(); 
-        setTimeout(() => { 
-          try { 
-            w.close(); 
-          } catch {} 
-        }, 100); 
+        w.focus();
+        w.print();
+        setTimeout(() => {
+          try {
+            w.close();
+          } catch { }
+        }, 100);
       };
-      
+
       // Usar apenas um método de trigger, não ambos
       if (w.document.readyState === "complete") {
         setTimeout(doPrint, 100);
       } else {
         w.onload = doPrint;
       }
-    } catch {}
+    } catch { }
   }
 };
 
@@ -656,10 +699,12 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
   const itemsHtml = r.items.map((item, index) => {
     const { addonLines, infoLines } = normalizeItemNotes(item.notes);
     const qtyLabel = String(Math.min(999, Math.max(0, item.quantity))).padStart(2, "0");
+    const nm = escapeHtmlReceipt((item.name || "").toUpperCase());
     return `
       <div class="item-block">
         <div class="item-row-main">
-          <span class="item-name-group"><span class="item-qty">[ ${qtyLabel} ]</span><span class="item-name">${(item.name || "").toUpperCase()}</span></span>
+          <span class="item-qty">[ ${qtyLabel} ]</span>
+          <span class="item-name">${nm}</span>
           <span class="item-price-num">${formatItemValue(item.totalPrice)}</span>
         </div>
         ${renderItemNotesBlock(addonLines, infoLines)}
@@ -735,35 +780,31 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
         .data-date { font-weight: 700; }
         .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
         .cust-row {
-          display: grid;
-          grid-template-columns: 9.8ch 1fr;
-          gap: 6px;
-          align-items: start;
-          margin: 2px 0;
+          margin: 3px 0;
+          width: 100%;
+        }
+        .cust-label { font-weight: 800; }
+        .cust-val {
+          font-weight: 700;
           word-break: break-word;
         }
-        .cust-label { font-weight: 800; white-space: nowrap; }
-        .cust-val { font-weight: 700; }
         .table-head {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: 6.5ch 1fr auto;
+          gap: 6px;
           font-weight: 800;
           margin: 2px 0;
         }
+        .table-head span:last-child { text-align: right; }
         .item-block { margin: 4px 0; }
         .item-row-main {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          width: 100%;
-        }
-        .item-name-group {
-          flex: 1;
-          word-break: break-word;
-          padding-right: 4px;
+          display: grid;
+          grid-template-columns: 6.5ch 1fr auto;
+          gap: 6px;
+          align-items: start;
         }
         .item-qty { font-weight: 800; white-space: nowrap; }
-        .item-name { font-weight: 800; word-break: break-word; }
+        .item-name { font-weight: 800; word-break: break-word; min-width: 0; }
         .item-price-num {
           font-weight: 800;
           white-space: nowrap;
@@ -811,13 +852,14 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
         </div>
         <div class="line-dash"></div>
         <div class="section-title">DADOS DO CLIENTE</div>
-        <div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName}</span></div>
-        ${r.customerCpf ? `<div class="cust-row"><span class="cust-label">CPF:</span><span class="cust-val">${formatCPF(r.customerCpf)}</span></div>` : ""}
-        ${custTelNf ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${custTelNf}</span></div>` : ""}
+        <div class="cust-row"><span class="cust-label">Nome: </span><span class="cust-val">${escapeHtmlReceipt(r.customerName)}</span></div>
+        ${r.customerCpf ? `<div class="cust-row"><span class="cust-label">CPF: </span><span class="cust-val">${escapeHtmlReceipt(formatCPF(r.customerCpf))}</span></div>` : ""}
+        ${custTelNf ? `<div class="cust-row"><span class="cust-label">Tel: </span><span class="cust-val">${escapeHtmlReceipt(custTelNf)}</span></div>` : ""}
 
         <div class="line-solid"></div>
         <div class="table-head">
-          <span>QTD / ITEM</span>
+          <span>QTD</span>
+          <span>ITEM</span>
           <span>VALOR</span>
         </div>
         <div class="line-dash"></div>
@@ -844,7 +886,7 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
 
   // Impressão usando iframe/popup
   let hasPrinted = false;
-  
+
   try {
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
@@ -859,38 +901,38 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
     doc.open();
     doc.write(html);
     doc.close();
-    
+
     const printFromIframe = () => {
       if (hasPrinted) return;
       hasPrinted = true;
-      
+
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
-      setTimeout(() => { 
-        try { 
-          document.body.removeChild(iframe); 
-        } catch {} 
+      setTimeout(() => {
+        try {
+          document.body.removeChild(iframe);
+        } catch { }
       }, 300);
     };
-    
+
     const checkReady = () => {
       if (hasPrinted) return;
-      
+
       if (doc.readyState === "complete" || doc.readyState === "interactive") {
         setTimeout(printFromIframe, 100);
       } else {
         setTimeout(checkReady, 50);
       }
     };
-    
+
     setTimeout(checkReady, 100);
-    
+
     iframe.onload = () => {
       if (!hasPrinted) {
         setTimeout(printFromIframe, 100);
       }
     };
-    
+
   } catch (e1) {
     // Fallback com popup se iframe falhar
     try {
@@ -899,23 +941,23 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
       if (!w) throw new Error("POPUP_BLOCKED");
       w.document.write(html);
       w.document.close();
-      const doPrint = () => { 
+      const doPrint = () => {
         if (popupHasPrinted) return;
         popupHasPrinted = true;
-        w.focus(); 
-        w.print(); 
-        setTimeout(() => { 
-          try { 
-            w.close(); 
-          } catch {} 
-        }, 100); 
+        w.focus();
+        w.print();
+        setTimeout(() => {
+          try {
+            w.close();
+          } catch { }
+        }, 100);
       };
-      
+
       if (w.document.readyState === "complete") {
         setTimeout(doPrint, 100);
       } else {
         w.onload = doPrint;
       }
-    } catch {}
+    } catch { }
   }
 };

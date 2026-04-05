@@ -32,6 +32,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { printReceipt, ReceiptData } from "@/utils/receiptPrinter";
+import { printReceiptNaBrasa } from "@/utils/receiptPrinterNaBrasa";
+
+function establishmentUsesNaBrasaReceipt(establishmentName: string): boolean {
+  const n = (establishmentName || "").toLowerCase().trim();
+  return n.includes("na brasa") || n.includes("nabrasa") || n === "hamburgueria na brasa";
+}
 import { PixPaymentModal } from "@/components/PixPaymentModal";
 import { CashRequiredModal } from "@/components/CashRequiredModal";
 import { generatePixQrCode } from "@/utils/pixQrCode";
@@ -1887,8 +1893,11 @@ const PDV = () => {
         await registerFreeDeliveryUsage(order.id, freeDeliveryPromotionId);
       }
 
-      // Print receipt (incluindo PIX com QR code)
-      await printReceipt(receiptData);
+      // Cupom no layout Na Brasa quando for o estabelecimento (mesmo padrão do site)
+      const printFn = establishmentUsesNaBrasaReceipt(establishmentInfo.name)
+        ? printReceiptNaBrasa
+        : printReceipt;
+      await printFn(receiptData);
 
       // Clear cart and customer info
       setCart([]);
@@ -2132,7 +2141,10 @@ const PDV = () => {
   const handlePixPaymentConfirmed = async () => {
     // Imprimir comanda após confirmação do PIX
     if (pendingReceiptData) {
-      await printReceipt(pendingReceiptData);
+      const printFn = establishmentUsesNaBrasaReceipt(establishmentInfo.name)
+        ? printReceiptNaBrasa
+        : printReceipt;
+      await printFn(pendingReceiptData);
     }
 
     const wasEditing = !!editingOrderId;
@@ -2485,7 +2497,10 @@ const PDV = () => {
         createdAt: order?.created_at || new Date().toISOString(),
       };
 
-      printReceipt(receiptData);
+      const printFn = establishmentUsesNaBrasaReceipt(establishmentInfo.name)
+        ? printReceiptNaBrasa
+        : printReceipt;
+      printFn(receiptData);
 
       toast.success(`Pedido ${orderNumber} processado e impresso com sucesso!`);
       setWhatsappDialogOpen(false);

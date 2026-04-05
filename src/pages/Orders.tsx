@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
+import { printReceiptNaBrasa } from "@/utils/receiptPrinterNaBrasa";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { useCashSession } from "@/hooks/useCashSession";
 import { phoneMask } from "@/utils/phoneNormalizer";
@@ -1294,12 +1295,12 @@ const Orders = () => {
         let cleanedNotes = item.notes.trim();
         const itemNameLower = item.name.toLowerCase();
         const isAccompaniment = itemNameLower.includes('batata') || 
+                                itemNameLower.includes('fritas') ||
                                 itemNameLower.includes('frango no pote') ||
                                 itemNameLower.includes('frango pote') ||
-                                itemNameLower.includes('acompanhamento') ||
-                                itemNameLower.includes('cebolas empanadas') ||
+                                itemNameLower.includes('cebola') ||
                                 itemNameLower.includes('mini chickens') ||
-                                itemNameLower.includes('fritas');
+                                itemNameLower.includes('acompanhamento');
         
         if (isAccompaniment) {
           cleanedNotes = cleanedNotes.replace(/Molhos?\s*:\s*/gi, '').trim();
@@ -1504,9 +1505,7 @@ const Orders = () => {
       createdAt: order.created_at
     };
 
-    const printReceiptHandler = isFromNaBrasaSite(order)
-      ? (await import("@/utils/receiptPrinterNaBrasa")).printReceiptNaBrasa
-      : printReceipt;
+    const printReceiptHandler = isFromNaBrasaSite(order) ? printReceiptNaBrasa : printReceipt;
 
     await printReceiptHandler(receiptData);
     toast.success("Pedido enviado para impressão");
@@ -1515,11 +1514,12 @@ const Orders = () => {
       const accompaniments = items.filter(item => {
         const lower = item.name.toLowerCase();
         return lower.includes('batata') || 
-               lower.includes('frango') || 
-               lower.includes('acompanhamento') || 
-               lower.includes('cebolas') || 
-               lower.includes('mini chickens') || 
-               lower.includes('fritas');
+               lower.includes('fritas') ||
+               lower.includes('frango no pote') ||
+               lower.includes('frango pote') ||
+               lower.includes('cebola') ||
+               lower.includes('mini chickens') ||
+               lower.includes('acompanhamento');
       });
 
       if (accompaniments.length > 0) {

@@ -88,6 +88,14 @@ function receiptOrderLabel(orderNumber: string): string {
   return n.startsWith("#") ? n : `#${n}`;
 }
 
+function escapeHtmlReceipt(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /** Quebra endereço em linhas curtas (vírgulas), legível para motoboy */
 function addressToReceiptLines(address: string, maxChunk = 34): string[] {
   const cleaned = address.replace(/\s+/g, " ").trim();
@@ -148,11 +156,20 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
   const pushUniqueAddon = (text: string) => {
-    const t = text.replace(/^[-+]\s*/, "").trim();
-    if (!t) return;
-    const key = normalizeAddonDedupKey(t);
-    if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
-      addonLines.push(t);
+    const parts = text.split(/,\s+/).map((p) => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      let t = part.replace(/^[-+]\s*/, "").trim();
+      if (!t) continue;
+      
+      const qtyMatch = /^(\d+x)\s+(.*)/i.exec(t);
+      if (qtyMatch) {
+        t = `(${qtyMatch[1]}) ${qtyMatch[2]}`;
+      }
+
+      const key = normalizeAddonDedupKey(t);
+      if (!addonLines.some((a) => normalizeAddonDedupKey(a) === key)) {
+        addonLines.push(t);
+      }
     }
   };
 
@@ -170,7 +187,7 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
     }
 
     if (collectingAddons) {
-      if (/^[-+]\s/.test(line) || /^[-+]\d+\s*x/i.test(line)) {
+      if (/^[-+]?\s*\d+\s*x/i.test(line) || /^\(\d+x\)/i.test(line) || /^[-+]\s/.test(line)) {
         pushUniqueAddon(line);
         continue;
       }
@@ -186,7 +203,7 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
       }
     }
 
-    if (/^[-+]\s*\d+\s*x/i.test(line)) {
+    if (/^[-+]?\s*\d+\s*x/i.test(line) || /^\(\d+x\)/i.test(line)) {
       pushUniqueAddon(line);
       continue;
     }
@@ -230,7 +247,7 @@ function renderItemNotesBlock(addonLines: string[], infoLines: string[]): string
       ? `<div class="item-note item-note--addons-label">Adicionais:</div>${addonLines
           .map(
             (line) =>
-              `<div class="item-note item-note--addon">+ ${nowrapPriceSegments(line)}</div>`
+              `<div class="item-note item-note--addon">${nowrapPriceSegments(line)}</div>`
           )
           .join("")}`
       : "";
@@ -262,16 +279,37 @@ export const printReceipt = async (r: ReceiptData) => {
   const datePart = dateRef.toLocaleDateString("pt-BR");
   const timePart = dateRef.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const addrLines = r.customerAddress ? addressToReceiptLines(r.customerAddress) : [];
-  const orderTypeLower = (r.orderType || "").toLowerCase();
   const customerPhoneDisp = formatPhoneBRDisplay(r.customerPhone) || (r.customerPhone?.trim() ? r.customerPhone.trim() : "");
   const showClienteBlock =
-    !!(r.customerName?.trim() || addrLines.length > 0 || (orderTypeLower === "delivery" && customerPhoneDisp));
+    !!(r.customerName?.trim() || addrLines.length > 0 || customerPhoneDisp);
 
   const telLoja = formatPhoneBRDisplay(r.establishmentPhone) || r.establishmentPhone;
 
+  const nameLine = r.customerName?.trim()
+    ? `<div class="cust-row"><span class="cust-label">Nome: </span><span class="cust-val">${escapeHtmlReceipt(r.customerName.trim())}</span></div>`
+    : "";
+  const telLine = customerPhoneDisp
+    ? `<div class="cust-row"><span class="cust-label">Tel: </span><span class="cust-val">${escapeHtmlReceipt(customerPhoneDisp)}</span></div>`
+    : "";
+  const addrBlock = addrLines.length
+    ? `<div class="cust-block"><span class="cust-label">Endereço: </span><span class="cust-val-stack">${addrLines.map((l) => escapeHtmlReceipt(l)).join(" ")}</span></div>`
+    : "";
+
+  const giRaw = r.generalInstructions?.trim() || "";
+  const obsPedidoHtml =
+    giRaw.length > 0 &&
+    !giRaw.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
+    giRaw.replace(/\s/g, "").length > 0
+      ? `<div class="line-dash"></div>
+        <div class="obs-pedido-wrap">
+          <span class="cust-label">Obs Pedido: </span>
+          <span class="obs-pedido-lines">${escapeHtmlReceipt(giRaw).replace(/\n/g, "<br/>")}</span>
+        </div>`
+      : "";
+
   const itemsHtml = r.items.map((it, i) => {
     const { addonLines, infoLines } = normalizeItemNotes(it.notes);
-    const itemName = (it.name || "").toUpperCase();
+    const itemName = escapeHtmlReceipt((it.name || "").toUpperCase());
     const qtyLabel = String(Math.min(999, Math.max(0, it.quantity))).padStart(2, "0");
 
     return `
@@ -372,16 +410,30 @@ export const printReceipt = async (r: ReceiptData) => {
         .data-date { font-weight: 700; }
         .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
         .cust-row {
-          display: grid;
-          grid-template-columns: 9.8ch 1fr;
-          gap: 6px;
-          align-items: start;
-          margin: 2px 0;
+          margin: 3px 0;
+          width: 100%;
+        }
+        .cust-block {
+          margin: 3px 0;
+          width: 100%;
+        }
+        .cust-label { font-weight: 800; }
+        .cust-val {
+          font-weight: 700;
           word-break: break-word;
         }
-        .cust-row--addr2 .cust-label { visibility: hidden; }
-        .cust-label { font-weight: 800; white-space: nowrap; }
-        .cust-val { font-weight: 700; }
+        .cust-val-stack {
+          font-weight: 700;
+          word-break: break-word;
+        }
+        .obs-pedido-wrap {
+          margin: 4px 0;
+          width: 100%;
+        }
+        .obs-pedido-lines {
+          font-weight: 700;
+          word-break: break-word;
+        }
         .table-head {
           display: grid;
           grid-template-columns: 6.5ch 1fr auto;
@@ -445,10 +497,9 @@ export const printReceipt = async (r: ReceiptData) => {
         ${showClienteBlock ? `
         <div class="line-dash"></div>
         <div class="section-title">DADOS DO CLIENTE</div>
-        ${r.customerName?.trim() ? `<div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName.trim()}</span></div>` : ""}
-        ${addrLines.length ? `<div class="cust-row cust-row--addr"><span class="cust-label">Endereço:</span><span class="cust-val">${addrLines[0]}</span></div>` : ""}
-        ${addrLines.slice(1).map((line) => `<div class="cust-row cust-row--addr2"><span class="cust-label"></span><span class="cust-val">${line}</span></div>`).join("")}
-        ${orderTypeLower === "delivery" && customerPhoneDisp ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${customerPhoneDisp}</span></div>` : ""}
+        ${nameLine}
+        ${telLine}
+        ${addrBlock}
         ` : ""}
         <div class="line-solid"></div>
         <div class="table-head">
@@ -476,6 +527,8 @@ export const printReceipt = async (r: ReceiptData) => {
           ${typeof r.cashChange === "number" ? `<div class="totals-row"><span class="totals-label">Troco:</span><span class="totals-value">${formatCurrencyBR(r.cashChange)}</span></div>` : ""}
         ` : ""}
 
+        ${obsPedidoHtml}
+
         ${r.paymentMethod?.toLowerCase() === "pix" && r.pixQrCode ? `
           <div class="line-dash"></div>
           <div class="center" style="margin: 12px 0;">
@@ -491,13 +544,6 @@ export const printReceipt = async (r: ReceiptData) => {
             ` : ""}
           </div>
         ` : ""}
-
-        ${r.generalInstructions &&
-          r.generalInstructions.trim().length > 0 &&
-          !r.generalInstructions.match(/^(Telefone|Tel|Fone|Phone)[:\s]*$/i) &&
-          r.generalInstructions.replace(/\s/g, "").length > 0
-          ? `<div class="item-note item-note--info">&gt; ${r.generalInstructions}</div>`
-          : ""}
 
         <div class="grow"></div>
         <div class="line-dash"></div>
@@ -733,14 +779,10 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         .data-date { font-weight: 700; }
         .data-time { font-weight: 700; white-space: nowrap; text-align: right; }
         .cust-row {
-          display: grid;
-          grid-template-columns: 9.8ch 1fr;
-          gap: 6px;
-          align-items: start;
           margin: 2px 0;
           word-break: break-word;
         }
-        .cust-label { font-weight: 800; white-space: nowrap; }
+        .cust-label { font-weight: 800; }
         .cust-val { font-weight: 700; }
         .table-head {
           display: grid;
@@ -806,9 +848,9 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
         </div>
         <div class="line-dash"></div>
         <div class="section-title">DADOS DO CLIENTE</div>
-        <div class="cust-row"><span class="cust-label">Nome:</span><span class="cust-val">${r.customerName}</span></div>
-        ${r.customerCpf ? `<div class="cust-row"><span class="cust-label">CPF:</span><span class="cust-val">${formatCPF(r.customerCpf)}</span></div>` : ""}
-        ${custTelNf ? `<div class="cust-row"><span class="cust-label">Tel:</span><span class="cust-val">${custTelNf}</span></div>` : ""}
+        <div class="cust-row"><span class="cust-label">Nome: </span><span class="cust-val">${r.customerName}</span></div>
+        ${r.customerCpf ? `<div class="cust-row"><span class="cust-label">CPF: </span><span class="cust-val">${formatCPF(r.customerCpf)}</span></div>` : ""}
+        ${custTelNf ? `<div class="cust-row"><span class="cust-label">Tel: </span><span class="cust-val">${custTelNf}</span></div>` : ""}
 
         <div class="line-solid"></div>
         <div class="table-head">

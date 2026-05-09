@@ -1006,7 +1006,7 @@ const MenuPublic = () => {
           delivery_fee: deliveryFee,
           total_amount: finalTotal,
           status: "pending",
-          payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
+          payment_status: "pending", // Confirmado pelo estabelecimento na página Pedidos (Pendentes)
           payment_method: paymentMethod,
           notes: finalNotes || null,
           channel: "online",

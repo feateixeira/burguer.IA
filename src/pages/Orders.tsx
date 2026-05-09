@@ -257,6 +257,12 @@ const Orders = () => {
   const [pendingOrderForAccept, setPendingOrderForAccept] = useState<Order | null>(null);
   const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
   const [selectedDeliveryBoyId, setSelectedDeliveryBoyId] = useState<string>("");
+  const [printAfterPaymentChangeOpen, setPrintAfterPaymentChangeOpen] = useState(false);
+  const [pendingPrintAfterPaymentChange, setPendingPrintAfterPaymentChange] = useState<{
+    orderId: string;
+    newPaymentMethod: string;
+    fallbackOrder: Order;
+  } | null>(null);
   const navigate = useNavigate();
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
@@ -377,6 +383,12 @@ const Orders = () => {
     }
     return false;
   }, [isFromNaBrasaSite]);
+
+  /** True quando o pagamento ainda não foi marcado como recebido (compatível com null/"" no banco). */
+  const isOrderPaymentUnconfirmed = useCallback((order: Order) => {
+    const s = String(order.payment_status ?? "").trim().toLowerCase();
+    return s !== "paid" && s !== "cancelled";
+  }, []);
 
   /** Site Na Brasa ou cardápio online: aceitar/imprimir só com caixa aberto; número # vem na aceitação. */
   const orderRequiresCashToAccept = useCallback(
@@ -704,69 +716,22 @@ const Orders = () => {
 
       if (error) throw error;
 
-      // Se o método de pagamento foi alterado, imprimir recibo
-      if (paymentMethodChanged) {
-        // Buscar o pedido atualizado com todos os dados necessários
-        const { data: updatedOrder, error: fetchError } = await supabase
-          .from("orders")
-          .select(`
-            *,
-            order_items (
-              *,
-              products (
-                id,
-                name,
-                price,
-                categories (
-                  name
-                )
-              )
-            )
-          `)
-          .eq("id", selectedOrder.id)
-          .single();
+      toast.success("Pedido atualizado com sucesso");
 
-        if (!fetchError && updatedOrder) {
-          // Criar um objeto Order completo para passar para handlePrintOrder
-          // Garantir que todos os campos necessários estejam presentes
-          const orderToPrint: Order = {
-            ...selectedOrder, // Manter dados originais como fallback
-            ...updatedOrder, // Sobrescrever com dados atualizados
-            payment_method: newPaymentMethod, // Garantir que o método de pagamento atualizado está presente
-            order_items: updatedOrder.order_items || selectedOrder.order_items || []
-          } as Order;
-
-          // Usar a função handlePrintOrder que já tem toda a lógica de impressão
-          try {
-            await handlePrintOrder(orderToPrint);
-            toast.success("Pedido atualizado e recibo impresso com sucesso");
-          } catch (printError: any) {
-            console.error('Erro ao imprimir recibo:', printError);
-            toast.warning("Pedido atualizado com sucesso, mas houve um erro ao imprimir o recibo");
-          }
-        } else {
-          console.error('Erro ao buscar pedido atualizado:', fetchError);
-          // Tentar imprimir mesmo assim com os dados do selectedOrder atualizado
-          try {
-            const orderToPrint: Order = {
-              ...selectedOrder,
-              payment_method: newPaymentMethod
-            } as Order;
-            await handlePrintOrder(orderToPrint);
-            toast.success("Pedido atualizado e recibo impresso com sucesso");
-          } catch (printError: any) {
-            console.error('Erro ao imprimir recibo:', printError);
-            toast.warning("Pedido atualizado com sucesso, mas não foi possível imprimir o recibo");
-          }
-        }
-      } else {
-        toast.success("Pedido atualizado com sucesso");
-      }
-
+      const snapshot = selectedOrder;
       setIsEditDialogOpen(false);
       setSelectedOrder(null);
       setEditPaymentMethod("");
       loadOrders();
+
+      if (paymentMethodChanged && snapshot) {
+        setPendingPrintAfterPaymentChange({
+          orderId: snapshot.id,
+          newPaymentMethod,
+          fallbackOrder: snapshot,
+        });
+        setPrintAfterPaymentChangeOpen(true);
+      }
     } catch (error: any) {
       console.error('Erro ao atualizar pedido:', error);
       toast.error(`Erro ao atualizar pedido: ${error.message || 'Erro desconhecido'}`);
@@ -1509,29 +1474,56 @@ const Orders = () => {
 
     await printReceiptHandler(receiptData);
     toast.success("Pedido enviado para impressão");
+  };
 
-    if (isFromNaBrasaSite(order)) {
-      const accompaniments = items.filter(item => {
-        const lower = item.name.toLowerCase();
-        return lower.includes('batata') || 
-               lower.includes('fritas') ||
-               lower.includes('frango no pote') ||
-               lower.includes('frango pote') ||
-               lower.includes('cebola') ||
-               lower.includes('mini chickens') ||
-               lower.includes('acompanhamento');
-      });
+  const confirmPrintAfterPaymentMethodChange = async () => {
+    const pending = pendingPrintAfterPaymentChange;
+    if (!pending) return;
 
-      if (accompaniments.length > 0) {
-        const accReceiptData = {
-          ...receiptData,
-          items: accompaniments,
-          generalInstructions: ">>> COZINHA 2: ACOMPANHAMENTOS <<<",
-        };
-        setTimeout(async () => {
-          await printReceiptHandler(accReceiptData);
-        }, 1500);
+    const { orderId, newPaymentMethod, fallbackOrder } = pending;
+
+    try {
+      const { data: updatedOrder, error: fetchError } = await supabase
+        .from("orders")
+        .select(`
+          *,
+          order_items (
+            *,
+            products (
+              id,
+              name,
+              price,
+              categories (
+                name
+              )
+            )
+          )
+        `)
+        .eq("id", orderId)
+        .single();
+
+      if (!fetchError && updatedOrder) {
+        const orderToPrint: Order = {
+          ...fallbackOrder,
+          ...updatedOrder,
+          payment_method: newPaymentMethod,
+          order_items: updatedOrder.order_items || fallbackOrder.order_items || [],
+        } as Order;
+        await handlePrintOrder(orderToPrint);
+      } else {
+        console.error("Erro ao buscar pedido atualizado:", fetchError);
+        const orderToPrint: Order = {
+          ...fallbackOrder,
+          payment_method: newPaymentMethod,
+        } as Order;
+        await handlePrintOrder(orderToPrint);
       }
+    } catch (printError: unknown) {
+      console.error("Erro ao imprimir recibo:", printError);
+      toast.warning("Pedido atualizado, mas não foi possível imprimir o recibo");
+    } finally {
+      setPrintAfterPaymentChangeOpen(false);
+      setPendingPrintAfterPaymentChange(null);
     }
   };
 
@@ -2370,8 +2362,8 @@ const Orders = () => {
                           </div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-2 ml-4">
-                          <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-end gap-2 ml-4 min-w-0 shrink-0">
+                          <div className="flex flex-wrap items-center justify-end gap-2 max-w-full">
                             <TooltipProvider>
                               {/* Botões principais - ações mais importantes visíveis */}
                               
@@ -2392,8 +2384,8 @@ const Orders = () => {
                                 </Button>
                               )}
 
-                              {/* Botão "Confirmar Pagamento" - aparece para TODOS os pedidos com pagamento pendente */}
-                              {order.payment_status === "pending" && (
+                              {/* Confirmar Pagamento: mesmo critério do badge "Pendente" (não só === 'pending') */}
+                              {isOrderPaymentUnconfirmed(order) && (
                                 <Button 
                                   variant="default"
                                   size="sm"
@@ -2516,7 +2508,7 @@ const Orders = () => {
                                   </DropdownMenuItem>
 
                                   {/* Confirmar Pagamento - no dropdown também para garantir acesso */}
-                                  {order.payment_status === "pending" && (
+                                  {isOrderPaymentUnconfirmed(order) && (
                                     <DropdownMenuItem onClick={() => handleMarkPaymentAsPaid(order.id)}>
                                       <CheckCircleIcon className="h-4 w-4 mr-2" />
                                       Confirmar Pagamento
@@ -2835,7 +2827,7 @@ const Orders = () => {
                     <DialogTitle>Editar Pedido #{selectedOrder?.order_number}</DialogTitle>
                     {selectedOrder?.source_domain?.toLowerCase().includes('hamburguerianabrasa') && (
                       <p className="text-sm text-muted-foreground mt-2">
-                        Ao alterar o método de pagamento, o recibo será impresso automaticamente.
+                        Ao alterar o método de pagamento e salvar, aparecerá uma confirmação para imprimir o recibo.
                       </p>
                     )}
                   </DialogHeader>
@@ -3057,6 +3049,36 @@ const Orders = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={printAfterPaymentChangeOpen}
+          onOpenChange={(open) => {
+            setPrintAfterPaymentChangeOpen(open);
+            if (!open) setPendingPrintAfterPaymentChange(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Imprimir recibo?</AlertDialogTitle>
+              <AlertDialogDescription>
+                O método de pagamento foi alterado. Deseja imprimir o recibo com as informações atualizadas?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void confirmPrintAfterPaymentMethodChange();
+                }}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Sim, imprimir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   };

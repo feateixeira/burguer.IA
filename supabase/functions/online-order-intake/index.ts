@@ -828,7 +828,7 @@ serve(async (req) => {
       discount_amount: discountAmount,
       total_amount: totalAmount,
       status: 'pending',
-      payment_status: 'paid', // Pagamento já é considerado efetuado ao finalizar venda
+      payment_status: 'pending', // Confirmado pelo estabelecimento na página Pedidos (Pendentes)
       payment_method: normalizedPaymentMethod,
       notes: orderNotes,
       source_domain: source_domain || null,

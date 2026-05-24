@@ -48,6 +48,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { checkFreeDeliveryPromotion, registerFreeDeliveryUsage } from "@/utils/freeDeliveryPromotion";
 import { CreditSaleModal } from "@/components/CreditSaleModal";
 import { useCreditDueDateAlerts } from "@/hooks/useCreditDueDateAlerts";
+import {
+  PAYMENT_METHOD_A_CONFIRMAR,
+  paymentMethodForInsert,
+} from "@/utils/paymentMethod";
 import { CreditDueDateAlertModal } from "@/components/CreditDueDateAlertModal";
 import {
   registerCachapaEstablishmentIfOwner,
@@ -2000,7 +2004,7 @@ const PDV = () => {
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
           status: "pending",
           payment_status: "pending", // Fiado não é pago ainda
-          payment_method: null, // Será definido quando receber
+          payment_method: PAYMENT_METHOD_A_CONFIRMAR,
           subtotal: subtotal,
           discount_amount: discountAmount,
           delivery_fee: finalDeliveryFee,
@@ -2444,7 +2448,7 @@ const PDV = () => {
           subtotal,
           discount_amount: discountAmount,
           total_amount: finalTotal || subtotal,
-          payment_method: parsed.paymentMethod,
+          payment_method: paymentMethodForInsert(parsed.paymentMethod),
           payment_status: "paid",
           status: "completed",
         })

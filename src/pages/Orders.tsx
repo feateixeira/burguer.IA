@@ -82,6 +82,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ChangePaymentMethodModal } from "@/components/orders/ChangePaymentMethodModal";
+import {
+  getPaymentMethodLabel,
+  getPaymentMethodSiteConfirmLabel,
+  isPaymentMethodToConfirm,
+  type OrderPaymentMethod,
+} from "@/utils/paymentMethod";
 
 // Função para formatar valores monetários no padrão brasileiro
 const formatCurrencyBR = (value: number): string => {
@@ -263,6 +270,12 @@ const Orders = () => {
     newPaymentMethod: string;
     fallbackOrder: Order;
   } | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [orderForPaymentChange, setOrderForPaymentChange] = useState<Order | null>(null);
+  const [savingPaymentMethod, setSavingPaymentMethod] = useState(false);
+  const [showPaymentConfirmDialog, setShowPaymentConfirmDialog] = useState(false);
+  const [pendingPaymentConfirmOrder, setPendingPaymentConfirmOrder] =
+    useState<Order | null>(null);
   const navigate = useNavigate();
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
@@ -686,6 +699,49 @@ const Orders = () => {
     } catch (error) {
       toast.error("Erro ao excluir pedido");
     }
+  };
+
+  const handleSavePaymentMethod = async (
+    order: Order,
+    newPaymentMethod: OrderPaymentMethod
+  ) => {
+    setSavingPaymentMethod(true);
+    try {
+      const paymentMethodChanged = newPaymentMethod !== order.payment_method;
+
+      const { error } = await supabase
+        .from("orders")
+        .update({ payment_method: newPaymentMethod })
+        .eq("id", order.id);
+
+      if (error) throw error;
+
+      toast.success("Forma de pagamento atualizada");
+      setIsPaymentModalOpen(false);
+      setOrderForPaymentChange(null);
+      loadOrders();
+
+      if (paymentMethodChanged) {
+        setPendingPrintAfterPaymentChange({
+          orderId: order.id,
+          newPaymentMethod,
+          fallbackOrder: order,
+        });
+        setPrintAfterPaymentChangeOpen(true);
+      }
+    } catch (error: any) {
+      console.error("Erro ao atualizar forma de pagamento:", error);
+      toast.error(
+        `Erro ao atualizar forma de pagamento: ${error.message || "Erro desconhecido"}`
+      );
+    } finally {
+      setSavingPaymentMethod(false);
+    }
+  };
+
+  const openPaymentMethodModal = (order: Order) => {
+    setOrderForPaymentChange(order);
+    setIsPaymentModalOpen(true);
   };
 
   const handleUpdateOrder = async (e: React.FormEvent) => {
@@ -1630,6 +1686,50 @@ const Orders = () => {
     }
   };
 
+  const continueAcceptAndPrintFlow = async (order: Order) => {
+    const isDelivery = order.order_type === "delivery";
+
+    if (isDelivery && establishment) {
+      const { data: boys, error } = await supabase
+        .from("delivery_boys")
+        .select("id, name")
+        .eq("establishment_id", establishment.id)
+        .eq("active", true)
+        .order("name");
+
+      if (!error && boys && boys.length > 1) {
+        setDeliveryBoys(boys);
+        setPendingOrderForAccept(order);
+        setSelectedDeliveryBoyId("");
+        setShowDeliveryBoyDialog(true);
+        return;
+      }
+      if (!error && boys && boys.length === 1) {
+        await handleAcceptAndPrintOrder(order, boys[0].id);
+        return;
+      }
+    }
+
+    await handleAcceptAndPrintOrder(order);
+  };
+
+  const requestAcceptAndPrint = (order: Order) => {
+    if (orderRequiresCashToAccept(order)) {
+      setPendingPaymentConfirmOrder(order);
+      setShowPaymentConfirmDialog(true);
+      return;
+    }
+    void continueAcceptAndPrintFlow(order);
+  };
+
+  const confirmAcceptAndPrintAfterPaymentCheck = async () => {
+    const order = pendingPaymentConfirmOrder;
+    if (!order) return;
+    setShowPaymentConfirmDialog(false);
+    setPendingPaymentConfirmOrder(null);
+    await continueAcceptAndPrintFlow(order);
+  };
+
   const handleAcceptAndPrintOrder = async (order: Order, deliveryBoyId?: string) => {
     try {
       const isFromNaBrasaSite = order.source_domain?.toLowerCase().includes('hamburguerianabrasa') || false;
@@ -1927,13 +2027,13 @@ const Orders = () => {
                 <Clock className="h-4 w-4" />
                 Pendentes (Cardápio Online)
               </TabsTrigger>
-              <TabsTrigger value="totem" className="flex items-center gap-2">
-                <Monitor className="h-4 w-4" />
-                Totem
-              </TabsTrigger>
               <TabsTrigger value="completed" className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
                 PDV / Concluídos
+              </TabsTrigger>
+              <TabsTrigger value="totem" className="flex items-center gap-2">
+                <Monitor className="h-4 w-4" />
+                Totem
               </TabsTrigger>
               <TabsTrigger value="to_receive" className="flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
@@ -2288,6 +2388,15 @@ const Orders = () => {
                                   FIADO
                                 </Badge>
                               )}
+                              {isPaymentMethodToConfirm(order.payment_method) ? (
+                                <Badge className="text-xs bg-[#f97316] hover:bg-[#f97316] text-white border-none font-bold">
+                                  ⚠️ À CONFIRMAR
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">
+                                  {getPaymentMethodLabel(order.payment_method)}
+                                </Badge>
+                              )}
                             </h3>
                             <div className="space-y-1 text-sm text-muted-foreground">
                               {order.customer_name && (
@@ -2330,15 +2439,22 @@ const Orders = () => {
                                   )}
                                 </Badge>
                               )}
-                              <Badge 
-                                variant="outline"
-                                className={order.payment_status === "paid" 
-                                  ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20" 
-                                  : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20"
-                                }
-                              >
-                                {order.payment_status === "paid" ? "Pago" : "Pendente"}
-                              </Badge>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge 
+                                  variant="outline"
+                                  className={order.payment_status === "paid" 
+                                    ? "border-green-500 text-green-700 bg-green-50 dark:bg-green-950/20" 
+                                    : "border-orange-500 text-orange-700 bg-orange-50 dark:bg-orange-950/20"
+                                  }
+                                >
+                                  {order.payment_status === "paid" ? "Pago" : "Pendente"}
+                                </Badge>
+                                {isPaymentMethodToConfirm(order.payment_method) && (
+                                  <Badge className="bg-[#f97316] hover:bg-[#f97316] text-white border-none text-[11px] font-bold tracking-wide px-2.5 py-0.5">
+                                    ⚠️ Pagamento a confirmar
+                                  </Badge>
+                                )}
+                              </div>
                               {order.rejection_reason && (
                                 <div className="mt-2 p-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded text-xs">
                                   <strong className="text-red-900 dark:text-red-100 block mb-1">Motivo da Recusa:</strong>
@@ -2372,11 +2488,7 @@ const Orders = () => {
                                 <Button 
                                   variant="default" 
                                   size="sm"
-                                  onClick={() => {
-                                    setSelectedOrder(order);
-                                    setEditPaymentMethod(order.payment_method || "");
-                                    setIsEditDialogOpen(true);
-                                  }}
+                                  onClick={() => openPaymentMethodModal(order)}
                                   className="h-9 px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-md hover:shadow-lg transition-all"
                                 >
                                   <CreditCard className="h-4 w-4 mr-2" />
@@ -2496,6 +2608,17 @@ const Orders = () => {
                                     </DropdownMenuItem>
                                   )}
 
+                                  {/* Alterar Pagamento (atalho rápido) */}
+                                  {isPaymentMethodToConfirm(order.payment_method) && !isFromNaBrasaSite && (
+                                    <DropdownMenuItem onSelect={(e) => {
+                                      e.preventDefault();
+                                      openPaymentMethodModal(order);
+                                    }}>
+                                      <CreditCard className="h-4 w-4 mr-2" />
+                                      Alterar Pagamento
+                                    </DropdownMenuItem>
+                                  )}
+
                                   {/* Editar Pedido */}
                                   <DropdownMenuItem onSelect={(e) => {
                                     e.preventDefault();
@@ -2571,11 +2694,7 @@ const Orders = () => {
                                           <div>
                                             <strong>Método:</strong>{" "}
                                             <Badge variant="outline" className="ml-2">
-                                              {order.payment_method === 'dinheiro' ? 'Dinheiro' :
-                                               order.payment_method === 'pix' ? 'PIX' :
-                                               order.payment_method === 'cartao_debito' ? 'Débito' :
-                                               order.payment_method === 'cartao_credito' ? 'Crédito' :
-                                               order.payment_method || 'N/A'}
+                                              {getPaymentMethodLabel(order.payment_method)}
                                             </Badge>
                                           </div>
                                           {order.source_domain && (
@@ -2757,36 +2876,7 @@ const Orders = () => {
                             <Button 
                               variant="default" 
                               size="sm"
-                              onClick={async () => {
-                                // Verificar se é pedido de entrega
-                                const isDelivery = order.order_type === 'delivery';
-                                
-                                if (isDelivery && establishment) {
-                                  // Buscar motoboys ativos
-                                  const { data: boys, error } = await supabase
-                                    .from("delivery_boys")
-                                    .select("id, name")
-                                    .eq("establishment_id", establishment.id)
-                                    .eq("active", true)
-                                    .order("name");
-                                  
-                                  if (!error && boys && boys.length > 1) {
-                                    // Se houver mais de um motoboy, mostrar diálogo de seleção
-                                    setDeliveryBoys(boys);
-                                    setPendingOrderForAccept(order);
-                                    setSelectedDeliveryBoyId("");
-                                    setShowDeliveryBoyDialog(true);
-                                    return;
-                                  } else if (!error && boys && boys.length === 1) {
-                                    // Se houver apenas um, usar automaticamente
-                                    await handleAcceptAndPrintOrder(order, boys[0].id);
-                                    return;
-                                  }
-                                }
-                                
-                                // Se não for entrega ou não houver motoboys, aceitar normalmente
-                                await handleAcceptAndPrintOrder(order);
-                              }}
+                              onClick={() => requestAcceptAndPrint(order)}
                               className="h-8 px-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white text-xs font-medium shadow-sm hover:shadow transition-all border border-green-400"
                             >
                               <Printer className="h-3.5 w-3.5 mr-1.5" />
@@ -2806,6 +2896,21 @@ const Orders = () => {
                   })}
                 </>
               ) : null}
+
+              <ChangePaymentMethodModal
+                open={isPaymentModalOpen}
+                order={orderForPaymentChange}
+                onClose={() => {
+                  setIsPaymentModalOpen(false);
+                  setOrderForPaymentChange(null);
+                }}
+                onSave={(method) =>
+                  orderForPaymentChange
+                    ? handleSavePaymentMethod(orderForPaymentChange, method)
+                    : Promise.resolve()
+                }
+                saving={savingPaymentMethod}
+              />
 
               {/* Diálogo de Edição - Compartilhado para todos os pedidos */}
               <Dialog 
@@ -2991,6 +3096,41 @@ const Orders = () => {
         </Dialog>
         
         {/* Dialog para seleção de motoboy - fora do map */}
+        <AlertDialog
+          open={showPaymentConfirmDialog}
+          onOpenChange={(open) => {
+            setShowPaymentConfirmDialog(open);
+            if (!open) setPendingPaymentConfirmOrder(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-base font-semibold leading-snug">
+                💳 Forma de pagamento:{" "}
+                {getPaymentMethodSiteConfirmLabel(
+                  pendingPaymentConfirmOrder?.payment_method
+                )}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-sm pt-1">
+                Confirme com o cliente antes de aceitar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void confirmAcceptAndPrintAfterPaymentCheck();
+                }}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Confirmar e Imprimir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <Dialog open={showDeliveryBoyDialog} onOpenChange={setShowDeliveryBoyDialog}>
           <DialogContent>
             <DialogHeader>

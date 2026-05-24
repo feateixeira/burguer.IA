@@ -7,6 +7,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function normalizePaymentMethod(method: string | null | undefined): string {
+  if (!method || !String(method).trim()) return 'a_confirmar';
+  const normalized = String(method).toLowerCase().trim();
+  const validMethods = [
+    'dinheiro', 'pix', 'cartao_credito', 'cartao_debito',
+    'online', 'whatsapp', 'balcao', 'a_confirmar',
+  ];
+  if (validMethods.includes(normalized)) return normalized;
+  if (normalized === 'cash' || normalized === 'money') return 'dinheiro';
+  if (normalized === 'credito' || normalized === 'credit') return 'cartao_credito';
+  if (normalized === 'debito' || normalized === 'debit') return 'cartao_debito';
+  return 'a_confirmar';
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -192,7 +206,7 @@ INSTRUÇÕES IMPORTANTES:
         total_amount: totalAmount,
         status: 'pending',
         payment_status: 'paid', // Pagamento já é considerado efetuado ao finalizar venda
-        payment_method: parsedOrder.payment_info?.method || null,
+        payment_method: normalizePaymentMethod(parsedOrder.payment_info?.method),
         notes: parsedOrder.general_notes || null,
       })
       .select()

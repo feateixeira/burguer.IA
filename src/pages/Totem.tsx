@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { normalizeImageUrl } from "@/utils/imageUrl";
 import { AddonsModal } from "@/components/AddonsModal";
+import { PAYMENT_METHOD_A_CONFIRMAR } from "@/utils/paymentMethod";
 
 interface Product {
   id: string;
@@ -693,6 +694,7 @@ export default function Totem() {
           total_amount: subtotal,
           status: "pending",
           payment_status: "paid", // Pagamento já é considerado efetuado ao finalizar venda
+          payment_method: PAYMENT_METHOD_A_CONFIRMAR,
           channel: "totem", // Identificar pedidos do totem
           origin: "totem",
         })

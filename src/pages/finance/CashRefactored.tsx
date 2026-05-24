@@ -53,6 +53,12 @@ import { ptBR } from "date-fns/locale";
 import { useCashSession, CashSessionTotals } from "@/hooks/useCashSession";
 import { useTeamUser } from "@/components/TeamUserProvider";
 import { formatCurrency, parseCurrency, currencyMask } from "@/utils/currency";
+import { CashClosingConference } from "@/components/cash/CashClosingConference";
+import {
+  isOrderInCashSessionWindow,
+  isPaymentMethodToConfirm,
+  PAYMENT_METHOD_A_CONFIRMAR,
+} from "@/utils/paymentMethod";
 
 interface CashTransaction {
   id: string;
@@ -116,9 +122,13 @@ const CashRefactored = () => {
   const [closingNote, setClosingNote] = useState("");
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDescription, setTransactionDescription] = useState("");
+  const [pedidosAConfirmar, setPedidosAConfirmar] = useState(0);
   
   // RBAC - mostrar valores apenas para Master/Admin/Gerente
-  const canViewTotals = teamUser?.role === "master" || teamUser?.role === "admin";
+  const canViewTotals =
+    teamUser?.role === "master" ||
+    teamUser?.role === "admin" ||
+    teamUser?.role === "gerente";
   const isAttendant = teamUser?.role === "atendente";
   const canCloseCash = canViewTotals || isAttendant; // Master/Admin e Atendentes podem fechar (mas com fluxos diferentes)
   const canOpenCash = canViewTotals || isAttendant; // Atendente pode abrir dependendo da política
@@ -191,10 +201,43 @@ const CashRefactored = () => {
   useEffect(() => {
     if (closeDialog && session && profile) {
       loadDeliveryBoysData();
+      loadPedidosAConfirmarCount();
     } else if (!closeDialog) {
       setDeliveryBoysData([]);
+      setPedidosAConfirmar(0);
     }
   }, [closeDialog, session, profile]);
+
+  const loadPedidosAConfirmarCount = async () => {
+    if (!session || !profile?.establishment_id) return;
+
+    try {
+      const sessionOpenedAt = new Date(session.opened_at).toISOString();
+
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, payment_method, status, created_at, updated_at")
+        .eq("establishment_id", profile.establishment_id)
+        .neq("status", "cancelled")
+        .or(
+          `payment_method.eq.${PAYMENT_METHOD_A_CONFIRMAR},payment_method.is.null`
+        )
+        .or(`created_at.gte.${sessionOpenedAt},updated_at.gte.${sessionOpenedAt}`);
+
+      if (error) throw error;
+
+      const count = (data || []).filter(
+        (o) =>
+          isOrderInCashSessionWindow(o, session.opened_at) &&
+          isPaymentMethodToConfirm(o.payment_method)
+      ).length;
+
+      setPedidosAConfirmar(count);
+    } catch (error) {
+      console.error("Error loading unconfirmed payment orders:", error);
+      setPedidosAConfirmar(0);
+    }
+  };
 
   const loadProfile = async () => {
     try {
@@ -861,49 +904,19 @@ const CashRefactored = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 overflow-y-auto flex-1 min-h-0">
-            {/* Resultado do Turno (Read-only) - Apenas para Master/Admin */}
-            {canViewTotals && (
+            {/* Resultado do Turno com conferência — Master/Admin/Gerente */}
+            {canViewTotals && totals && (
+              <CashClosingConference
+                key={`close-${session.id}-${pedidosAConfirmar}`}
+                totals={totals}
+                pedidosAConfirmar={pedidosAConfirmar}
+                openingAmount={session?.opening_amount || 0}
+              />
+            )}
+            {canViewTotals && !totals && (
               <div className="space-y-3">
                 <h4 className="font-semibold text-sm">Resultado do Turno</h4>
-                <div className="bg-muted p-4 rounded-md space-y-2">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Dinheiro Esperado</p>
-                      <p className="font-semibold">
-                        {totals ? formatCurrency(totals.expected_cash) : "-"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        (Abertura: {formatCurrency(session?.opening_amount || 0)})
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">PIX Esperado</p>
-                      <p className="font-semibold">
-                        {totals ? formatCurrency(totals.expected_pix) : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Débito Esperado</p>
-                      <p className="font-semibold">
-                        {totals ? formatCurrency(totals.expected_debit) : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Crédito Esperado</p>
-                      <p className="font-semibold">
-                        {totals ? formatCurrency(totals.expected_credit) : "-"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium">Total Esperado:</span>
-                      <span className="text-lg font-bold">
-                        {totals ? formatCurrency(totals.expected_total) : "-"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground">Carregando totais...</p>
               </div>
             )}
 

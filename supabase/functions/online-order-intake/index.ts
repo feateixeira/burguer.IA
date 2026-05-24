@@ -768,9 +768,9 @@ serve(async (req) => {
     }
     
     // Normalizar método de pagamento para valores aceitos pelo banco
-    // Valores aceitos: 'dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao'
+    // Valores aceitos: 'dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao', 'a_confirmar'
     const normalizePaymentMethod = (method: string | null | undefined): string => {
-      if (!method) return 'whatsapp'; // padrão para pedidos sem método especificado
+      if (!method) return 'a_confirmar';
       
       const normalized = method.toLowerCase().trim();
       
@@ -792,13 +792,16 @@ serve(async (req) => {
       }
       
       // Se já for um valor válido, retorna como está
-      const validMethods = ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao'];
+      const validMethods = ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao', 'a_confirmar'];
       if (validMethods.includes(normalized)) {
         return normalized;
       }
+      if (normalized === 'a confirmar' || normalized === 'à confirmar') {
+        return 'a_confirmar';
+      }
       
-      // Para qualquer outro valor desconhecido, usar 'online' como padrão genérico
-      return 'online';
+      // Valor desconhecido: operador define no atendimento
+      return 'a_confirmar';
     };
     
     const rawPaymentMethod = order.payment?.method || order.payment_method || null;

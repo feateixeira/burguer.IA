@@ -89,6 +89,23 @@ import {
   isPaymentMethodToConfirm,
   type OrderPaymentMethod,
 } from "@/utils/paymentMethod";
+import { Switch } from "@/components/ui/switch";
+import {
+  getAutoAcceptOrdersEnabled,
+  setAutoAcceptOrdersEnabled,
+} from "@/utils/orderAutoAcceptStorage";
+import {
+  getAutoAcceptProcessor,
+  registerAutoAcceptProcessor,
+} from "@/lib/orderActionsBridge";
+import {
+  checkAndRejectIfDuplicate,
+  fetchOrderForAutoAccept,
+} from "@/services/orderAutoAcceptService";
+import {
+  isPendingSiteOrderForAutoAccept,
+} from "@/utils/orderSiteOrder";
+import type { OrderDuplicateCandidate } from "@/utils/orderDuplicateDetection";
 
 // Função para formatar valores monetários no padrão brasileiro
 const formatCurrencyBR = (value: number): string => {
@@ -276,6 +293,7 @@ const Orders = () => {
   const [showPaymentConfirmDialog, setShowPaymentConfirmDialog] = useState(false);
   const [pendingPaymentConfirmOrder, setPendingPaymentConfirmOrder] =
     useState<Order | null>(null);
+  const [autoAcceptOrders, setAutoAcceptOrders] = useState(false);
   const navigate = useNavigate();
   const sidebarWidth = useSidebarWidth();
   const [isDesktop, setIsDesktop] = useState(false);
@@ -1686,7 +1704,10 @@ const Orders = () => {
     }
   };
 
-  const continueAcceptAndPrintFlow = async (order: Order) => {
+  const continueAcceptAndPrintFlow = async (
+    order: Order,
+    options?: { autoMode?: boolean }
+  ) => {
     const isDelivery = order.order_type === "delivery";
 
     if (isDelivery && establishment) {
@@ -1697,15 +1718,15 @@ const Orders = () => {
         .eq("active", true)
         .order("name");
 
-      if (!error && boys && boys.length > 1) {
+      if (!error && boys && boys.length > 0) {
+        if (options?.autoMode || boys.length === 1) {
+          await handleAcceptAndPrintOrder(order, boys[0].id);
+          return;
+        }
         setDeliveryBoys(boys);
         setPendingOrderForAccept(order);
         setSelectedDeliveryBoyId("");
         setShowDeliveryBoyDialog(true);
-        return;
-      }
-      if (!error && boys && boys.length === 1) {
-        await handleAcceptAndPrintOrder(order, boys[0].id);
         return;
       }
     }
@@ -1728,6 +1749,109 @@ const Orders = () => {
     setShowPaymentConfirmDialog(false);
     setPendingPaymentConfirmOrder(null);
     await continueAcceptAndPrintFlow(order);
+  };
+
+  const continueAcceptAndPrintFlowRef = useRef(continueAcceptAndPrintFlow);
+  continueAcceptAndPrintFlowRef.current = continueAcceptAndPrintFlow;
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    setAutoAcceptOrders(getAutoAcceptOrdersEnabled(establishment.id));
+
+    const onStorageChange = (e: StorageEvent) => {
+      if (e.key === `burguer_auto_accept_orders_${establishment.id}`) {
+        setAutoAcceptOrders(e.newValue === "1");
+      }
+    };
+    const onCustomChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ establishmentId: string; enabled: boolean }>)
+        .detail;
+      if (detail?.establishmentId === establishment.id) {
+        setAutoAcceptOrders(detail.enabled);
+      }
+    };
+    window.addEventListener("storage", onStorageChange);
+    window.addEventListener("auto-accept-orders-changed", onCustomChange);
+    return () => {
+      window.removeEventListener("storage", onStorageChange);
+      window.removeEventListener("auto-accept-orders-changed", onCustomChange);
+    };
+  }, [establishment?.id]);
+
+  useEffect(() => {
+    if (!establishment?.id) {
+      registerAutoAcceptProcessor(null);
+      return;
+    }
+
+    registerAutoAcceptProcessor(async (orderId: string) => {
+      if (!getAutoAcceptOrdersEnabled(establishment.id)) return;
+
+      try {
+        const fetched = await fetchOrderForAutoAccept(orderId);
+        if (!fetched || !isPendingSiteOrderForAutoAccept(fetched)) return;
+
+        const dup = await checkAndRejectIfDuplicate(
+          fetched as OrderDuplicateCandidate,
+          establishment.id
+        );
+        if (dup.isDuplicate) {
+          toast.warning("Pedido duplicado recusado automaticamente", {
+            description: `Mantido pedido #${dup.keptOrderNumber}`,
+            duration: 8000,
+          });
+          loadOrders();
+          return;
+        }
+
+        const orderForAccept = fetched as Order;
+        await continueAcceptAndPrintFlowRef.current(orderForAccept, {
+          autoMode: true,
+        });
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : "";
+        if (msg === "CAIXA_FECHADO") {
+          toast.error(
+            "Aceite automático: abra o caixa no PDV para aceitar pedidos do site."
+          );
+        } else {
+          console.error("[auto-accept bridge]", error);
+        }
+      }
+    });
+
+    return () => registerAutoAcceptProcessor(null);
+  }, [establishment?.id]);
+
+  const processPendingAutoAcceptBacklog = async () => {
+    if (!establishment?.id || !getAutoAcceptOrdersEnabled(establishment.id)) return;
+
+    const bridge = getAutoAcceptProcessor();
+    if (!bridge) return;
+
+    const pending = orders.filter((o) => isPendingSiteOrderForAutoAccept(o));
+    for (const o of pending) {
+      await bridge(o.id);
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  };
+
+  const handleToggleAutoAccept = (enabled: boolean) => {
+    if (!establishment?.id) return;
+    if (enabled && !hasOpenSession) {
+      toast.error("Abra o caixa antes de ativar o aceite automático de pedidos.");
+      return;
+    }
+    setAutoAcceptOrders(enabled);
+    setAutoAcceptOrdersEnabled(establishment.id, enabled);
+    if (enabled) {
+      toast.success("Aceite automático ativado", {
+        description: "Novos pedidos do site serão aceitos e impressos automaticamente.",
+      });
+      void processPendingAutoAcceptBacklog();
+    } else {
+      toast.info("Aceite automático desativado");
+    }
   };
 
   const handleAcceptAndPrintOrder = async (order: Order, deliveryBoyId?: string) => {
@@ -2008,7 +2132,31 @@ const Orders = () => {
         <div className="w-full">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-foreground">Gerenciar Pedidos</h1>
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+                  autoAcceptOrders
+                    ? "border-[#f97316] bg-[#fff7ed] dark:bg-orange-950/20"
+                    : "border-border bg-muted/40"
+                }`}
+              >
+                <Switch
+                  id="auto-accept-orders"
+                  checked={autoAcceptOrders}
+                  onCheckedChange={handleToggleAutoAccept}
+                />
+                <Label
+                  htmlFor="auto-accept-orders"
+                  className="text-sm font-medium cursor-pointer leading-tight"
+                >
+                  Aceitar pedidos automaticamente
+                  {autoAcceptOrders && (
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      Duplicados serão recusados
+                    </span>
+                  )}
+                </Label>
+              </div>
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                 <Input

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
+import { useAutoAcceptOrders } from "@/hooks/useAutoAcceptOrders";
+import { useCashSession } from "@/hooks/useCashSession";
 
 export function OrderNotificationProvider({ children }: { children: React.ReactNode }) {
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
@@ -57,8 +59,11 @@ export function OrderNotificationProvider({ children }: { children: React.ReactN
     };
   }, [location.pathname]);
 
+  const { hasOpenSession } = useCashSession(establishmentId);
+
   // Hook for order notifications (funciona em qualquer página autenticada)
   useOrderNotifications(establishmentId);
+  useAutoAcceptOrders(establishmentId, hasOpenSession);
 
   return <>{children}</>;
 }

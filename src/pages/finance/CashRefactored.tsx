@@ -46,7 +46,8 @@ import {
   TrendingDown,
   Eye,
   EyeOff,
-  Truck
+  Truck,
+  Printer
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -59,6 +60,8 @@ import {
   isPaymentMethodToConfirm,
   PAYMENT_METHOD_A_CONFIRMAR,
 } from "@/utils/paymentMethod";
+import { fetchCashClosingReportData } from "@/utils/cashClosingReport";
+import { printCashClosingReport } from "@/utils/cashClosingReportPrinter";
 
 interface CashTransaction {
   id: string;
@@ -123,6 +126,7 @@ const CashRefactored = () => {
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDescription, setTransactionDescription] = useState("");
   const [pedidosAConfirmar, setPedidosAConfirmar] = useState(0);
+  const [printingClosingReport, setPrintingClosingReport] = useState(false);
   
   // RBAC - mostrar valores apenas para Master/Admin/Gerente
   const canViewTotals =
@@ -361,6 +365,42 @@ const CashRefactored = () => {
     } catch (error) {
       console.error("Error loading delivery boys data:", error);
       setDeliveryBoysData([]);
+    }
+  };
+
+  const handlePrintClosingReport = async () => {
+    if (!session || !profile?.establishment_id) {
+      toast.error("Sessão de caixa não encontrada");
+      return;
+    }
+
+    setPrintingClosingReport(true);
+    try {
+      const { data: establishment, error: estError } = await supabase
+        .from("establishments")
+        .select("name")
+        .eq("id", profile.establishment_id)
+        .single();
+
+      if (estError) throw estError;
+
+      const reportData = await fetchCashClosingReportData({
+        establishmentId: profile.establishment_id,
+        establishmentName: establishment?.name || "Estabelecimento",
+        sessionId: session.id,
+        sessionOpenedAt: session.opened_at,
+        sessionClosedAt: session.closed_at,
+        openingAmount: session.opening_amount || 0,
+        totals,
+      });
+
+      printCashClosingReport(reportData);
+      toast.success("Detalhamento enviado para impressão");
+    } catch (error) {
+      console.error("Error printing cash closing report:", error);
+      toast.error("Erro ao imprimir detalhamento do caixa");
+    } finally {
+      setPrintingClosingReport(false);
     }
   };
 
@@ -1055,7 +1095,17 @@ const CashRefactored = () => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full sm:w-auto sm:mr-auto"
+              onClick={() => void handlePrintClosingReport()}
+              disabled={printingClosingReport || !session}
+            >
+              <Printer className="h-4 w-4 mr-2" />
+              {printingClosingReport ? "Gerando..." : "Imprimir detalhamento"}
+            </Button>
             <Button variant="outline" onClick={() => setCloseDialog(false)}>
               Cancelar
             </Button>

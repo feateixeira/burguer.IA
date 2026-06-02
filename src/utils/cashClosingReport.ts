@@ -5,6 +5,7 @@ import {
   isPaymentMethodToConfirm,
   PAYMENT_METHOD_A_CONFIRMAR,
 } from "@/utils/paymentMethod";
+import { isCancelledOrder, isDeliveryOrder } from "@/utils/deliveryOrder";
 
 export interface CashReportOrderLine {
   orderNumber: string;
@@ -31,6 +32,12 @@ export interface CashReportDeliveryBoyGroup {
   lines: CashReportOrderLine[];
 }
 
+export interface CashReportUnassignedDelivery {
+  orderNumber: string;
+  time: string;
+  sortAt: number;
+}
+
 export interface CashClosingReportData {
   establishmentName: string;
   sessionOpenedAt: string;
@@ -39,6 +46,9 @@ export interface CashClosingReportData {
   totals: CashSessionTotals | null;
   paymentGroups: CashReportPaymentGroup[];
   deliveryBoyGroups: CashReportDeliveryBoyGroup[];
+  /** Todas as entregas do período (com ou sem motoboy). */
+  totalDeliveriesCount: number;
+  unassignedDeliveries: CashReportUnassignedDelivery[];
   pedidosAConfirmar: number;
   ordersInCashCount: number;
 }
@@ -64,6 +74,8 @@ interface SessionOrderRow {
   accepted_and_printed_at?: string | null;
   delivery_boy_id?: string | null;
   order_type?: string | null;
+  delivery_type?: string | null;
+  delivery_fee?: number | null;
 }
 
 const PAYMENT_METHOD_ORDER = [
@@ -259,7 +271,9 @@ export async function fetchCashClosingReportData(params: {
       origin,
       accepted_and_printed_at,
       delivery_boy_id,
-      order_type
+      order_type,
+      delivery_type,
+      delivery_fee
     `
     )
     .eq("establishment_id", establishmentId)
@@ -326,14 +340,26 @@ export async function fetchCashClosingReportData(params: {
     ? new Date(sessionClosedAt).getTime()
     : Date.now();
 
-  const deliveryOrders = rows.filter((o) => {
-    if (o.order_type !== "delivery" || !o.delivery_boy_id) return false;
+  const allDeliveryOrders = rows.filter((o) => {
+    if (isCancelledOrder(o.status)) return false;
+    if (!isDeliveryOrder(o)) return false;
     const t = new Date(o.created_at).getTime();
     return t >= sessionOpened && t < sessionEnd;
   });
 
+  const unassignedDeliveries: CashReportUnassignedDelivery[] = allDeliveryOrders
+    .filter((o) => !o.delivery_boy_id)
+    .map((o) => ({
+      orderNumber: formatOrderNumber(o.order_number),
+      time: formatTime(o.created_at),
+      sortAt: new Date(o.created_at).getTime(),
+    }))
+    .sort((a, b) => a.sortAt - b.sortAt);
+
+  const assignedDeliveryOrders = allDeliveryOrders.filter((o) => o.delivery_boy_id);
+
   const boyIds = [
-    ...new Set(deliveryOrders.map((o) => o.delivery_boy_id).filter(Boolean)),
+    ...new Set(assignedDeliveryOrders.map((o) => o.delivery_boy_id).filter(Boolean)),
   ] as string[];
 
   let deliveryBoyGroups: CashReportDeliveryBoyGroup[] = [];
@@ -346,7 +372,7 @@ export async function fetchCashClosingReportData(params: {
 
     deliveryBoyGroups = (boys || [])
       .map((boy: { id: string; name: string; daily_rate: number; delivery_fee: number }) => {
-        const deliveries = deliveryOrders.filter((o) => o.delivery_boy_id === boy.id);
+        const deliveries = assignedDeliveryOrders.filter((o) => o.delivery_boy_id === boy.id);
         const lines: CashReportOrderLine[] = deliveries
           .map((o) => ({
             orderNumber: formatOrderNumber(o.order_number),
@@ -384,6 +410,8 @@ export async function fetchCashClosingReportData(params: {
     totals,
     paymentGroups,
     deliveryBoyGroups,
+    totalDeliveriesCount: allDeliveryOrders.length,
+    unassignedDeliveries,
     pedidosAConfirmar: pedidosAConfirmarSession,
     ordersInCashCount: cashOrders.length,
   };

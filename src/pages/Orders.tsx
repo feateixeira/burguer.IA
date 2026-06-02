@@ -109,6 +109,7 @@ import {
 import {
   isPendingSiteOrderForAutoAccept,
 } from "@/utils/orderSiteOrder";
+import { isDeliveryOrder } from "@/utils/deliveryOrder";
 import type { OrderDuplicateCandidate } from "@/utils/orderDuplicateDetection";
 
 // Função para formatar valores monetários no padrão brasileiro
@@ -1900,13 +1901,17 @@ const Orders = () => {
         }
       }
 
-      const isDelivery = order.order_type === 'delivery';
-      const hasAddress = order.notes?.toLowerCase().includes('endereço:') || false;
+      const isDelivery = isDeliveryOrder(order);
       const hasDeliveryBoy = order.delivery_boy_id !== null && order.delivery_boy_id !== undefined;
-      
+
+      if (isDelivery) {
+        updateData.order_type = "delivery";
+        updateData.delivery_type = "delivery";
+      }
+
       if (deliveryBoyId) {
         updateData.delivery_boy_id = deliveryBoyId;
-      } else if (isFromNaBrasaSite && isDelivery && hasAddress && !hasDeliveryBoy && establishment) {
+      } else if (isDelivery && !hasDeliveryBoy && establishment) {
         const { data: deliveryBoys, error: deliveryBoysError } = await supabase
           .from("delivery_boys")
           .select("id")

@@ -4,6 +4,7 @@ import {
   type OrderDuplicateCandidate,
 } from "@/utils/orderDuplicateDetection";
 import { isPendingSiteOrderForAutoAccept } from "@/utils/orderSiteOrder";
+import { isDeliveryOrder } from "@/utils/deliveryOrder";
 
 const ORDER_SELECT = `
   id,
@@ -135,11 +136,15 @@ export async function acceptOrderInAutoFlow(params: {
     }
   }
 
-  const isDelivery = order.order_type === "delivery";
-  const hasAddress = String(order.notes || "")
-    .toLowerCase()
-    .includes("endereço:");
+  const isDelivery = isDeliveryOrder(
+    order as { order_type?: string; delivery_type?: string; delivery_fee?: number; notes?: string }
+  );
   const hasDeliveryBoy = order.delivery_boy_id != null;
+
+  if (isDelivery) {
+    updateData.order_type = "delivery";
+    updateData.delivery_type = "delivery";
+  }
 
   if (isDelivery && !hasDeliveryBoy) {
     const { data: deliveryBoys } = await (supabase as any)

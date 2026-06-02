@@ -180,6 +180,12 @@ export function printCashClosingReport(data: CashClosingReportData): void {
         <div class="line">Fechamento: ${data.sessionClosedAt ? formatSessionDateTime(data.sessionClosedAt) : "Em aberto"}</div>
         <div class="line">Valor abertura: ${fmt(data.openingAmount)}</div>
         <div class="line">Pedidos no caixa: ${data.ordersInCashCount}</div>
+        <div class="line bold">Total entregas no período: ${data.totalDeliveriesCount}</div>
+        ${
+          data.unassignedDeliveries.length > 0
+            ? `<div class="line">Sem motoboy (${data.unassignedDeliveries.length}): ${data.unassignedDeliveries.map((u) => escapeHtml(u.orderNumber)).join(", ")}</div>`
+            : ""
+        }
         <div class="divider"></div>
         ${warnBlock}
         ${totalsBlock}
@@ -188,11 +194,11 @@ export function printCashClosingReport(data: CashClosingReportData): void {
           ${paymentSections || '<div class="line muted">Nenhum pedido no período</div>'}
         </div>
         ${
-          data.deliveryBoyGroups.length > 0
+          data.totalDeliveriesCount > 0
             ? `<div class="divider"></div>
                <div class="section">
                  <div class="section-title">ENTREGAS / MOTOBOYS</div>
-                 ${motoboySections}
+                 ${motoboySections || '<div class="line muted">Nenhuma entrega com motoboy atribuído</div>'}
                </div>`
             : ""
         }

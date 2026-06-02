@@ -799,13 +799,26 @@ serve(async (req) => {
     
     // Determinar o tipo final do pedido
     let finalOrderType: string;
+    const deliveryFormIsEntrega = !!(deliveryForm && (
+      deliveryForm.toLowerCase().includes('entrega') &&
+      !deliveryForm.toLowerCase().includes('retirar')
+    ));
+    const strongDeliverySignal =
+      (deliveryFee > 0 && hasValidAddress) ||
+      deliveryFormIsEntrega ||
+      (indicatesDelivery && hasValidAddress);
+
     if (isNaBrasaSite) {
       // Para Na Brasa: prioridade corrigida para evitar falso "COMER AQUI" em pedidos delivery
       // 1) Pickup explícito por campos de entrega/retirada sempre vence
       if (explicitPickupFromDeliveryForm || isPickupExplicit) {
         finalOrderType = 'pickup';
       }
-      // 2) Se veio como delivery e tem endereço válido, deve ser delivery
+      // 2) Entrega explícita (taxa, forma de entrega ou tipo delivery + endereço)
+      else if (strongDeliverySignal) {
+        finalOrderType = 'delivery';
+      }
+      // Legado: indicação delivery + endereço
       else if (indicatesDelivery && hasValidAddress) {
         finalOrderType = 'delivery';
       }

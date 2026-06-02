@@ -519,7 +519,7 @@ export const printReceiptNaBrasa = async (r: ReceiptData) => {
         <div class="line-solid"></div>
         <div class="totals-row"><span class="totals-label">Subtotal:</span><span class="totals-value">${formatCurrencyBR(r.subtotal)}</span></div>
         ${r.discountAmount > 0 ? `<div class="totals-row"><span class="totals-label">Desconto:</span><span class="totals-value">- ${formatCurrencyBR(r.discountAmount)}</span></div>` : ""}
-        ${r.deliveryFee > 0 ? `<div class="totals-row"><span class="totals-label">Taxa de Entrega:</span><span class="totals-value">${formatCurrencyBR(r.deliveryFee)}</span></div>` : ""}
+        ${r.deliveryFee > 0 ? `<div class="totals-row"><span class="totals-label">Delivery:</span><span class="totals-value">${formatCurrencyBR(r.deliveryFee)}</span></div>` : ""}
         <div class="line-dash"></div>
         <div class="totals-row total-final"><span class="totals-label">TOTAL:</span><span class="totals-value">${formatCurrencyBR(r.totalAmount)}</span></div>
         ${r.paymentMethod && typeof r.paymentAmount1 === "number" && r.paymentMethod2 && typeof r.paymentAmount2 === "number"
@@ -874,7 +874,7 @@ export const printNonFiscalReceiptNaBrasa = async (r: NonFiscalReceiptData) => {
         <div class="line-solid"></div>
         <div class="totals-row"><span class="totals-label">Subtotal:</span><span class="totals-value">${formatCurrencyBR(r.subtotal)}</span></div>
         ${r.discountAmount > 0 ? `<div class="totals-row"><span class="totals-label">Desconto:</span><span class="totals-value">- ${formatCurrencyBR(r.discountAmount)}</span></div>` : ""}
-        ${r.deliveryFee > 0 ? `<div class="totals-row"><span class="totals-label">Taxa de Entrega:</span><span class="totals-value">${formatCurrencyBR(r.deliveryFee)}</span></div>` : ""}
+        ${r.deliveryFee > 0 ? `<div class="totals-row"><span class="totals-label">Delivery:</span><span class="totals-value">${formatCurrencyBR(r.deliveryFee)}</span></div>` : ""}
         ${r.taxAmount && r.taxAmount > 0 ? `<div class="totals-row"><span class="totals-label">Acréscimos:</span><span class="totals-value">${formatCurrencyBR(r.taxAmount)}</span></div>` : ""}
         <div class="line-dash"></div>
         <div class="totals-row total-final"><span class="totals-label">TOTAL:</span><span class="totals-value">${formatCurrencyBR(r.totalAmount)}</span></div>

@@ -62,6 +62,7 @@ import {
 } from "@/utils/paymentMethod";
 import { fetchCashClosingReportData } from "@/utils/cashClosingReport";
 import { printCashClosingReport } from "@/utils/cashClosingReportPrinter";
+import { isDeliveryOrder } from "@/utils/deliveryOrder";
 
 interface CashTransaction {
   id: string;
@@ -98,6 +99,11 @@ interface DeliveryBoyData {
   total: number;
 }
 
+interface DeliveryPeriodStats {
+  totalCount: number;
+  unassignedOrderNumbers: string[];
+}
+
 const CashRefactored = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -106,6 +112,10 @@ const CashRefactored = () => {
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [sessionsHistory, setSessionsHistory] = useState<CashSessionHistory[]>([]);
   const [deliveryBoysData, setDeliveryBoysData] = useState<DeliveryBoyData[]>([]);
+  const [deliveryPeriodStats, setDeliveryPeriodStats] = useState<DeliveryPeriodStats>({
+    totalCount: 0,
+    unassignedOrderNumbers: [],
+  });
   
   // Dialogs
   const [openDialog, setOpenDialog] = useState(false);
@@ -311,28 +321,43 @@ const CashRefactored = () => {
     if (!session || !profile) return;
 
     try {
-      // Buscar entregas no período da sessão (de opened_at até agora)
       const openedAt = new Date(session.opened_at);
       const now = new Date();
 
-      const { data: deliveryOrders } = await supabase
+      const { data: periodOrders } = await supabase
         .from("orders")
-        .select("id, delivery_boy_id, order_type")
+        .select("id, order_number, delivery_boy_id, order_type, delivery_type, delivery_fee, notes, status, created_at")
         .eq("establishment_id", profile.establishment_id)
-        .eq("order_type", "delivery")
-        .not("delivery_boy_id", "is", null)
+        .neq("status", "cancelled")
         .gte("created_at", openedAt.toISOString())
         .lte("created_at", now.toISOString());
 
-      if (!deliveryOrders || deliveryOrders.length === 0) {
+      const allDeliveries = (periodOrders || []).filter((o) => isDeliveryOrder(o));
+
+      const formatNum = (n: string | number | null | undefined) => {
+        const s = String(n ?? "");
+        return s.startsWith("#") ? s : `#${s}`;
+      };
+
+      const unassigned = allDeliveries
+        .filter((o) => !o.delivery_boy_id)
+        .map((o) => formatNum(o.order_number));
+
+      setDeliveryPeriodStats({
+        totalCount: allDeliveries.length,
+        unassignedOrderNumbers: unassigned,
+      });
+
+      const assigned = allDeliveries.filter((o) => o.delivery_boy_id);
+      const deliveryBoyIds = Array.from(
+        new Set(assigned.map((o) => o.delivery_boy_id).filter(Boolean))
+      ) as string[];
+
+      if (deliveryBoyIds.length === 0) {
         setDeliveryBoysData([]);
         return;
       }
 
-      // Agrupar por motoboy
-      const deliveryBoyIds = Array.from(new Set(deliveryOrders.map((o: any) => o.delivery_boy_id)));
-
-      // Buscar dados dos motoboys
       const { data: deliveryBoys } = await (supabase as any)
         .from("delivery_boys")
         .select("id, name, daily_rate, delivery_fee")
@@ -340,31 +365,35 @@ const CashRefactored = () => {
         .eq("active", true);
 
       if (deliveryBoys) {
-        const boysData = deliveryBoys.map((boy: any) => {
-          const deliveries = deliveryOrders.filter((o: any) => o.delivery_boy_id === boy.id);
-          const deliveriesCount = deliveries.length;
-          const dailyRate = Number(boy.daily_rate) || 0;
-          const deliveryFee = Number(boy.delivery_fee) || 0;
-          const deliveriesTotal = deliveriesCount * deliveryFee;
-          // Diária aplicada apenas se houver entregas no período
-          const total = (deliveriesCount > 0 ? dailyRate : 0) + deliveriesTotal;
+        const boysData = deliveryBoys
+          .map((boy: any) => {
+            const deliveries = assigned.filter((o) => o.delivery_boy_id === boy.id);
+            const deliveriesCount = deliveries.length;
+            const dailyRate = Number(boy.daily_rate) || 0;
+            const deliveryFee = Number(boy.delivery_fee) || 0;
+            const deliveriesTotal = deliveriesCount * deliveryFee;
+            const total = (deliveriesCount > 0 ? dailyRate : 0) + deliveriesTotal;
 
-          return {
-            id: boy.id,
-            name: boy.name,
-            dailyRate: deliveriesCount > 0 ? dailyRate : 0,
-            deliveryFee,
-            deliveriesCount,
-            deliveriesTotal,
-            total
-          };
-        }).sort((a, b) => b.total - a.total);
+            return {
+              id: boy.id,
+              name: boy.name,
+              dailyRate: deliveriesCount > 0 ? dailyRate : 0,
+              deliveryFee,
+              deliveriesCount,
+              deliveriesTotal,
+              total,
+            };
+          })
+          .sort((a, b) => b.total - a.total);
 
         setDeliveryBoysData(boysData);
+      } else {
+        setDeliveryBoysData([]);
       }
     } catch (error) {
       console.error("Error loading delivery boys data:", error);
       setDeliveryBoysData([]);
+      setDeliveryPeriodStats({ totalCount: 0, unassignedOrderNumbers: [] });
     }
   };
 
@@ -960,6 +989,26 @@ const CashRefactored = () => {
               </div>
             )}
 
+            {/* Entregas do período */}
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm">Entregas do período</h4>
+              <div className="border rounded-lg p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Total de entregas (comandas)</span>
+                  <Badge variant="secondary" className="text-base font-bold">
+                    {deliveryPeriodStats.totalCount}
+                  </Badge>
+                </div>
+                {deliveryPeriodStats.unassignedOrderNumbers.length > 0 && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                    {deliveryPeriodStats.unassignedOrderNumbers.length} entrega(s) sem motoboy no sistema:{" "}
+                    <strong>{deliveryPeriodStats.unassignedOrderNumbers.join(", ")}</strong>
+                    . Aceite o pedido em Gerenciar Pedidos para atribuir motoboy automaticamente.
+                  </p>
+                )}
+              </div>
+            </div>
+
             {/* Motoboys Section */}
             {deliveryBoysData.length > 0 ? (
               <div className="space-y-3">
@@ -1001,13 +1050,23 @@ const CashRefactored = () => {
                   ))}
                 </div>
               </div>
+            ) : deliveryPeriodStats.totalCount > 0 ? (
+              <div className="space-y-3">
+                <h4 className="font-semibold text-sm">Motoboys - Entregas do Período</h4>
+                <div className="border rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Truck className="h-4 w-4" />
+                    <p>Nenhuma entrega com motoboy atribuído (veja lista acima).</p>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="space-y-3">
                 <h4 className="font-semibold text-sm">Motoboys - Entregas do Período</h4>
                 <div className="border rounded-lg p-4">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Truck className="h-4 w-4" />
-                    <p>Nenhum motoboy com entregas registradas no período.</p>
+                    <p>Nenhuma entrega no período.</p>
                   </div>
                 </div>
               </div>

@@ -1,3 +1,5 @@
+import { sanitizeReceiptNotesForItem } from "@/utils/receiptItemNotes";
+
 export interface ReceiptData {
   orderNumber: string;
   customerName?: string;
@@ -147,12 +149,16 @@ function nowrapPriceSegments(text: string): string {
  * Separa observações (molho, trio, etc.) de adicionais, sem duplicar texto.
  * Ordem desejada na impressão: infos primeiro (molho em cima), depois bloco Adicionais com linhas +.
  */
-function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: string[] } {
+function normalizeItemNotes(
+  notes?: string,
+  itemName?: string
+): { addonLines: string[]; infoLines: string[] } {
   const addonLines: string[] = [];
   const infoLines: string[] = [];
-  if (!notes?.trim()) return { addonLines, infoLines };
+  const sanitized = sanitizeReceiptNotesForItem(itemName || "", notes);
+  if (!sanitized?.trim()) return { addonLines, infoLines };
 
-  const raw = joinBrokenPriceFragments(notes.replace(/\|/g, "\n"));
+  const raw = joinBrokenPriceFragments(sanitized.replace(/\|/g, "\n"));
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
   const pushUniqueAddon = (text: string) => {
@@ -191,7 +197,7 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
         pushUniqueAddon(line);
         continue;
       }
-      if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
+      if (/^(Molho:|Molho especial:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
         collectingAddons = false;
       } else if (addonLines.length > 0) {
         addonLines[addonLines.length - 1] = `${addonLines[addonLines.length - 1]} ${line}`
@@ -214,7 +220,8 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
     }
 
     line = line.replace(/^(Molhos?)\s*:/i, "Molho:");
-    if (/^(Molho:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
+    line = line.replace(/^Molho especial\s*:/i, "Molho especial:");
+    if (/^(Molho:|Molho especial:|Trio:|Bebida:|Opção:|Observação:)/i.test(line)) {
       infoLines.push(line);
     } else if (!/^Adicionais:/i.test(line)) {
       infoLines.push(line);
@@ -231,8 +238,9 @@ function normalizeItemNotes(notes?: string): { addonLines: string[]; infoLines: 
 
   const uniqueInfo = [...new Set(filteredInfo.map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean))];
   const molhoFirst = [
-    ...uniqueInfo.filter((l) => /^Molho:/i.test(l)),
-    ...uniqueInfo.filter((l) => !/^Molho:/i.test(l)),
+    ...uniqueInfo.filter((l) => /^Molho especial:/i.test(l)),
+    ...uniqueInfo.filter((l) => /^Molho:/i.test(l) && !/^Molho especial:/i.test(l)),
+    ...uniqueInfo.filter((l) => !/^Molho/i.test(l)),
   ];
 
   return { addonLines, infoLines: molhoFirst };
@@ -308,7 +316,7 @@ export const printReceipt = async (r: ReceiptData) => {
       : "";
 
   const itemsHtml = r.items.map((it, i) => {
-    const { addonLines, infoLines } = normalizeItemNotes(it.notes);
+    const { addonLines, infoLines } = normalizeItemNotes(it.notes, it.name);
     const itemName = escapeHtmlReceipt((it.name || "").toUpperCase());
     const qtyLabel = String(Math.min(999, Math.max(0, it.quantity))).padStart(2, "0");
 
@@ -697,7 +705,7 @@ export const printNonFiscalReceipt = async (r: NonFiscalReceiptData) => {
 
   // Mesmo padrão visual do printReceipt (molho primeiro, depois Adicionais: + linhas)
   const itemsHtml = r.items.map((item, index) => {
-    const { addonLines, infoLines } = normalizeItemNotes(item.notes);
+    const { addonLines, infoLines } = normalizeItemNotes(item.notes, item.name);
     const qtyLabel = String(Math.min(999, Math.max(0, item.quantity))).padStart(2, "0");
     return `
       <div class="item-block">

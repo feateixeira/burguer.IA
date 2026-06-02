@@ -58,6 +58,11 @@ import {
   shouldUsePdvCachapaCategoryOrder,
   pdvCachapaCategoryRank,
 } from "@/config/pdvCachapa";
+import {
+  calculateExtraSaucePrice,
+  getFreeSauceCount,
+  productSkipsSauceSelection,
+} from "@/utils/sauceRules";
 
 interface Product {
   id: string;
@@ -66,6 +71,8 @@ interface Product {
   description?: string;
   image_url?: string;
   category_id?: string;
+  tags?: unknown;
+  customizations?: unknown;
 }
 
 interface CustomerWithGroups {
@@ -1095,41 +1102,16 @@ const PDV = () => {
       product.name.toLowerCase().includes('hamburger');
   };
 
-  const isTriplo = (product: Product | null) => {
-    if (!product) return false;
-    const productNameLower = product.name.toLowerCase().trim();
-
-    // Verificar se contém "triplo" (lógica padrão)
-    if (productNameLower.includes('triplo')) return true;
-
-    // Verificar se é o estabelecimento "Na Brasa" e o produto é "Na Brasa Eno - Mostro"
-    const establishmentNameLower = (establishmentInfo.name || '').toLowerCase().trim();
-    const isNaBrasa = establishmentNameLower.includes('na brasa') ||
-      establishmentNameLower.includes('nabrasa') ||
-      establishmentNameLower.includes('hamburgueria na brasa') ||
-      establishmentNameLower === 'na brasa';
-
-    if (isNaBrasa) {
-      // Verificar variações do nome: "Na Brasa Eno - Mostro", "Na Brasa Eno - Monstro", "ENO Mostro", etc.
-      // Verificar se contém "eno" e "mostro" ou "monstro" (pode estar em qualquer ordem ou formato)
-      // Normalizar removendo acentos e caracteres especiais para comparação
-      const normalizedName = productNameLower
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^\w\s]/g, ' ')
-        .replace(/\s+/g, ' ');
-
-      const hasEno = normalizedName.includes('eno');
-      // Aceitar tanto "mostro" quanto "monstro" (com ou sem "o" no final)
-      const hasMostro = normalizedName.includes('mostro') || normalizedName.includes('monstro');
-
-      if (hasEno && hasMostro) {
-        return true;
-      }
-    }
-
-    return false;
+  const sauceRuleOptions = {
+    establishmentName: establishmentInfo.name || "",
+    isHamburger: true as boolean,
   };
+
+  const freeSauceCountFor = (product: Product | null) =>
+    getFreeSauceCount(product, {
+      ...sauceRuleOptions,
+      isHamburger: !!product && isHamburger(product),
+    });
 
   const isDrink = (product: Product | null) => {
     if (!product) return false;
@@ -1227,13 +1209,15 @@ const PDV = () => {
     const productWithPromotion = applyPromotionIfAny(product);
 
     if (isHamburger(product)) {
-      // Para hambúrgueres, primeiro verificar adicionais, depois molhos
+      // Sempre adicionais primeiro; molhos só se o produto usar molho padrão (não baguete/smash/Nutella)
       const hasAddons = await checkProductHasAddons(product);
       if (hasAddons) {
         setPendingProduct(productWithPromotion);
         setPendingNotes(undefined);
         setPendingSaucePrice(undefined);
         setShowAddonsModal(true);
+      } else if (productSkipsSauceSelection(product)) {
+        addToCart(productWithPromotion);
       } else {
         setSelectedProduct(product);
         setSauceNote("");
@@ -1257,9 +1241,12 @@ const PDV = () => {
   const handleAddonsConfirm = (selectedAddons: Addon[]) => {
     if (!pendingProduct) return;
 
-    // Se for hambúrguer, abrir diálogo de molhos depois dos adicionais
-    if (isHamburger(pendingProduct)) {
-      // Salvar adicionais no produto selecionado para usar depois do molho
+    if (isHamburger(pendingProduct) && productSkipsSauceSelection(pendingProduct)) {
+      addToCart(pendingProduct, pendingNotes, pendingSaucePrice, selectedAddons);
+      setPendingProduct(null);
+      setPendingNotes(undefined);
+      setPendingSaucePrice(undefined);
+    } else if (isHamburger(pendingProduct)) {
       setSelectedProduct({ ...pendingProduct, addons: selectedAddons } as any);
       setSauceNote("");
       setSelectedSauces([]);
@@ -1362,12 +1349,11 @@ const PDV = () => {
     }
   };
 
-  const calculateSaucePrice = (product: Product, selectedSauces: string[]) => {
-    const isTriploProduct = isTriplo(product);
-    const freeSauces = isTriploProduct ? 2 : 1;
-    const extraSauces = Math.max(0, selectedSauces.length - freeSauces);
-    return extraSauces * 2;
-  };
+  const calculateSaucePrice = (product: Product, selectedSauces: string[]) =>
+    calculateExtraSaucePrice(product, selectedSauces.length, {
+      establishmentName: establishmentInfo.name || "",
+      isHamburger: isHamburger(product),
+    });
 
   const handleSauceToggle = (sauce: string, checked: boolean) => {
     if (checked) {
@@ -3230,7 +3216,7 @@ const PDV = () => {
           <DialogHeader>
             <DialogTitle>Escolha dos Molhos</DialogTitle>
             <DialogDescription>
-              {selectedProduct?.name} - {isTriplo(selectedProduct) ? '2 molhos grátis' : '1 molho grátis'}, R$ 2,00 por adicional
+              {selectedProduct?.name} - {freeSauceCountFor(selectedProduct)} molho{freeSauceCountFor(selectedProduct) === 1 ? '' : 's'} grátis, R$ 2,00 por adicional
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -3254,8 +3240,8 @@ const PDV = () => {
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm font-medium">Molhos selecionados: {selectedSauces.length}</p>
                 <p className="text-xs text-muted-foreground">
-                  Grátis: {isTriplo(selectedProduct) ? '2' : '1'} |
-                  Pagos: {Math.max(0, selectedSauces.length - (isTriplo(selectedProduct) ? 2 : 1))} |
+                  Grátis: {freeSauceCountFor(selectedProduct)} |
+                  Pagos: {Math.max(0, selectedSauces.length - freeSauceCountFor(selectedProduct))} |
                   Valor extra: R$ {selectedProduct ? calculateSaucePrice(selectedProduct, selectedSauces).toFixed(2) : '0.00'}
                 </p>
               </div>

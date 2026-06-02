@@ -1262,6 +1262,13 @@ const Settings = () => {
                         <li>Configure seu site para enviar o header <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">X-Estab-Key</code></li>
                         <li>Inclua também o header <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">Idempotency-Key</code> com um UUID único</li>
                         <li>Envie os pedidos no formato JSON especificado</li>
+                        <li>
+                          Várias unidades no mesmo site: inclua{" "}
+                          <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">estabelecimento_slug</code>{" "}
+                          no body (ex: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">brazlandia</code>,{" "}
+                          <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">vicente-pires</code>) ou o header{" "}
+                          <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">X-Site-Unit-Slug</code>
+                        </li>
                       </ol>
                     </div>
                   </div>

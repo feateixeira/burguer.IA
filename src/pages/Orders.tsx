@@ -45,6 +45,10 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { printReceipt, printNonFiscalReceipt, type NonFiscalReceiptData } from "@/utils/receiptPrinter";
 import { printReceiptNaBrasa } from "@/utils/receiptPrinterNaBrasa";
+import {
+  isReceiptDrinkItemName,
+  sanitizeReceiptNotesForItem,
+} from "@/utils/receiptItemNotes";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { useCashSession } from "@/hooks/useCashSession";
 import { phoneMask } from "@/utils/phoneNormalizer";
@@ -1034,8 +1038,9 @@ const Orders = () => {
                                   itemNameLower.includes('frango no pote') ||
                                   itemNameLower.includes('frango pote') ||
                                   itemNameLower.includes('acompanhamento');
+          const isDrink = isReceiptDrinkItemName(name);
           
-          if (isAccompaniment) {
+          if (isAccompaniment || isDrink) {
             notes = notes.replace(/Molhos?\s*:\s*/gi, '').trim();
             notes = notes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
             notes = notes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
@@ -1109,7 +1114,7 @@ const Orders = () => {
           quantity: qty, 
           unitPrice: unit, 
           totalPrice: total, 
-          notes: notes || undefined 
+          notes: sanitizeReceiptNotesForItem(name, notes) 
         });
         
         itemIndex++;
@@ -1260,7 +1265,7 @@ const Orders = () => {
           // Erro silencioso
         }
         
-        if (isAccompaniment && finalNotes) {
+        if ((isAccompaniment || isReceiptDrinkItemName(cleanName)) && finalNotes) {
           finalNotes = finalNotes.replace(/Molhos?\s*:\s*/gi, '').trim();
           finalNotes = finalNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
           finalNotes = finalNotes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
@@ -1301,7 +1306,7 @@ const Orders = () => {
           quantity: item.quantity,
           unitPrice: item.unit_price,
           totalPrice: item.total_price,
-          notes: finalNotes || undefined
+          notes: sanitizeReceiptNotesForItem(cleanName, finalNotes),
         }];
       });
     }
@@ -1340,8 +1345,9 @@ const Orders = () => {
                                 itemNameLower.includes('cebola') ||
                                 itemNameLower.includes('mini chickens') ||
                                 itemNameLower.includes('acompanhamento');
+        const isDrink = isReceiptDrinkItemName(item.name);
         
-        if (isAccompaniment) {
+        if (isAccompaniment || isDrink) {
           cleanedNotes = cleanedNotes.replace(/Molhos?\s*:\s*/gi, '').trim();
           cleanedNotes = cleanedNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
           cleanedNotes = cleanedNotes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
@@ -1367,9 +1373,13 @@ const Orders = () => {
           cleanedNotes = removeDuplicateReceiptInfo(cleanedNotes) || '';
         }
         
-        return { ...item, notes: cleanedNotes || undefined };
+        const sanitized = sanitizeReceiptNotesForItem(item.name, cleanedNotes);
+        return { ...item, notes: sanitized };
       }
-      return item;
+      return {
+        ...item,
+        notes: sanitizeReceiptNotesForItem(item.name, item.notes),
+      };
     });
 
     if (items.length === 0) {

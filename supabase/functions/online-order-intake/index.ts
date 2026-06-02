@@ -8,6 +8,80 @@ const ALLOWED_CORS_ORIGINS = [
   'https://www.hamburguerianabrasa.com.br',
 ];
 
+function isBaguetteOrSmashItemName(name: string): boolean {
+  const n = (name || '').toLowerCase();
+  return n.includes('baguete') || n.includes('smash');
+}
+
+function isDrinkItemName(name: string): boolean {
+  if (isBaguetteOrSmashItemName(name)) return false;
+  const n = (name || '').toLowerCase();
+  const keywords = [
+    'coca', 'guarana', 'pepsi', 'fanta', 'sprite', 'refri', 'refrigerante',
+    'suco', 'agua', 'água', 'lata', 'latinha', 'del vale', 'schweppes',
+    'h2oh', 'monster', 'red bull', 'bebida', 'creme', 'vitamina', 'milkshake',
+  ];
+  return keywords.some((k) => n.includes(k));
+}
+
+/** Normaliza slug de unidade (Brazlândia → brazlandia). */
+function normalizeSiteUnitSlug(raw: string | null | undefined): string {
+  if (!raw || !String(raw).trim()) return '';
+  let s = String(raw).trim().toLowerCase();
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s;
+}
+
+const SITE_UNIT_ALIASES: Record<string, string> = {
+  brazlandia: 'brazlandia',
+  'unidade-brazlandia': 'brazlandia',
+  'na-brasa-brazlandia': 'brazlandia',
+  'vicente-pires': 'vicente-pires',
+  vicentepires: 'vicente-pires',
+  'unidade-vicente-pires': 'vicente-pires',
+  'na-brasa-vicente-pires': 'vicente-pires',
+};
+
+function canonicalSiteUnitSlug(raw: string | null | undefined): string {
+  const n = normalizeSiteUnitSlug(raw);
+  if (!n) return '';
+  return SITE_UNIT_ALIASES[n] ?? n;
+}
+
+/** Lê o slug da unidade enviado pelo site (body ou headers). */
+function extractSiteUnitSlug(body: Record<string, unknown>, req: Request): string {
+  const headerSlug =
+    req.headers.get('x-site-unit-slug') ||
+    req.headers.get('x-estabelecimento-slug');
+  if (headerSlug?.trim()) {
+    return canonicalSiteUnitSlug(headerSlug);
+  }
+
+  const order = body.order as Record<string, unknown> | undefined;
+  const meta = order?.meta as Record<string, unknown> | undefined;
+
+  const candidates: unknown[] = [
+    body.estabelecimento_slug,
+    body.estabelecimentoSlug,
+    body.unidade_slug,
+    body.unit_slug,
+    order?.estabelecimento_slug,
+    order?.unidade_slug,
+    meta?.estabelecimento_slug,
+    meta?.unidade_slug,
+    meta?.unidade,
+    meta?.unit_slug,
+  ];
+
+  for (const c of candidates) {
+    if (c != null && String(c).trim()) {
+      return canonicalSiteUnitSlug(String(c));
+    }
+  }
+  return '';
+}
+
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get('origin');
   const allow =
@@ -17,7 +91,7 @@ function corsHeadersFor(req: Request): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Headers':
-      'authorization, x-client-info, apikey, content-type, x-estab-key, idempotency-key',
+      'authorization, x-client-info, apikey, content-type, x-estab-key, idempotency-key, x-site-unit-slug, x-estabelecimento-slug',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
 }
@@ -63,14 +137,14 @@ serve(async (req) => {
       });
     }
 
-    // Validate API key and get establishment
-    const { data: establishment, error: estabError } = await supabase
+    // Validate API key and get establishment (autenticação do site)
+    const { data: authEstablishment, error: estabError } = await supabase
       .from('establishments')
-      .select('id, name')
+      .select('id, name, slug, site_unit_slug, settings')
       .eq('api_key', apiKey)
       .single();
 
-    if (estabError || !establishment) {
+    if (estabError || !authEstablishment) {
       console.error('Invalid API key:', estabError);
       return new Response(JSON.stringify({ 
         ok: false, 
@@ -81,8 +155,71 @@ serve(async (req) => {
       });
     }
 
-    // Check idempotency
-    const { data: existingKey, error: idempotencyError } = await supabase
+    // Parse request body
+    const body = await req.json();
+    const { order, source_domain } = body;
+
+    const siteUnitSlug = extractSiteUnitSlug(body as Record<string, unknown>, req);
+
+    let targetEstablishmentId = authEstablishment.id;
+
+    if (siteUnitSlug) {
+      const { data: resolvedId, error: resolveError } = await supabase.rpc(
+        'resolve_site_unit_establishment',
+        {
+          p_auth_establishment_id: authEstablishment.id,
+          p_unit_slug: siteUnitSlug,
+        }
+      );
+
+      if (resolveError) {
+        console.error('resolve_site_unit_establishment error:', resolveError);
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'Erro ao identificar a unidade do pedido',
+          details: resolveError.message,
+        }), {
+          status: 500,
+          headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (!resolvedId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'Unidade não encontrada',
+          estabelecimento_slug: siteUnitSlug,
+          hint: 'Verifique site_unit_slug no cadastro da loja (ex: brazlandia, vicente-pires)',
+        }), {
+          status: 400,
+          headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
+        });
+      }
+
+      targetEstablishmentId = resolvedId as string;
+
+      if (targetEstablishmentId !== authEstablishment.id) {
+        console.log(
+          `Pedido roteado: API key de "${authEstablishment.name}" → unidade slug "${siteUnitSlug}" → establishment ${targetEstablishmentId}`
+        );
+      }
+    }
+
+    const establishment = { id: targetEstablishmentId, name: authEstablishment.name };
+
+    if (targetEstablishmentId !== authEstablishment.id) {
+      const { data: targetRow } = await supabase
+        .from('establishments')
+        .select('name')
+        .eq('id', targetEstablishmentId)
+        .maybeSingle();
+      if (targetRow?.name) {
+        establishment.name = targetRow.name;
+      }
+    }
+
+    // Idempotência por unidade de destino (evita colisão entre lojas)
+    const { data: existingKey } = await supabase
       .from('idempotency_keys')
       .select('order_id')
       .eq('key', idempotencyKey)
@@ -94,15 +231,12 @@ serve(async (req) => {
         ok: true,
         order_id: existingKey.order_id,
         print_queued: true,
-        idempotent: true
+        idempotent: true,
+        establishment_id: establishment.id,
       }), {
         headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
-
-    // Parse request body
-    const body = await req.json();
-    const { order, source_domain, estabelecimento_slug } = body;
 
     if (!order) {
       throw new Error('Order não encontrado no body');
@@ -933,25 +1067,28 @@ serve(async (req) => {
             itemNotes = item.obs.trim();
           }
           
-          // Adiciona complements se houver
+          // Limpa o nome do item (remove observações que possam ter vindo misturadas)
+          let cleanItemName = (item.name || '').trim();
+
+          // Complements: baguete/smash → molho especial; bebidas sem linha de molho
           if (item.complements && item.complements.length > 0) {
             const complementsText = item.complements
               .map((c: any) => {
-                const compName = c.name || '';
+                const compName = (c.name || '').replace(/^Variante\s*:\s*/i, '').trim();
                 const compPrice = c.price || 0;
                 return compPrice > 0 ? `${compName} (+R$ ${compPrice.toFixed(2)})` : compName;
               })
               .filter(Boolean)
               .join(', ');
-            if (complementsText) {
-              itemNotes += (itemNotes ? ' | ' : '') + `Molhos: ${complementsText}`;
+            if (complementsText && !isDrinkItemName(cleanItemName)) {
+              const label = isBaguetteOrSmashItemName(cleanItemName)
+                ? 'Molho especial'
+                : 'Molhos';
+              itemNotes += (itemNotes ? ' | ' : '') + `${label}: ${complementsText}`;
             }
           }
           
-          // Limpa o nome do item (remove observações que possam ter vindo misturadas)
-          let cleanItemName = (item.name || '').trim();
-          // Remove observações do nome se vieram misturadas
-          cleanItemName = cleanItemName.replace(/\s*(Obs:|Observação:|Molhos?:).*$/i, '').trim();
+          cleanItemName = cleanItemName.replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '').trim();
 
           return {
             order_id: newOrder.id,
@@ -1013,7 +1150,9 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       ok: true,
       order_id: newOrder.id,
-      print_queued: true
+      print_queued: true,
+      establishment_id: establishment.id,
+      site_unit_slug: siteUnitSlug || null,
     }), {
       headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
     });

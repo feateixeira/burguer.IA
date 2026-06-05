@@ -1,6 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import { printReceipt, type ReceiptData } from "@/utils/receiptPrinter";
 import { printReceiptNaBrasa } from "@/utils/receiptPrinterNaBrasa";
+import {
+  parseBracketItemsFromNotes,
+  resolveOrderItemDisplayName,
+} from "@/utils/orderItemDisplay";
 
 /**
  * Impressão simplificada quando a página de Pedidos não está montada
@@ -17,6 +21,7 @@ export async function printOrderForAutoAccept(orderId: string): Promise<void> {
         unit_price,
         total_price,
         notes,
+        customizations,
         products (name)
       )
     `
@@ -32,15 +37,16 @@ export async function printOrderForAutoAccept(orderId: string): Promise<void> {
     .eq("id", order.establishment_id)
     .single();
 
-  const items =
+  let items =
     order.order_items?.map((item: {
       quantity: number;
       unit_price: number;
       total_price: number;
       notes?: string | null;
+      customizations?: unknown;
       products?: { name?: string } | null;
     }) => ({
-      name: item.products?.name || "Item",
+      name: resolveOrderItemDisplayName(item),
       quantity: item.quantity,
       unitPrice: item.unit_price,
       totalPrice: item.total_price,
@@ -48,11 +54,19 @@ export async function printOrderForAutoAccept(orderId: string): Promise<void> {
     })) || [];
 
   if (items.length === 0) {
+    const fromNotes = parseBracketItemsFromNotes(order.notes);
+    if (fromNotes.length > 0) {
+      items = fromNotes;
+    }
+  }
+
+  if (items.length === 0) {
     items.push({
       name: "Pedido Online",
       quantity: 1,
       unitPrice: order.total_amount,
       totalPrice: order.total_amount,
+      notes: order.notes || undefined,
     });
   }
 

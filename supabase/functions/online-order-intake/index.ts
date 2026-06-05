@@ -49,6 +49,146 @@ function canonicalSiteUnitSlug(raw: string | null | undefined): string {
   return SITE_UNIT_ALIASES[n] ?? n;
 }
 
+const SITE_PLACEHOLDER_SKU = '__SITE_ITEM__';
+
+function normalizeProductKey(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeSku(sku: unknown): string {
+  if (sku === null || sku === undefined) return '';
+  return String(sku).trim();
+}
+
+function extractIncomingOrderItems(order: Record<string, unknown>): unknown[] {
+  const items = order.items;
+  if (Array.isArray(items) && items.length > 0) return items;
+  const cart = order.cart;
+  if (Array.isArray(cart) && cart.length > 0) return cart;
+  const lineItems = order.line_items ?? order.lineItems;
+  if (Array.isArray(lineItems) && lineItems.length > 0) return lineItems;
+  return [];
+}
+
+function parseBracketItemsFromText(text: string): Array<Record<string, unknown>> {
+  if (!text?.trim()) return [];
+
+  const parsePrice = (raw: string) => {
+    const s = raw.trim();
+    if (s.includes(',')) {
+      return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    return parseFloat(s) || 0;
+  };
+
+  const parsed: Array<Record<string, unknown>> = [];
+  const bracketRegex = /\[([^\]]+)\]/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = bracketRegex.exec(text)) !== null) {
+    const itemText = match[1].trim();
+    if (!itemText) continue;
+
+    const qtyMatch = itemText.match(/^(\d+)x\s+/i);
+    if (!qtyMatch) continue;
+
+    const quantity = parseInt(qtyMatch[1], 10) || 1;
+    if (quantity <= 0) continue;
+
+    let remaining = itemText.replace(/^\d+x\s+/i, '').trim();
+    const priceMatch = remaining.match(/R\$\s*([\d.,]+)/i);
+    if (!priceMatch) continue;
+
+    const totalPrice = parsePrice(priceMatch[1]);
+    if (totalPrice <= 0) continue;
+
+    remaining = remaining.replace(/R\$\s*[\d.,]+\s*/i, '').trim();
+    const name = remaining
+      .replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '')
+      .trim();
+
+    if (!name) continue;
+
+    parsed.push({
+      name,
+      quantity,
+      unit_price: totalPrice / quantity,
+      price: totalPrice / quantity,
+    });
+  }
+
+  return parsed;
+}
+
+async function getSiteOrderPlaceholderProductId(
+  supabase: ReturnType<typeof createClient>,
+  establishmentId: string
+): Promise<string> {
+  const { data: existing } = await supabase
+    .from('products')
+    .select('id')
+    .eq('establishment_id', establishmentId)
+    .eq('sku', SITE_PLACEHOLDER_SKU)
+    .maybeSingle();
+
+  if (existing?.id) return existing.id;
+
+  const { data: created, error } = await supabase
+    .from('products')
+    .insert({
+      establishment_id: establishmentId,
+      name: 'Item do Site',
+      sku: SITE_PLACEHOLDER_SKU,
+      price: 0,
+      active: false,
+    })
+    .select('id')
+    .single();
+
+  if (error || !created?.id) {
+    throw new Error('Não foi possível criar produto placeholder para itens do site');
+  }
+
+  return created.id;
+}
+
+function resolveProductIdFromCatalog(
+  item: Record<string, unknown>,
+  allProducts: Array<{ id: string; name: string; sku: string | null }>
+): string | null {
+  const productId = item.product_id ?? item.productId;
+  if (productId && typeof productId === 'string') {
+    const byId = allProducts.find((p) => p.id === productId);
+    if (byId) return byId.id;
+  }
+
+  const sku = normalizeSku(item.sku);
+  if (sku) {
+    const bySku = allProducts.find((p) => normalizeSku(p.sku) === sku);
+    if (bySku) return bySku.id;
+  }
+
+  const rawName = String(item.name ?? item.title ?? item.product_name ?? '').trim();
+  if (!rawName) return null;
+
+  const key = normalizeProductKey(rawName);
+  const byExactName = allProducts.find((p) => normalizeProductKey(p.name) === key);
+  if (byExactName) return byExactName.id;
+
+  const byContains = allProducts.find((p) => {
+    const n = normalizeProductKey(p.name);
+    return n.includes(key) || key.includes(n);
+  });
+  if (byContains) return byContains.id;
+
+  return null;
+}
+
 /** Lê o slug da unidade enviado pelo site (body ou headers). */
 function extractSiteUnitSlug(body: Record<string, unknown>, req: Request): string {
   const headerSlug =
@@ -1017,79 +1157,72 @@ serve(async (req) => {
     }
 
     // Create order items
-    if (order.items && order.items.length > 0) {
-      // First, fetch product IDs by SKU and/or by Name (fallback)
-      const skus = order.items.map((item: any) => item.sku).filter(Boolean);
-      const names = order.items.map((item: any) => item.name).filter(Boolean);
-
-      let productMap: Record<string, string> = {};
-      if (skus.length > 0) {
-        const { data: products } = await supabase
-          .from('products')
-          .select('id, sku')
-          .eq('establishment_id', establishment.id)
-          .in('sku', skus);
-        if (products) {
-          productMap = products.reduce((acc, p) => {
-            if (p.sku) acc[p.sku] = p.id;
-            return acc;
-          }, {} as Record<string, string>);
-        }
+    let incomingItems = extractIncomingOrderItems(order as Record<string, unknown>);
+    if (incomingItems.length === 0) {
+      const meta = order.meta as Record<string, unknown> | undefined;
+      const customer = order.customer as Record<string, unknown> | undefined;
+      const previewText = String(
+        meta?.whatsapp_message_preview ?? customer?.notes ?? ''
+      );
+      const fromPreview = parseBracketItemsFromText(previewText);
+      if (fromPreview.length > 0) {
+        console.log(`Itens extraídos do preview WhatsApp: ${fromPreview.length}`);
+        incomingItems = fromPreview;
       }
+    }
 
-      // Fallback map by exact name match when SKU not provided
-      let nameMap: Record<string, string> = {};
-      if (names.length > 0) {
-        const uniqueNames = Array.from(new Set(names));
-        const { data: byNames } = await supabase
-          .from('products')
-          .select('id, name')
-          .eq('establishment_id', establishment.id)
-          .in('name', uniqueNames);
-        if (byNames) {
-          nameMap = byNames.reduce((acc, p) => {
-            acc[p.name] = p.id; return acc;
-          }, {} as Record<string, string>);
-        }
-      }
+    if (incomingItems.length > 0) {
+      const { data: catalogProducts } = await supabase
+        .from('products')
+        .select('id, name, sku')
+        .eq('establishment_id', establishment.id);
 
-      const orderItems = order.items
-        .filter((item: any) => {
-          // FILTRO DE SEGURANÇA: Remove itens que são apenas observações
-          // Um item válido DEVE ter nome e preço
-          const hasName = item.name && item.name.trim().length > 0;
-          const hasPrice = (item.unit_price || 0) > 0 || (item.price || 0) > 0;
-          const hasQuantity = (item.qty || item.quantity || 1) > 0;
-          
-          // Se é apenas uma observação sem preço/quantidade válida, ignora
-          const isObservationOnly = !hasPrice && !hasQuantity && 
-                                   (item.obs || item.notes || '').toLowerCase().includes('obs');
-          
+      const allProducts = catalogProducts || [];
+      let placeholderProductId: string | null = null;
+
+      const orderItems = incomingItems
+        .filter((rawItem: unknown) => {
+          const item = rawItem as Record<string, unknown>;
+          const name = String(item.name ?? item.title ?? item.product_name ?? '').trim();
+          const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+          const quantity = Number(item.qty ?? item.quantity ?? 1);
+          const obsText = String(item.obs ?? item.notes ?? '').toLowerCase();
+
+          const hasName = name.length > 0;
+          const hasPrice = unitPrice > 0;
+          const hasQuantity = quantity > 0;
+          const isObservationOnly =
+            !hasPrice && !hasQuantity && obsText.includes('obs');
+
           return hasName && (hasPrice || hasQuantity) && !isObservationOnly;
         })
-        .map((item: any) => {
-          const unitPrice = item.unit_price || item.price || 0;
-          const quantity = item.qty || item.quantity || 1;
-          let productId = item.sku && productMap[item.sku] ? productMap[item.sku] : (item.name && nameMap[item.name] ? nameMap[item.name] : null);
-          
-          // Build notes with complements - garante que observações fiquem apenas em notes
-          let itemNotes = '';
-          
-          // Adiciona obs se houver
-          if (item.obs && item.obs.trim()) {
-            itemNotes = item.obs.trim();
-          }
-          
-          // Limpa o nome do item (remove observações que possam ter vindo misturadas)
-          let cleanItemName = (item.name || '').trim();
+        .map((rawItem: unknown) => {
+          const item = rawItem as Record<string, unknown>;
+          const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+          const quantity = Math.max(1, Number(item.qty ?? item.quantity ?? 1) || 1);
+          let productId = resolveProductIdFromCatalog(item, allProducts);
+          const usedPlaceholder = !productId;
 
-          // Complements: baguete/smash → molho especial; bebidas sem linha de molho
-          if (item.complements && item.complements.length > 0) {
-            const complementsText = item.complements
-              .map((c: any) => {
-                const compName = (c.name || '').replace(/^Variante\s*:\s*/i, '').trim();
-                const compPrice = c.price || 0;
-                return compPrice > 0 ? `${compName} (+R$ ${compPrice.toFixed(2)})` : compName;
+          let itemNotes = '';
+          if (item.obs && String(item.obs).trim()) {
+            itemNotes = String(item.obs).trim();
+          }
+
+          let cleanItemName = String(
+            item.name ?? item.title ?? item.product_name ?? ''
+          ).trim();
+
+          const complements = item.complements;
+          if (Array.isArray(complements) && complements.length > 0) {
+            const complementsText = complements
+              .map((c: Record<string, unknown>) => {
+                const compName = String(c.name || '')
+                  .replace(/^Variante\s*:\s*/i, '')
+                  .trim();
+                const compPrice = Number(c.price || 0);
+                return compPrice > 0
+                  ? `${compName} (+R$ ${compPrice.toFixed(2)})`
+                  : compName;
               })
               .filter(Boolean)
               .join(', ');
@@ -1100,24 +1233,75 @@ serve(async (req) => {
               itemNotes += (itemNotes ? ' | ' : '') + `${label}: ${complementsText}`;
             }
           }
-          
-          cleanItemName = cleanItemName.replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '').trim();
+
+          cleanItemName = cleanItemName
+            .replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '')
+            .trim();
+
+          const customizations: Record<string, unknown> = {};
+          if (Array.isArray(complements) && complements.length > 0) {
+            customizations.complements = complements;
+          }
+          if (usedPlaceholder && cleanItemName) {
+            customizations.site_item_name = cleanItemName;
+          }
 
           return {
             order_id: newOrder.id,
             product_id: productId,
-            quantity: quantity,
+            quantity,
             unit_price: unitPrice,
-            total_price: (unitPrice || 0) * (quantity || 1),
+            total_price: unitPrice * quantity,
             notes: itemNotes || null,
-            customizations: item.complements ? { complements: item.complements } : {},
+            customizations,
+            _usedPlaceholder: usedPlaceholder,
+            _cleanItemName: cleanItemName,
           };
         });
 
-      // Filtrar apenas items que têm product_id válido
-      const validOrderItems = orderItems.filter((item: any) => item.product_id !== null && item.product_id !== undefined);
-      
+      const needsPlaceholder = orderItems.some((item: { _usedPlaceholder?: boolean }) => item._usedPlaceholder);
+      if (needsPlaceholder) {
+        placeholderProductId = await getSiteOrderPlaceholderProductId(supabase, establishment.id);
+      }
+
+      const validOrderItems = orderItems
+        .map((item: {
+          order_id: string;
+          product_id: string | null;
+          quantity: number;
+          unit_price: number;
+          total_price: number;
+          notes: string | null;
+          customizations: Record<string, unknown>;
+          _usedPlaceholder?: boolean;
+          _cleanItemName?: string;
+        }) => {
+          if (!item.product_id && placeholderProductId) {
+            return {
+              order_id: item.order_id,
+              product_id: placeholderProductId,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              total_price: item.total_price,
+              notes: item.notes,
+              customizations: {
+                ...item.customizations,
+                site_item_name: item._cleanItemName || item.customizations.site_item_name,
+              },
+            };
+          }
+          const { _usedPlaceholder, _cleanItemName, ...rest } = item;
+          return rest;
+        })
+        .filter((item: { product_id: string | null }) => item.product_id);
+
       if (validOrderItems.length > 0) {
+        const unmatched = orderItems.filter((i: { _usedPlaceholder?: boolean }) => i._usedPlaceholder).length;
+        if (unmatched > 0) {
+          console.warn(
+            `${unmatched} item(ns) do site sem match no cardápio da unidade ${establishment.id}; usando placeholder com site_item_name`
+          );
+        }
         const { error: itemsError } = await supabase
           .from('order_items')
           .insert(validOrderItems);

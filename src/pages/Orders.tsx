@@ -49,6 +49,7 @@ import {
   isReceiptDrinkItemName,
   sanitizeReceiptNotesForItem,
 } from "@/utils/receiptItemNotes";
+import { resolveOrderItemDisplayName } from "@/utils/orderItemDisplay";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { useCashSession } from "@/hooks/useCashSession";
 import { phoneMask } from "@/utils/phoneNormalizer";
@@ -1197,7 +1198,7 @@ const Orders = () => {
       const trioInfo = extractTrioInfo(order.notes || '');
       
       items = (orderItemsForPrint || []).flatMap(item => {
-        const itemName = item.products?.name || 'Item';
+        const itemName = resolveOrderItemDisplayName(item);
         const itemNameLower = itemName.toLowerCase();
         
         const isAccompaniment = itemNameLower.includes('batata') || 
@@ -1319,7 +1320,7 @@ const Orders = () => {
     if (items.length > 0 && items.some(item => !item.notes) && orderItemsForPrint) {
       const itemsMap = new Map(items.map(item => [item.name.toLowerCase(), item]));
       orderItemsForPrint.forEach(orderItem => {
-        const itemName = orderItem.products?.name?.toLowerCase() || '';
+        const itemName = resolveOrderItemDisplayName(orderItem).toLowerCase();
         const existingItem = itemsMap.get(itemName);
         if (existingItem && !existingItem.notes && orderItem.notes) {
           let cleanedNotes = orderItem.notes.trim();
@@ -1634,7 +1635,7 @@ const Orders = () => {
     }
 
     const items = order.order_items?.map(item => ({
-      name: item.products.name,
+      name: resolveOrderItemDisplayName(item),
       quantity: item.quantity,
       unitPrice: item.unit_price,
       totalPrice: item.total_price,
@@ -2890,7 +2891,7 @@ const Orders = () => {
                                               return (
                                                 <div key={index} className="p-2 border rounded">
                                                   <div className="flex justify-between items-center">
-                                                    <span className="font-medium">{item.quantity}x {item.products.name}</span>
+                                                    <span className="font-medium">{item.quantity}x {resolveOrderItemDisplayName(item)}</span>
                                                     <span className="font-semibold">{formatCurrencyBR(item.total_price)}</span>
                                                   </div>
                                                   {addonsInfo && (

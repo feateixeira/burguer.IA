@@ -1218,7 +1218,7 @@ const Orders = () => {
 
         // Adicionar hífen para Molhos para melhor visibilidade
         if (finalNotes && finalNotes.includes('Molhos:')) {
-          finalNotes = finalNotes.replace('Molhos:', '-Molhos:');
+          finalNotes = finalNotes.replace('Molhos:', 'Molhos:');
         }
 
         // Extrair e garantir linha de Trio/Bebida para impressão (itens transformados em trio ou combo Na Brasa)
@@ -1226,18 +1226,18 @@ const Orders = () => {
         if (finalNotes) {
           const bebidaMatch = finalNotes.match(/(?:Combo\s*-\s*)?Bebida\s*:\s*([^\n|]+)/i);
           if (bebidaMatch && bebidaMatch[1]) {
-            trioLineForItem = `- Trio: ${bebidaMatch[1].trim()}`;
+            trioLineForItem = `Trio: ${bebidaMatch[1].trim()}`;
             finalNotes = finalNotes.replace(/(?:Combo\s*-\s*)?Bebida\s*:\s*[^\n|]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
           } else {
             const trioMatch = finalNotes.match(/Trio\s*:\s*([^\n\[\]]+)/i);
             if (trioMatch && trioMatch[1]) {
-              trioLineForItem = `- Trio: ${trioMatch[1].trim()}`;
+              trioLineForItem = `Trio: ${trioMatch[1].trim()}`;
               finalNotes = finalNotes.replace(/Trio\s*:\s*[^\n\[\]]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
             }
           }
         }
         if (!trioLineForItem && hasTrioInName && trioInfo) {
-          trioLineForItem = `- Trio: ${trioInfo}`;
+          trioLineForItem = `Trio: ${trioInfo}`;
         }
         
         try {
@@ -1295,7 +1295,7 @@ const Orders = () => {
             }
           }
         } else if (hasTrioInName && trioInfo) {
-          const trioNote = `- Trio: ${trioInfo}`;
+          const trioNote = `Trio: ${trioInfo}`;
           if (finalNotes) {
             finalNotes = `${trioNote}\n\n${finalNotes}`;
           } else {

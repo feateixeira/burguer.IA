@@ -128,7 +128,7 @@ function parseBracketItemsFromText(text: string): Array<Record<string, unknown>>
 async function getSiteOrderPlaceholderProductId(
   supabase: ReturnType<typeof createClient>,
   establishmentId: string
-): Promise<string> {
+): Promise<string | null> {
   const { data: existing } = await supabase
     .from('products')
     .select('id')
@@ -151,7 +151,8 @@ async function getSiteOrderPlaceholderProductId(
     .single();
 
   if (error || !created?.id) {
-    throw new Error('Não foi possível criar produto placeholder para itens do site');
+    console.error('Erro ao criar produto placeholder para itens do site:', error);
+    return null;
   }
 
   return created.id;
@@ -222,6 +223,29 @@ function extractSiteUnitSlug(body: Record<string, unknown>, req: Request): strin
   return '';
 }
 
+/** Lê a API key do header (vários nomes usados pelo site/proxy). */
+function extractApiKeyFromRequest(req: Request): string {
+  const candidates = [
+    req.headers.get('x-estab-key'),
+    req.headers.get('X-Estab-Key'),
+    req.headers.get('x-api-key'),
+    req.headers.get('authorization'),
+  ];
+
+  for (const raw of candidates) {
+    if (!raw?.trim()) continue;
+    const value = raw.trim();
+    if (value.toLowerCase().startsWith('bearer ')) {
+      const token = value.slice(7).trim();
+      if (token.startsWith('bgia_')) return token;
+      continue;
+    }
+    if (value.startsWith('bgia_')) return value;
+  }
+
+  return '';
+}
+
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get('origin');
   const allow =
@@ -253,14 +277,31 @@ serve(async (req) => {
     // Use service role to bypass RLS
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Validate required headers
-    const apiKey = req.headers.get('x-estab-key');
-    const idempotencyKey = req.headers.get('idempotency-key');
+    // Parse request body cedo (site pode enviar api_key no body via proxy)
+    const body = await req.json();
+    const { order, source_domain } = body;
+
+    let apiKey = extractApiKeyFromRequest(req);
+    if (!apiKey) {
+      const bodyKey = (body as Record<string, unknown>).api_key
+        ?? (body as Record<string, unknown>).estab_api_key
+        ?? (body as Record<string, unknown>).estabApiKey;
+      if (bodyKey != null && String(bodyKey).trim()) {
+        apiKey = String(bodyKey).trim();
+      }
+    }
+
+    const idempotencyKey =
+      req.headers.get('idempotency-key') ||
+      req.headers.get('Idempotency-Key') ||
+      String((body as Record<string, unknown>).idempotency_key || '').trim() ||
+      null;
 
     if (!apiKey) {
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: 'X-Estab-Key header obrigatório' 
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'X-Estab-Key header obrigatório',
+        hint: 'Envie a API Key no header X-Estab-Key (ou configure ESTAB_API_KEY no Vercel do site)',
       }), {
         status: 401,
         headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
@@ -268,9 +309,9 @@ serve(async (req) => {
     }
 
     if (!idempotencyKey) {
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: 'Idempotency-Key header obrigatório' 
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'Idempotency-Key header obrigatório',
       }), {
         status: 400,
         headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
@@ -280,68 +321,67 @@ serve(async (req) => {
     // Validate API key and get establishment (autenticação do site)
     const { data: authEstablishment, error: estabError } = await supabase
       .from('establishments')
-      .select('id, name, slug, site_unit_slug, settings')
+      .select('id, name, slug, settings')
       .eq('api_key', apiKey)
-      .single();
+      .maybeSingle();
 
-    if (estabError || !authEstablishment) {
-      console.error('Invalid API key:', estabError);
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: 'API Key inválida' 
+    if (estabError) {
+      console.error('Erro ao buscar establishment por API key:', estabError);
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'Erro ao validar API Key',
+        details: estabError.message,
+      }), {
+        status: 500,
+        headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!authEstablishment) {
+      console.error('API key não encontrada no banco (prefixo):', apiKey.slice(0, 8));
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'API Key inválida',
+        hint: 'Gere/copie a chave em Burguer.IA → Configurações → Integração API e atualize no Vercel do site (ESTAB_API_KEY)',
       }), {
         status: 401,
         headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
       });
     }
 
-    // Parse request body
-    const body = await req.json();
-    const { order, source_domain } = body;
-
     const siteUnitSlug = extractSiteUnitSlug(body as Record<string, unknown>, req);
 
     let targetEstablishmentId = authEstablishment.id;
 
     if (siteUnitSlug) {
-      const { data: resolvedId, error: resolveError } = await supabase.rpc(
-        'resolve_site_unit_establishment',
-        {
-          p_auth_establishment_id: authEstablishment.id,
-          p_unit_slug: siteUnitSlug,
-        }
-      );
-
-      if (resolveError) {
-        console.error('resolve_site_unit_establishment error:', resolveError);
-        return new Response(JSON.stringify({
-          ok: false,
-          error: 'Erro ao identificar a unidade do pedido',
-          details: resolveError.message,
-        }), {
-          status: 500,
-          headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (!resolvedId) {
-        return new Response(JSON.stringify({
-          ok: false,
-          error: 'Unidade não encontrada',
-          estabelecimento_slug: siteUnitSlug,
-          hint: 'Verifique site_unit_slug no cadastro da loja (ex: brazlandia, vicente-pires)',
-        }), {
-          status: 400,
-          headers: { ...corsHeadersFor(req), 'Content-Type': 'application/json' },
-        });
-      }
-
-      targetEstablishmentId = resolvedId as string;
-
-      if (targetEstablishmentId !== authEstablishment.id) {
-        console.log(
-          `Pedido roteado: API key de "${authEstablishment.name}" → unidade slug "${siteUnitSlug}" → establishment ${targetEstablishmentId}`
+      try {
+        const { data: resolvedId, error: resolveError } = await supabase.rpc(
+          'resolve_site_unit_establishment',
+          {
+            p_auth_establishment_id: authEstablishment.id,
+            p_unit_slug: siteUnitSlug,
+          }
         );
+
+        if (resolveError) {
+          console.warn(
+            'resolve_site_unit_establishment indisponível; usando establishment da API key:',
+            resolveError.message
+          );
+        } else if (resolvedId) {
+          targetEstablishmentId = resolvedId as string;
+          if (targetEstablishmentId !== authEstablishment.id) {
+            console.log(
+              `Pedido roteado: API key de "${authEstablishment.name}" → unidade slug "${siteUnitSlug}" → establishment ${targetEstablishmentId}`
+            );
+          }
+        } else {
+          console.warn(
+            `Unidade "${siteUnitSlug}" não mapeada; pedido ficará na loja da API key (${authEstablishment.id})`
+          );
+        }
+      } catch (routeErr) {
+        console.warn('Falha ao rotear unidade do site; usando establishment da API key:', routeErr);
       }
     }
 
@@ -1057,7 +1097,7 @@ serve(async (req) => {
     // Normalizar método de pagamento para valores aceitos pelo banco
     // Valores aceitos: 'dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao', 'a_confirmar'
     const normalizePaymentMethod = (method: string | null | undefined): string => {
-      if (!method) return 'a_confirmar';
+      if (!method) return 'online';
       
       const normalized = method.toLowerCase().trim();
       
@@ -1087,8 +1127,8 @@ serve(async (req) => {
         return 'a_confirmar';
       }
       
-      // Valor desconhecido: operador define no atendimento
-      return 'a_confirmar';
+      // Valor desconhecido: online (compatível com constraint antiga do banco)
+      return 'online';
     };
     
     const rawPaymentMethod = order.payment?.method || order.payment_method || null;
@@ -1156,7 +1196,8 @@ serve(async (req) => {
       }
     }
 
-    // Create order items
+    // Create order items (falha nos itens NUNCA cancela o pedido)
+    try {
     let incomingItems = extractIncomingOrderItems(order as Record<string, unknown>);
     if (incomingItems.length === 0) {
       const meta = order.meta as Record<string, unknown> | undefined;
@@ -1261,7 +1302,11 @@ serve(async (req) => {
 
       const needsPlaceholder = orderItems.some((item: { _usedPlaceholder?: boolean }) => item._usedPlaceholder);
       if (needsPlaceholder) {
-        placeholderProductId = await getSiteOrderPlaceholderProductId(supabase, establishment.id);
+        try {
+          placeholderProductId = await getSiteOrderPlaceholderProductId(supabase, establishment.id);
+        } catch (placeholderErr) {
+          console.warn('Não foi possível obter produto placeholder; itens sem match serão omitidos:', placeholderErr);
+        }
       }
 
       const validOrderItems = orderItems
@@ -1333,6 +1378,9 @@ serve(async (req) => {
           }
         }
       }
+    }
+    } catch (itemsBlockErr) {
+      console.error('Erro ao processar itens do pedido (pedido mantido):', itemsBlockErr);
     }
 
     // Store idempotency key

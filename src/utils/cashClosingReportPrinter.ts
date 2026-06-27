@@ -1,4 +1,5 @@
 import { formatCurrency } from "@/utils/currency";
+import { getExpectedCardTotal } from "@/utils/paymentMethod";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { CashClosingReportData } from "./cashClosingReport";
@@ -125,8 +126,7 @@ export function printCashClosingReport(data: CashClosingReportData): void {
         <div class="section-title">RESUMO DO CAIXA</div>
         <div class="line">Dinheiro esperado: ${fmt(data.totals.expected_cash)}</div>
         <div class="line">PIX esperado: ${fmt(data.totals.expected_pix)}</div>
-        <div class="line">Débito esperado: ${fmt(data.totals.expected_debit)}</div>
-        <div class="line">Crédito esperado: ${fmt(data.totals.expected_credit)}</div>
+        <div class="line">Cartão esperado: ${fmt(getExpectedCardTotal(data.totals))}</div>
         <div class="line bold">Total esperado: ${fmt(data.totals.expected_total)}</div>
       </div>
     `

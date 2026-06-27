@@ -24,6 +24,58 @@ function isDrinkItemName(name: string): boolean {
   return keywords.some((k) => n.includes(k));
 }
 
+function isAccompanimentItemName(name: string): boolean {
+  const n = (name || '').toLowerCase();
+  return (
+    n.includes('batata') ||
+    n.includes('frango no pote') ||
+    n.includes('frango pote') ||
+    n.includes('acompanhamento') ||
+    n.includes('cebolas empanadas') ||
+    n.includes('mini chickens') ||
+    n.includes('fritas')
+  );
+}
+
+function normalizeReceiptTextKey(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function stripRedundantOpcaoFromNotes(itemName: string, notes: string): string {
+  if (!notes?.trim()) return notes;
+
+  const nameKey = normalizeReceiptTextKey(itemName);
+  const stripIfInName = (value: string): boolean => {
+    const v = normalizeReceiptTextKey(value);
+    if (!v || v.length < 2) return false;
+    return nameKey.includes(v);
+  };
+
+  let out = notes
+    .replace(/(?:^|[\n|])\s*Opção\s*:\s*([^\n|]+)/gi, (match, value: string) =>
+      stripIfInName(value) ? '' : match
+    )
+    .replace(/Obs:\s*Opção\s*:\s*([^\n|]+)/gi, (match, value: string) =>
+      stripIfInName(value) ? '' : match
+    );
+
+  if (isAccompanimentItemName(itemName)) {
+    out = out
+      .replace(/(?:^|[\n|])\s*Opção\s*:\s*[^\n|]*/gi, '')
+      .replace(/Obs:\s*Opção\s*:\s*[^\n|]*/gi, '');
+  }
+
+  return out
+    .replace(/\|\s*/g, '\n')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim();
+}
+
 /** Normaliza slug de unidade (Brazlândia → brazlandia). */
 function normalizeSiteUnitSlug(raw: string | null | undefined): string {
   if (!raw || !String(raw).trim()) return '';
@@ -1095,31 +1147,34 @@ serve(async (req) => {
     }
     
     // Normalizar método de pagamento para valores aceitos pelo banco
-    // Valores aceitos: 'dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao', 'a_confirmar'
+    // Valores aceitos: 'dinheiro', 'pix', 'cartao', 'online', 'whatsapp', 'balcao', 'a_confirmar'
     const normalizePaymentMethod = (method: string | null | undefined): string => {
       if (!method) return 'online';
       
       const normalized = method.toLowerCase().trim();
       
-      // Mapear valores comuns para valores válidos
-      if (normalized === 'cartao credito/debito' || normalized === 'cartao_credito_debito' || normalized === 'card') {
-        return 'cartao_debito'; // default para cartão genérico é débito
-      }
       if (normalized === 'cash' || normalized === 'money') {
         return 'dinheiro';
       }
-      if (normalized === 'credito' || normalized === 'credit' || normalized === 'credit_card') {
-        return 'cartao_credito';
-      }
-      if (normalized === 'debito' || normalized === 'debit' || normalized === 'debit_card') {
-        return 'cartao_debito';
-      }
-      if (normalized === 'cartao' || normalized === 'cartão') {
-        return 'cartao_debito'; // default para cartão genérico é débito
+      if (
+        normalized === 'cartao credito/debito' ||
+        normalized === 'cartao_credito_debito' ||
+        normalized === 'card' ||
+        normalized === 'credito' ||
+        normalized === 'credit' ||
+        normalized === 'credit_card' ||
+        normalized === 'debito' ||
+        normalized === 'debit' ||
+        normalized === 'debit_card' ||
+        normalized === 'cartao' ||
+        normalized === 'cartão' ||
+        normalized === 'cartao_credito' ||
+        normalized === 'cartao_debito'
+      ) {
+        return 'cartao';
       }
       
-      // Se já for um valor válido, retorna como está
-      const validMethods = ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'online', 'whatsapp', 'balcao', 'a_confirmar'];
+      const validMethods = ['dinheiro', 'pix', 'cartao', 'online', 'whatsapp', 'balcao', 'a_confirmar'];
       if (validMethods.includes(normalized)) {
         return normalized;
       }
@@ -1127,7 +1182,6 @@ serve(async (req) => {
         return 'a_confirmar';
       }
       
-      // Valor desconhecido: online (compatível com constraint antiga do banco)
       return 'online';
     };
     
@@ -1254,7 +1308,8 @@ serve(async (req) => {
           ).trim();
 
           const complements = item.complements;
-          if (Array.isArray(complements) && complements.length > 0) {
+          const isSideItem = isAccompanimentItemName(cleanItemName);
+          if (Array.isArray(complements) && complements.length > 0 && !isSideItem) {
             const complementsText = complements
               .map((c: Record<string, unknown>) => {
                 const compName = String(c.name || '')
@@ -1278,6 +1333,9 @@ serve(async (req) => {
           cleanItemName = cleanItemName
             .replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '')
             .trim();
+
+          itemNotes = stripRedundantOpcaoFromNotes(cleanItemName, itemNotes);
+          if (!itemNotes.trim()) itemNotes = '';
 
           const customizations: Record<string, unknown> = {};
           if (Array.isArray(complements) && complements.length > 0) {

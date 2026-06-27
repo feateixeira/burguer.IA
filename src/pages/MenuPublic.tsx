@@ -231,7 +231,7 @@ const MenuPublic = () => {
   const [customerAddress, setCustomerAddress] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
   const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
-  const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_credito" | "cartao_debito" | "">("");
+  const [paymentMethod, setPaymentMethod] = useState<"dinheiro" | "pix" | "cartao" | "">("");
   const [freeDeliveryPromotionId, setFreeDeliveryPromotionId] = useState<string | null>(null);
   /** Taxa base de entrega (config + motoboys via RPC) — usada só no checkout / total final */
   const [menuDeliveryBaseFee, setMenuDeliveryBaseFee] = useState(0);
@@ -290,8 +290,12 @@ const MenuPublic = () => {
     
     // Carregar preferência de pagamento do localStorage
     const savedPayment = localStorage.getItem('preferred_payment_method');
-    if (savedPayment && ['dinheiro', 'pix', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
-      setPaymentMethod(savedPayment as any);
+    if (savedPayment && ['dinheiro', 'pix', 'cartao', 'cartao_credito', 'cartao_debito'].includes(savedPayment)) {
+      setPaymentMethod(
+        savedPayment === 'cartao_credito' || savedPayment === 'cartao_debito'
+          ? 'cartao'
+          : (savedPayment as typeof paymentMethod)
+      );
     }
   }, [slug]);
 
@@ -1828,29 +1832,16 @@ const MenuPublic = () => {
                 </Button>
                 <Button
                   type="button"
-                  variant={paymentMethod === "cartao_debito" ? "default" : "outline"}
-                  onClick={() => setPaymentMethod("cartao_debito")}
+                  variant={paymentMethod === "cartao" ? "default" : "outline"}
+                  onClick={() => setPaymentMethod("cartao")}
                   className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
-                  style={paymentMethod === "cartao_debito" ? {
+                  style={paymentMethod === "cartao" ? {
                     backgroundColor: menuCustomization.primaryColor,
                     color: "#ffffff"
                   } : {}}
                 >
                   <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                  Débito
-                </Button>
-                <Button
-                  type="button"
-                  variant={paymentMethod === "cartao_credito" ? "default" : "outline"}
-                  onClick={() => setPaymentMethod("cartao_credito")}
-                  className="flex items-center justify-center gap-1.5 min-h-[42px] touch-manipulation text-xs sm:text-sm px-1.5"
-                  style={paymentMethod === "cartao_credito" ? {
-                    backgroundColor: menuCustomization.primaryColor,
-                    color: "#ffffff"
-                  } : {}}
-                >
-                  <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                  Crédito
+                  Cartão
                 </Button>
               </div>
             </div>

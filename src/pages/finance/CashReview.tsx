@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { getCountedCardTotal, getExpectedCardTotal } from "@/utils/paymentMethod";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -64,8 +64,7 @@ const CashReview = () => {
   const [selectedSession, setSelectedSession] = useState<PendingCashSession | null>(null);
   const [finalCountedCash, setFinalCountedCash] = useState("");
   const [finalCountedPix, setFinalCountedPix] = useState("");
-  const [finalCountedDebit, setFinalCountedDebit] = useState("");
-  const [finalCountedCredit, setFinalCountedCredit] = useState("");
+  const [finalCountedCard, setFinalCountedCard] = useState("");
   const [adjustmentNote, setAdjustmentNote] = useState("");
 
   // Verificar se é Master ou Admin
@@ -172,8 +171,7 @@ const CashReview = () => {
     setSelectedSession(session);
     setFinalCountedCash(session.counted_cash?.toFixed(2).replace(".", ",") || "");
     setFinalCountedPix(session.counted_pix?.toFixed(2).replace(".", ",") || "");
-    setFinalCountedDebit(session.counted_debit?.toFixed(2).replace(".", ",") || "");
-    setFinalCountedCredit(session.counted_credit?.toFixed(2).replace(".", ",") || "");
+    setFinalCountedCard(getCountedCardTotal(session).toFixed(2).replace(".", ","));
     setAdjustmentNote("");
     setReviewDialogOpen(true);
   };
@@ -183,11 +181,9 @@ const CashReview = () => {
 
     const cash = parseCurrency(finalCountedCash);
     const pix = parseCurrency(finalCountedPix);
-    const debit = parseCurrency(finalCountedDebit);
-    const credit = parseCurrency(finalCountedCredit);
+    const card = parseCurrency(finalCountedCard);
 
-    if (isNaN(cash) || cash < 0 || isNaN(pix) || pix < 0 || 
-        isNaN(debit) || debit < 0 || isNaN(credit) || credit < 0) {
+    if (isNaN(cash) || cash < 0 || isNaN(pix) || pix < 0 || isNaN(card) || card < 0) {
       toast.error("Valores inválidos");
       return;
     }
@@ -201,8 +197,8 @@ const CashReview = () => {
         p_validated_by: authSession.user.id,
         p_final_counted_cash: cash,
         p_final_counted_pix: pix,
-        p_final_counted_debit: debit,
-        p_final_counted_credit: credit,
+        p_final_counted_debit: card,
+        p_final_counted_credit: 0,
         p_adjustment_note: adjustmentNote.trim() || null,
       });
 
@@ -218,7 +214,7 @@ const CashReview = () => {
     }
   };
 
-  const calculateDifference = (session: PendingCashSession, method: 'cash' | 'pix' | 'debit' | 'credit' | 'total') => {
+  const calculateDifference = (session: PendingCashSession, method: 'cash' | 'pix' | 'card' | 'total') => {
     if (!session.expected_cash || !session.counted_cash) return null;
 
     switch (method) {
@@ -226,16 +222,14 @@ const CashReview = () => {
         return (session.counted_cash || 0) - (session.expected_cash || 0);
       case 'pix':
         return (session.counted_pix || 0) - (session.expected_pix || 0);
-      case 'debit':
-        return (session.counted_debit || 0) - (session.expected_debit || 0);
-      case 'credit':
-        return (session.counted_credit || 0) - (session.expected_credit || 0);
+      case 'card':
+        return getCountedCardTotal(session) - getExpectedCardTotal(session);
       case 'total':
-        const countedTotal = (session.counted_cash || 0) + 
-                            (session.counted_pix || 0) + 
-                            (session.counted_debit || 0) + 
-                            (session.counted_credit || 0);
-        return countedTotal - (session.expected_total || 0);
+        return (
+          (session.counted_cash || 0) +
+          (session.counted_pix || 0) +
+          getCountedCardTotal(session)
+        ) - (session.expected_total || 0);
       default:
         return null;
     }
@@ -353,39 +347,20 @@ const CashReview = () => {
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Débito</p>
+                          <p className="text-xs text-muted-foreground">Cartão</p>
                           <div>
-                            <p className="text-sm font-medium">Esperado: {formatCurrency(session.expected_debit || 0)}</p>
-                            <p className="text-sm">Contado: {formatCurrency(session.counted_debit || 0)}</p>
-                            {calculateDifference(session, 'debit') !== null && (
+                            <p className="text-sm font-medium">Esperado: {formatCurrency(getExpectedCardTotal(session))}</p>
+                            <p className="text-sm">Contado: {formatCurrency(getCountedCardTotal(session))}</p>
+                            {calculateDifference(session, 'card') !== null && (
                               <p className={`text-xs font-semibold ${
-                                calculateDifference(session, 'debit') === 0 
+                                calculateDifference(session, 'card') === 0 
                                   ? "text-green-600" 
-                                  : calculateDifference(session, 'debit')! > 0 
+                                  : calculateDifference(session, 'card')! > 0 
                                     ? "text-blue-600" 
                                     : "text-red-600"
                               }`}>
-                                {calculateDifference(session, 'debit')! >= 0 ? "+" : ""}
-                                {formatCurrency(calculateDifference(session, 'debit')!)}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">Crédito</p>
-                          <div>
-                            <p className="text-sm font-medium">Esperado: {formatCurrency(session.expected_credit || 0)}</p>
-                            <p className="text-sm">Contado: {formatCurrency(session.counted_credit || 0)}</p>
-                            {calculateDifference(session, 'credit') !== null && (
-                              <p className={`text-xs font-semibold ${
-                                calculateDifference(session, 'credit') === 0 
-                                  ? "text-green-600" 
-                                  : calculateDifference(session, 'credit')! > 0 
-                                    ? "text-blue-600" 
-                                    : "text-red-600"
-                              }`}>
-                                {calculateDifference(session, 'credit')! >= 0 ? "+" : ""}
-                                {formatCurrency(calculateDifference(session, 'credit')!)}
+                                {calculateDifference(session, 'card')! >= 0 ? "+" : ""}
+                                {formatCurrency(calculateDifference(session, 'card')!)}
                               </p>
                             )}
                           </div>
@@ -397,8 +372,7 @@ const CashReview = () => {
                             <p className="text-sm">Contado: {formatCurrency(
                               (session.counted_cash || 0) + 
                               (session.counted_pix || 0) + 
-                              (session.counted_debit || 0) + 
-                              (session.counted_credit || 0)
+                              getCountedCardTotal(session)
                             )}</p>
                             {totalDiff !== null && (
                               <p className={`text-xs font-semibold ${
@@ -503,39 +477,20 @@ const CashReview = () => {
                           </TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell className="font-medium">Débito</TableCell>
-                          <TableCell className="text-right">{formatCurrency(selectedSession.expected_debit || 0)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(selectedSession.counted_debit || 0)}</TableCell>
+                          <TableCell className="font-medium">Cartão</TableCell>
+                          <TableCell className="text-right">{formatCurrency(getExpectedCardTotal(selectedSession))}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(getCountedCardTotal(selectedSession))}</TableCell>
                           <TableCell className={`text-right font-semibold ${
-                            calculateDifference(selectedSession, 'debit') === 0 
+                            calculateDifference(selectedSession, 'card') === 0 
                               ? "text-green-600" 
-                              : calculateDifference(selectedSession, 'debit')! > 0 
+                              : calculateDifference(selectedSession, 'card')! > 0 
                                 ? "text-blue-600" 
                                 : "text-red-600"
                           }`}>
-                            {calculateDifference(selectedSession, 'debit') !== null && (
+                            {calculateDifference(selectedSession, 'card') !== null && (
                               <>
-                                {calculateDifference(selectedSession, 'debit')! >= 0 ? "+" : ""}
-                                {formatCurrency(calculateDifference(selectedSession, 'debit')!)}
-                              </>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell className="font-medium">Crédito</TableCell>
-                          <TableCell className="text-right">{formatCurrency(selectedSession.expected_credit || 0)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(selectedSession.counted_credit || 0)}</TableCell>
-                          <TableCell className={`text-right font-semibold ${
-                            calculateDifference(selectedSession, 'credit') === 0 
-                              ? "text-green-600" 
-                              : calculateDifference(selectedSession, 'credit')! > 0 
-                                ? "text-blue-600" 
-                                : "text-red-600"
-                          }`}>
-                            {calculateDifference(selectedSession, 'credit') !== null && (
-                              <>
-                                {calculateDifference(selectedSession, 'credit')! >= 0 ? "+" : ""}
-                                {formatCurrency(calculateDifference(selectedSession, 'credit')!)}
+                                {calculateDifference(selectedSession, 'card')! >= 0 ? "+" : ""}
+                                {formatCurrency(calculateDifference(selectedSession, 'card')!)}
                               </>
                             )}
                           </TableCell>
@@ -546,8 +501,7 @@ const CashReview = () => {
                           <TableCell className="text-right">{formatCurrency(
                             (selectedSession.counted_cash || 0) + 
                             (selectedSession.counted_pix || 0) + 
-                            (selectedSession.counted_debit || 0) + 
-                            (selectedSession.counted_credit || 0)
+                            getCountedCardTotal(selectedSession)
                           )}</TableCell>
                           <TableCell className={`text-right ${
                             calculateDifference(selectedSession, 'total') === 0 
@@ -605,22 +559,12 @@ const CashReview = () => {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="finalDebit">Débito Final (R$)</Label>
+                      <Label htmlFor="finalCard">Cartão Final (R$)</Label>
                       <Input
-                        id="finalDebit"
+                        id="finalCard"
                         type="text"
-                        value={finalCountedDebit}
-                        onChange={(e) => setFinalCountedDebit(currencyMask(e.target.value))}
-                        placeholder="0,00"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="finalCredit">Crédito Final (R$)</Label>
-                      <Input
-                        id="finalCredit"
-                        type="text"
-                        value={finalCountedCredit}
-                        onChange={(e) => setFinalCountedCredit(currencyMask(e.target.value))}
+                        value={finalCountedCard}
+                        onChange={(e) => setFinalCountedCard(currencyMask(e.target.value))}
                         placeholder="0,00"
                       />
                     </div>

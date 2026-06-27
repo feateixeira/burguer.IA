@@ -3,6 +3,7 @@ import { CashSessionTotals } from "@/hooks/useCashSession";
 import {
   getPaymentMethodSiteConfirmLabel,
   isPaymentMethodToConfirm,
+  normalizePaymentMethodKey,
   PAYMENT_METHOD_A_CONFIRMAR,
 } from "@/utils/paymentMethod";
 import { isCancelledOrder, isDeliveryOrder } from "@/utils/deliveryOrder";
@@ -82,22 +83,12 @@ const PAYMENT_METHOD_ORDER = [
   "dinheiro",
   "cash",
   "pix",
-  "cartao_debito",
-  "cartao credito/debito",
-  "cartao_credito",
+  "cartao",
   "online",
   "whatsapp",
   "balcao",
   PAYMENT_METHOD_A_CONFIRMAR,
 ] as const;
-
-function normalizeMethodKey(method: string | null | undefined): string {
-  if (!method || !String(method).trim()) return PAYMENT_METHOD_A_CONFIRMAR;
-  const m = String(method).toLowerCase().trim();
-  if (m === "cash") return "dinheiro";
-  if (m === "cartao credito/debito" || m === "cartao_credito_debito") return "cartao_debito";
-  return m;
-}
 
 function methodSortIndex(key: string): number {
   const idx = PAYMENT_METHOD_ORDER.indexOf(key as (typeof PAYMENT_METHOD_ORDER)[number]);
@@ -200,14 +191,14 @@ function expandOrderPaymentLines(order: SessionOrderRow): Array<{
   if (hasSplit) {
     return [
       {
-        methodKey: normalizeMethodKey(order.payment_method),
+        methodKey: normalizePaymentMethodKey(order.payment_method),
         amount: Number(order.payment_amount_1) || 0,
         sortAt,
         time,
         orderNumber,
       },
       {
-        methodKey: normalizeMethodKey(order.payment_method_2),
+        methodKey: normalizePaymentMethodKey(order.payment_method_2),
         amount: Number(order.payment_amount_2) || 0,
         sortAt: sortAt + 1,
         time,
@@ -218,7 +209,7 @@ function expandOrderPaymentLines(order: SessionOrderRow): Array<{
 
   return [
     {
-      methodKey: normalizeMethodKey(order.payment_method),
+      methodKey: normalizePaymentMethodKey(order.payment_method),
       amount: orderAmount(order),
       sortAt,
       time,

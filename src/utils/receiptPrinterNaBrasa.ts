@@ -1,4 +1,5 @@
 import { sanitizeReceiptNotesForItem } from "@/utils/receiptItemNotes";
+import { getPaymentMethodLabel } from "@/utils/paymentMethod";
 
 export interface ReceiptData {
   orderNumber: string;
@@ -48,26 +49,8 @@ export interface NonFiscalReceiptData {
   createdAt: string;
 }
 
-/** Texto no cupom: sem "Cartão" — só Débito / Crédito / PIX / Dinheiro */
-const formatPaymentMethod = (method: string | undefined) => {
-  if (!method) return "";
-  const key = method.toLowerCase().trim();
-  const methodMap: Record<string, string> = {
-    dinheiro: "Dinheiro",
-    pix: "PIX",
-    cartao_credito: "Crédito",
-    cartao_debito: "Débito",
-    online: "Online",
-    whatsapp: "WhatsApp",
-    balcao: "Balcão",
-    credito: "Crédito",
-    debito: "Débito",
-  };
-  if (methodMap[key]) return methodMap[key];
-  if (key.includes("débito") || key.includes("debito")) return "Débito";
-  if (key.includes("crédito") || key.includes("credito")) return "Crédito";
-  return method.replace(/\s+/g, " ").trim();
-};
+const formatPaymentMethod = (method: string | undefined) =>
+  method ? getPaymentMethodLabel(method) : "";
 
 function escapeHtmlReceipt(s: string): string {
   return s

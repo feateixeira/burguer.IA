@@ -48,6 +48,7 @@ import { printReceiptNaBrasa } from "@/utils/receiptPrinterNaBrasa";
 import {
   isReceiptDrinkItemName,
   sanitizeReceiptNotesForItem,
+  stripRedundantOpcaoFromNotes,
 } from "@/utils/receiptItemNotes";
 import { resolveOrderItemDisplayName } from "@/utils/orderItemDisplay";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
@@ -91,7 +92,9 @@ import { ChangePaymentMethodModal } from "@/components/orders/ChangePaymentMetho
 import {
   getPaymentMethodLabel,
   getPaymentMethodSiteConfirmLabel,
+  isCardPaymentMethod,
   isPaymentMethodToConfirm,
+  PAYMENT_METHOD_CARTAO,
   type OrderPaymentMethod,
 } from "@/utils/paymentMethod";
 import { Switch } from "@/components/ui/switch";
@@ -564,7 +567,12 @@ const Orders = () => {
       }
 
       if (selectedPaymentMethod) {
-        filtered = filtered.filter(order => order.payment_method === selectedPaymentMethod);
+        filtered = filtered.filter((order) => {
+          if (selectedPaymentMethod === PAYMENT_METHOD_CARTAO) {
+            return isCardPaymentMethod(order.payment_method);
+          }
+          return order.payment_method === selectedPaymentMethod;
+        });
       }
 
       if (showDeliveries) {
@@ -1043,16 +1051,14 @@ const Orders = () => {
           const isDrink = isReceiptDrinkItemName(name);
           
           if (isAccompaniment || isDrink) {
-            notes = notes.replace(/Molhos?\s*:\s*/gi, '').trim();
-            notes = notes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
-            notes = notes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
-            notes = notes.split('\n').map(line => {
-              const trimmed = line.trim();
-              if (trimmed.toLowerCase().startsWith('obs:') && trimmed.toLowerCase().includes('opção:')) {
-                return trimmed.replace(/^Obs:\s*/i, '').trim();
-              }
-              return trimmed;
-            }).join('\n').trim();
+            notes = stripRedundantOpcaoFromNotes(name, notes);
+            notes = notes.replace(/Molhos?\s*:\s*/gi, "").trim();
+            notes = notes.replace(/^Obs:\s*Molhos?\s*:\s*/i, "Obs: ").trim();
+            notes = notes.split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .join("\n")
+              .trim();
           }
           
           notes = notes.replace(/^(Obs:\s*)+/i, 'Obs: ');
@@ -1218,7 +1224,7 @@ const Orders = () => {
 
         // Adicionar hífen para Molhos para melhor visibilidade
         if (finalNotes && finalNotes.includes('Molhos:')) {
-          finalNotes = finalNotes.replace('Molhos:', 'Molhos:');
+          finalNotes = finalNotes.replace('Molhos:', '-Molhos:');
         }
 
         // Extrair e garantir linha de Trio/Bebida para impressão (itens transformados em trio ou combo Na Brasa)
@@ -1226,18 +1232,18 @@ const Orders = () => {
         if (finalNotes) {
           const bebidaMatch = finalNotes.match(/(?:Combo\s*-\s*)?Bebida\s*:\s*([^\n|]+)/i);
           if (bebidaMatch && bebidaMatch[1]) {
-            trioLineForItem = `Trio: ${bebidaMatch[1].trim()}`;
+            trioLineForItem = `- Trio: ${bebidaMatch[1].trim()}`;
             finalNotes = finalNotes.replace(/(?:Combo\s*-\s*)?Bebida\s*:\s*[^\n|]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
           } else {
             const trioMatch = finalNotes.match(/Trio\s*:\s*([^\n\[\]]+)/i);
             if (trioMatch && trioMatch[1]) {
-              trioLineForItem = `Trio: ${trioMatch[1].trim()}`;
+              trioLineForItem = `- Trio: ${trioMatch[1].trim()}`;
               finalNotes = finalNotes.replace(/Trio\s*:\s*[^\n\[\]]+/i, '').trim().replace(/\n\s*\n+/g, '\n').trim();
             }
           }
         }
         if (!trioLineForItem && hasTrioInName && trioInfo) {
-          trioLineForItem = `Trio: ${trioInfo}`;
+          trioLineForItem = `- Trio: ${trioInfo}`;
         }
         
         try {
@@ -1268,16 +1274,9 @@ const Orders = () => {
         }
         
         if ((isAccompaniment || isReceiptDrinkItemName(cleanName)) && finalNotes) {
-          finalNotes = finalNotes.replace(/Molhos?\s*:\s*/gi, '').trim();
-          finalNotes = finalNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
-          finalNotes = finalNotes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
-          finalNotes = finalNotes.split('\n').map(line => {
-            const trimmed = line.trim();
-            if (trimmed.toLowerCase().startsWith('obs:') && trimmed.toLowerCase().includes('opção:')) {
-              return trimmed.replace(/^Obs:\s*/i, '').trim();
-            }
-            return trimmed;
-          }).join('\n').trim();
+          finalNotes = stripRedundantOpcaoFromNotes(cleanName, finalNotes);
+          finalNotes = finalNotes.replace(/Molhos?\s*:\s*/gi, "").trim();
+          finalNotes = finalNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, "Obs: ").trim();
           if (finalNotes.match(/^Obs:\s*$/i)) {
             finalNotes = undefined;
           }
@@ -1295,7 +1294,7 @@ const Orders = () => {
             }
           }
         } else if (hasTrioInName && trioInfo) {
-          const trioNote = `Trio: ${trioInfo}`;
+          const trioNote = `- Trio: ${trioInfo}`;
           if (finalNotes) {
             finalNotes = `${trioNote}\n\n${finalNotes}`;
           } else {
@@ -1350,16 +1349,15 @@ const Orders = () => {
         const isDrink = isReceiptDrinkItemName(item.name);
         
         if (isAccompaniment || isDrink) {
-          cleanedNotes = cleanedNotes.replace(/Molhos?\s*:\s*/gi, '').trim();
-          cleanedNotes = cleanedNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, 'Obs: ').trim();
-          cleanedNotes = cleanedNotes.replace(/^Obs:\s*Opção:\s*/i, 'Opção: ').trim();
-          cleanedNotes = cleanedNotes.split('\n').map(line => {
-            const trimmed = line.trim();
-            if (trimmed.toLowerCase().startsWith('obs:') && trimmed.toLowerCase().includes('opção:')) {
-              return trimmed.replace(/^Obs:\s*/i, '').trim();
-            }
-            return trimmed;
-          }).join('\n').trim();
+          cleanedNotes = stripRedundantOpcaoFromNotes(item.name, cleanedNotes);
+          cleanedNotes = cleanedNotes.replace(/Molhos?\s*:\s*/gi, "").trim();
+          cleanedNotes = cleanedNotes.replace(/^Obs:\s*Molhos?\s*:\s*/i, "Obs: ").trim();
+          cleanedNotes = cleanedNotes
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .join("\n")
+            .trim();
         }
         
         cleanedNotes = cleanedNotes.replace(/^(Obs:\s*)+/i, 'Obs: ');
@@ -2308,8 +2306,7 @@ const Orders = () => {
                             <SelectItem value="all">Todos os métodos</SelectItem>
                             <SelectItem value="dinheiro">Dinheiro</SelectItem>
                             <SelectItem value="pix">PIX</SelectItem>
-                            <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                            <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                            <SelectItem value={PAYMENT_METHOD_CARTAO}>Cartão</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -3157,8 +3154,7 @@ const Orders = () => {
                           <SelectContent>
                             <SelectItem value="dinheiro">Dinheiro</SelectItem>
                             <SelectItem value="pix">PIX</SelectItem>
-                            <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                            <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                            <SelectItem value={PAYMENT_METHOD_CARTAO}>Cartão</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { getPaymentMethodLabel, isCardPaymentMethod } from "@/utils/paymentMethod";
 import {
   BarChart,
   Bar,
@@ -63,8 +64,7 @@ interface ReceivableByMonth {
   byPaymentMethod: {
     dinheiro: number;
     pix: number;
-    cartao_credito: number;
-    cartao_debito: number;
+    cartao: number;
     other: number;
   };
   count: number;
@@ -269,8 +269,7 @@ const AccountsPayableReceivable = () => {
         const byPaymentMethod = {
           dinheiro: 0,
           pix: 0,
-          cartao_credito: 0,
-          cartao_debito: 0,
+          cartao: 0,
           other: 0,
         };
 
@@ -285,10 +284,8 @@ const AccountsPayableReceivable = () => {
             byPaymentMethod.dinheiro += amount;
           } else if (method === "pix") {
             byPaymentMethod.pix += amount;
-          } else if (method === "cartao_credito") {
-            byPaymentMethod.cartao_credito += amount;
-          } else if (method === "cartao_debito") {
-            byPaymentMethod.cartao_debito += amount;
+          } else if (isCardPaymentMethod(method)) {
+            byPaymentMethod.cartao += amount;
           } else {
             byPaymentMethod.other += amount;
           }
@@ -322,26 +319,10 @@ const AccountsPayableReceivable = () => {
         return <Wallet className="h-4 w-4" />;
       case "pix":
         return <Smartphone className="h-4 w-4" />;
-      case "cartao_credito":
-      case "cartao_debito":
+      case "cartao":
         return <CreditCard className="h-4 w-4" />;
       default:
         return <DollarSign className="h-4 w-4" />;
-    }
-  };
-
-  const getPaymentMethodLabel = (method: string) => {
-    switch (method) {
-      case "dinheiro":
-        return "Dinheiro";
-      case "pix":
-        return "PIX";
-      case "cartao_credito":
-        return "Cartão Crédito";
-      case "cartao_debito":
-        return "Cartão Débito";
-      default:
-        return "Outros";
     }
   };
 
@@ -600,16 +581,14 @@ const AccountsPayableReceivable = () => {
                     const totalsByMethod = {
                       dinheiro: 0,
                       pix: 0,
-                      cartao_credito: 0,
-                      cartao_debito: 0,
+                      cartao: 0,
                       other: 0,
                     };
                     
                     receivablesByMonth.forEach((month) => {
                       totalsByMethod.dinheiro += month.byPaymentMethod.dinheiro;
                       totalsByMethod.pix += month.byPaymentMethod.pix;
-                      totalsByMethod.cartao_credito += month.byPaymentMethod.cartao_credito;
-                      totalsByMethod.cartao_debito += month.byPaymentMethod.cartao_debito;
+                      totalsByMethod.cartao += month.byPaymentMethod.cartao;
                       totalsByMethod.other += month.byPaymentMethod.other;
                     });
                     

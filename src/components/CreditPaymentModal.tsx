@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { DollarSign, Loader2, AlertCircle, Calendar } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { PAYMENT_METHOD_OPTIONS } from '@/utils/paymentMethod';
 
 interface CreditPaymentModalProps {
   open: boolean;
@@ -281,10 +282,11 @@ export const CreditPaymentModal = ({
                 <SelectValue placeholder="Selecione o método de pagamento" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                <SelectItem value="pix">PIX</SelectItem>
-                <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                {PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

@@ -1,4 +1,5 @@
 import { sanitizeReceiptNotesForItem } from "@/utils/receiptItemNotes";
+import { getPaymentMethodLabel } from "@/utils/paymentMethod";
 
 export interface ReceiptData {
   orderNumber: string;
@@ -48,28 +49,8 @@ export interface NonFiscalReceiptData {
   createdAt: string;
 }
 
-// Formatar método de pagamento (função compartilhada)
-const formatPaymentMethod = (method: string | undefined) => {
-  if (!method) return "";
-  const key = method.toLowerCase().trim();
-  const methodMap: Record<string, string> = {
-    dinheiro: "Dinheiro",
-    pix: "PIX",
-    cartao_credito: "Crédito",
-    cartao_debito: "Débito",
-    online: "Online",
-    whatsapp: "WhatsApp",
-    balcao: "Balcão",
-    credito: "Crédito",
-    debito: "Débito",
-  };
-  if (methodMap[key]) return methodMap[key];
-  if (key.includes("débito") || key.includes("debito")) return "Débito";
-  if (key.includes("crédito") || key.includes("credito")) return "Crédito";
-  if (key === "crédito" || key === "credito") return "Crédito";
-  if (key === "débito" || key === "debito") return "Débito";
-  return method.replace(/\s+/g, " ").trim();
-};
+const formatPaymentMethod = (method: string | undefined) =>
+  method ? getPaymentMethodLabel(method) : "";
 
 /** Ex.: 61993709608 → (61) 99370-9608 */
 function formatPhoneBRDisplay(phone: string | undefined): string | undefined {

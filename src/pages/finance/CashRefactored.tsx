@@ -56,6 +56,7 @@ import { useTeamUser } from "@/components/TeamUserProvider";
 import { formatCurrency, parseCurrency, currencyMask } from "@/utils/currency";
 import { CashClosingConference } from "@/components/cash/CashClosingConference";
 import {
+  getExpectedCardTotal,
   isOrderInCashSessionWindow,
   isPaymentMethodToConfirm,
   PAYMENT_METHOD_A_CONFIRMAR,
@@ -130,8 +131,7 @@ const CashRefactored = () => {
   const [openingNotes, setOpeningNotes] = useState("");
   const [countedCash, setCountedCash] = useState("");
   const [countedPix, setCountedPix] = useState("");
-  const [countedDebit, setCountedDebit] = useState("");
-  const [countedCredit, setCountedCredit] = useState("");
+  const [countedCard, setCountedCard] = useState("");
   const [closingNote, setClosingNote] = useState("");
   const [transactionAmount, setTransactionAmount] = useState("");
   const [transactionDescription, setTransactionDescription] = useState("");
@@ -505,8 +505,7 @@ const CashRefactored = () => {
     if (isAttendant) {
       const counted = parseCurrency(countedCash);
       const countedPixValue = parseCurrency(countedPix);
-      const countedDebitValue = parseCurrency(countedDebit);
-      const countedCreditValue = parseCurrency(countedCredit);
+      const countedCardValue = parseCurrency(countedCard);
 
       if (isNaN(counted) || counted < 0) {
         toast.error("Valor de dinheiro inválido");
@@ -518,13 +517,8 @@ const CashRefactored = () => {
         return;
       }
 
-      if (isNaN(countedDebitValue) || countedDebitValue < 0) {
-        toast.error("Valor de Débito inválido");
-        return;
-      }
-
-      if (isNaN(countedCreditValue) || countedCreditValue < 0) {
-        toast.error("Valor de Crédito inválido");
+      if (isNaN(countedCardValue) || countedCardValue < 0) {
+        toast.error("Valor de Cartão inválido");
         return;
       }
 
@@ -540,15 +534,14 @@ const CashRefactored = () => {
           counted, 
           closingNote.trim() || null,
           countedPixValue,
-          countedDebitValue,
-          countedCreditValue,
+          countedCardValue,
+          0,
           isAttendant
         );
         setCloseDialog(false);
         setCountedCash("");
         setCountedPix("");
-        setCountedDebit("");
-        setCountedCredit("");
+        setCountedCard("");
         setClosingNote("");
         await loadHistory();
       } catch (error) {
@@ -559,11 +552,7 @@ const CashRefactored = () => {
       // Não precisa de contagem manual, o sistema já calcula os valores esperados
       const expectedCash = totals?.expected_cash || 0;
       const expectedPix = totals?.expected_pix || 0;
-      const expectedDebit = totals?.expected_debit || 0;
-      const expectedCredit = totals?.expected_credit || 0;
-
-      // Para master/admin, não há diferença a calcular pois usa valores esperados diretamente
-      // Observação é opcional, a menos que haja alguma situação especial
+      const expectedCard = getExpectedCardTotal(totals || {});
 
       try {
         await closeSession(
@@ -571,15 +560,14 @@ const CashRefactored = () => {
           expectedCash, 
           closingNote.trim() || null,
           expectedPix,
-          expectedDebit,
-          expectedCredit,
+          expectedCard,
+          0,
           false
         );
         setCloseDialog(false);
         setCountedCash("");
         setCountedPix("");
-        setCountedDebit("");
-        setCountedCredit("");
+        setCountedCard("");
         setClosingNote("");
         await loadHistory();
       } catch (error) {
@@ -855,8 +843,7 @@ const CashRefactored = () => {
                       <TableHead>Total (R$)</TableHead>
                       <TableHead>Dinheiro</TableHead>
                       <TableHead>PIX</TableHead>
-                      <TableHead>Débito</TableHead>
-                      <TableHead>Crédito</TableHead>
+                      <TableHead>Cartão</TableHead>
                       <TableHead>Diferença</TableHead>
                     </>
                   )}
@@ -893,10 +880,9 @@ const CashRefactored = () => {
                           {s.expected_pix !== null ? formatCurrency(s.expected_pix) : "-"}
                         </TableCell>
                         <TableCell>
-                          {s.expected_debit !== null ? formatCurrency(s.expected_debit) : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {s.expected_credit !== null ? formatCurrency(s.expected_credit) : "-"}
+                          {s.expected_debit !== null || s.expected_credit !== null
+                            ? formatCurrency(getExpectedCardTotal(s))
+                            : "-"}
                         </TableCell>
                         <TableCell>
                           {s.difference_amount !== null ? (
@@ -1098,22 +1084,12 @@ const CashRefactored = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="countedDebit">Cartão de Débito Contado (R$)</Label>
+                    <Label htmlFor="countedCard">Cartão Contado (R$)</Label>
                     <Input
-                      id="countedDebit"
+                      id="countedCard"
                       type="text"
-                      value={countedDebit}
-                      onChange={(e) => setCountedDebit(currencyMask(e.target.value))}
-                      placeholder="0,00"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="countedCredit">Cartão de Crédito Contado (R$)</Label>
-                    <Input
-                      id="countedCredit"
-                      type="text"
-                      value={countedCredit}
-                      onChange={(e) => setCountedCredit(currencyMask(e.target.value))}
+                      value={countedCard}
+                      onChange={(e) => setCountedCard(currencyMask(e.target.value))}
                       placeholder="0,00"
                     />
                   </div>

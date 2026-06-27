@@ -50,6 +50,7 @@ import { CreditSaleModal } from "@/components/CreditSaleModal";
 import { useCreditDueDateAlerts } from "@/hooks/useCreditDueDateAlerts";
 import {
   PAYMENT_METHOD_A_CONFIRMAR,
+  getInitialPaymentMethodSelection,
   paymentMethodForInsert,
 } from "@/utils/paymentMethod";
 import { CreditDueDateAlertModal } from "@/components/CreditDueDateAlertModal";
@@ -755,10 +756,10 @@ const PDV = () => {
       }
 
       // Preencher forma de pagamento
-      setPaymentMethod(order.payment_method || "");
+      setPaymentMethod(getInitialPaymentMethodSelection(order.payment_method) || order.payment_method || "");
       if (order.payment_method_2 != null && order.payment_method_2 !== "" && order.payment_amount_1 != null && order.payment_amount_2 != null) {
         setUseSplitPayment(true);
-        setPaymentMethod2(order.payment_method_2 || "");
+        setPaymentMethod2(getInitialPaymentMethodSelection(order.payment_method_2) || order.payment_method_2 || "");
         setPaymentAmount1(String(order.payment_amount_1));
         setPaymentAmount2(String(order.payment_amount_2));
       } else {
@@ -1597,7 +1598,9 @@ const PDV = () => {
           customer_phone: customerPhone,
           order_type: includeDelivery ? "delivery" : "balcao",
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
-          payment_method: useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod,
+          payment_method: paymentMethodForInsert(
+            useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod
+          ),
           subtotal: subtotal,
           discount_amount: discountAmount,
           delivery_fee: finalDeliveryFee,
@@ -1608,7 +1611,7 @@ const PDV = () => {
         if (useSplitPayment) {
           const amount1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
           const amount2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
-          updatePayload.payment_method_2 = paymentMethod2;
+          updatePayload.payment_method_2 = paymentMethodForInsert(paymentMethod2);
           updatePayload.payment_amount_1 = amount1;
           updatePayload.payment_amount_2 = amount2;
         } else {
@@ -1655,7 +1658,9 @@ const PDV = () => {
           delivery_boy_id: includeDelivery && selectedDeliveryBoy ? selectedDeliveryBoy : null,
           status: "pending",
           payment_status: "paid",
-          payment_method: useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod,
+          payment_method: paymentMethodForInsert(
+            useSplitPayment ? (paymentMethod || "dinheiro") : paymentMethod
+          ),
           subtotal: subtotal,
           discount_amount: discountAmount,
           delivery_fee: finalDeliveryFee,
@@ -1666,7 +1671,7 @@ const PDV = () => {
         if (useSplitPayment) {
           const amount1 = parseFloat(String(paymentAmount1).replace(",", ".")) || 0;
           const amount2 = parseFloat(String(paymentAmount2).replace(",", ".")) || 0;
-          insertPayload.payment_method_2 = paymentMethod2;
+          insertPayload.payment_method_2 = paymentMethodForInsert(paymentMethod2);
           insertPayload.payment_amount_1 = amount1;
           insertPayload.payment_amount_2 = amount2;
         }
@@ -2861,8 +2866,7 @@ const PDV = () => {
                       >
                         <option value="">Selecione...</option>
                         <option value="dinheiro">Dinheiro</option>
-                        <option value="cartao_debito">Cartão de Débito</option>
-                        <option value="cartao_credito">Cartão de Crédito</option>
+                        <option value="cartao">Cartão</option>
                         <option value="pix">PIX</option>
                       </select>
                     </div>
@@ -2909,8 +2913,7 @@ const PDV = () => {
                             className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                           >
                             <option value="dinheiro">Dinheiro</option>
-                            <option value="cartao_debito">Débito</option>
-                            <option value="cartao_credito">Crédito</option>
+                            <option value="cartao">Cartão</option>
                             <option value="pix">PIX</option>
                           </select>
                         </div>
@@ -2941,8 +2944,7 @@ const PDV = () => {
                           >
                             <option value="">Selecione...</option>
                             <option value="dinheiro">Dinheiro</option>
-                            <option value="cartao_debito">Débito</option>
-                            <option value="cartao_credito">Crédito</option>
+                            <option value="cartao">Cartão</option>
                             <option value="pix">PIX</option>
                           </select>
                         </div>

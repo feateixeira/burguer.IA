@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { CashSessionTotals } from "@/hooks/useCashSession";
 import { formatCurrency, parseCurrency } from "@/utils/currency";
 import { cn } from "@/lib/utils";
+import { getExpectedCardTotal } from "@/utils/paymentMethod";
 
 interface CashClosingConferenceProps {
   totals: CashSessionTotals;
@@ -13,8 +14,11 @@ interface CashClosingConferenceProps {
 const METHODS = [
   { key: "dinheiro" as const, label: "Dinheiro", totalKey: "expected_cash" as const },
   { key: "pix" as const, label: "PIX", totalKey: "expected_pix" as const },
-  { key: "debito" as const, label: "Débito", totalKey: "expected_debit" as const },
-  { key: "credito" as const, label: "Crédito", totalKey: "expected_credit" as const },
+  {
+    key: "cartao" as const,
+    label: "Cartão",
+    getExpected: (t: CashSessionTotals) => getExpectedCardTotal(t),
+  },
 ];
 
 const DIFF_EPSILON = 0.009;
@@ -26,14 +30,19 @@ export function CashClosingConference({
 }: CashClosingConferenceProps) {
   const [valoresReais, setValoresReais] = useState<Record<string, string>>({});
 
-  const getDiff = (totalKey: (typeof METHODS)[number]["totalKey"]) => {
-    const inputKey = METHODS.find((m) => m.totalKey === totalKey)?.key;
-    if (!inputKey) return null;
-    const raw = valoresReais[inputKey];
+  const getExpected = (method: (typeof METHODS)[number]) => {
+    if ("getExpected" in method && method.getExpected) {
+      return method.getExpected(totals);
+    }
+    return totals[method.totalKey] || 0;
+  };
+
+  const getDiff = (method: (typeof METHODS)[number]) => {
+    const raw = valoresReais[method.key];
     if (raw === undefined || raw.trim() === "") return null;
     const contado = parseCurrency(raw);
     if (Number.isNaN(contado)) return null;
-    return contado - (totals[totalKey] || 0);
+    return contado - getExpected(method);
   };
 
   const formatDiffLabel = (diff: number) => {
@@ -71,8 +80,10 @@ export function CashClosingConference({
       </div>
 
       <div className="flex flex-col gap-3">
-        {METHODS.map(({ key, label, totalKey }) => {
-          const diff = getDiff(totalKey);
+        {METHODS.map((method) => {
+          const { key, label } = method;
+          const expected = getExpected(method);
+          const diff = getDiff(method);
           const tone = getDiffTone(diff);
           return (
             <div
@@ -87,7 +98,7 @@ export function CashClosingConference({
                   {label} Esperado
                 </span>
                 <span className="text-base font-bold text-[#111827] dark:text-foreground">
-                  {formatCurrency(totals[totalKey] || 0)}
+                  {formatCurrency(expected)}
                 </span>
                 {key === "dinheiro" && openingAmount > 0 && (
                   <span className="text-xs text-muted-foreground block mt-0.5">

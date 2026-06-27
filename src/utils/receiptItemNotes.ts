@@ -1,5 +1,63 @@
 /** Regras de molho/notas por tipo de item (cupom / pedidos do site). */
 
+function normalizeReceiptTextKey(text: string): string {
+  return (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function isAccompanimentItemName(name: string): boolean {
+  const n = (name || "").toLowerCase();
+  return (
+    n.includes("batata") ||
+    n.includes("frango no pote") ||
+    n.includes("frango pote") ||
+    n.includes("acompanhamento") ||
+    n.includes("cebolas empanadas") ||
+    n.includes("mini chickens") ||
+    n.includes("fritas")
+  );
+}
+
+/** Remove "Opção: X" quando X já está no nome do produto (comum em batatas do site). */
+export function stripRedundantOpcaoFromNotes(
+  itemName: string,
+  notes: string
+): string {
+  if (!notes?.trim()) return notes;
+
+  const nameKey = normalizeReceiptTextKey(itemName);
+
+  const stripIfInName = (value: string): boolean => {
+    const v = normalizeReceiptTextKey(value);
+    if (!v || v.length < 2) return false;
+    return nameKey.includes(v);
+  };
+
+  let out = notes
+    .replace(/(?:^|[\n|])\s*Opção\s*:\s*([^\n|]+)/gi, (match, value: string) =>
+      stripIfInName(value) ? "" : match
+    )
+    .replace(/Obs:\s*Opção\s*:\s*([^\n|]+)/gi, (match, value: string) =>
+      stripIfInName(value) ? "" : match
+    );
+
+  if (isAccompanimentItemName(itemName)) {
+    out = out
+      .replace(/(?:^|[\n|])\s*Opção\s*:\s*[^\n|]*/gi, "")
+      .replace(/Obs:\s*Opção\s*:\s*[^\n|]*/gi, "");
+  }
+
+  return out
+    .replace(/\|\s*/g, "\n")
+    .replace(/\n\s*\n+/g, "\n")
+    .replace(/^\s+|\s+$/g, "")
+    .trim();
+}
+
 export function isBaguetteOrSmashProductName(name: string): boolean {
   const n = (name || "").toLowerCase();
   return n.includes("baguete") || n.includes("smash");
@@ -92,15 +150,18 @@ export function sanitizeReceiptNotesForItem(
   if (!notes?.trim()) return undefined;
 
   const name = itemName || "";
+  let text = stripRedundantOpcaoFromNotes(name, notes.trim());
+
+  if (!text) return undefined;
 
   if (isReceiptDrinkItemName(name)) {
-    const cleaned = stripMolhoBlocks(notes).replace(/^Obs:\s*$/i, "").trim();
+    const cleaned = stripMolhoBlocks(text).replace(/^Obs:\s*$/i, "").trim();
     return cleaned || undefined;
   }
 
   if (isBaguetteOrSmashProductName(name)) {
-    const sauces = collectSauceFragments(notes);
-    let body = stripMolhoBlocks(notes);
+    const sauces = collectSauceFragments(text);
+    let body = stripMolhoBlocks(text);
 
     if (sauces.length > 0) {
       const line = `Molho especial: ${sauces.join(", ")}`;
@@ -111,5 +172,6 @@ export function sanitizeReceiptNotesForItem(
     return body || undefined;
   }
 
-  return notes.trim() || undefined;
+  text = text.replace(/^Obs:\s*$/i, "").trim();
+  return text || undefined;
 }

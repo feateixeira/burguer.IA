@@ -117,6 +117,94 @@ function normalizeSku(sku: unknown): string {
   return String(sku).trim();
 }
 
+/** Extrai tamanho/variante enviada pelo site (Opção: P, Variante: M, complements, etc.). */
+function extractSiteItemVariant(item: Record<string, unknown>): string {
+  const texts: string[] = [];
+
+  if (item.obs) texts.push(String(item.obs));
+  if (item.notes) texts.push(String(item.notes));
+
+  const complements = item.complements;
+  if (Array.isArray(complements)) {
+    for (const c of complements) {
+      const comp = c as Record<string, unknown>;
+      const name = String(comp.name ?? comp.label ?? comp.value ?? '').trim();
+      if (name) texts.push(name);
+    }
+  }
+
+  for (const field of ['option', 'variant', 'size', 'tamanho']) {
+    const v = item[field];
+    if (v != null && String(v).trim()) texts.push(String(v));
+  }
+
+  for (const text of texts) {
+    const opcaoMatch =
+      text.match(/(?:^|[\n|])\s*Opção\s*:\s*([^\n|]+)/i) ||
+      text.match(/Obs:\s*Opção\s*:\s*([^\n|]+)/i);
+    if (opcaoMatch?.[1]?.trim()) return opcaoMatch[1].trim();
+
+    const varianteMatch = text.match(/Variante\s*:\s*([^\n|,]+)/i);
+    if (varianteMatch?.[1]?.trim()) return varianteMatch[1].trim();
+
+    const tamanhoMatch = text.match(/Tamanho\s*:\s*([^\n|,]+)/i);
+    if (tamanhoMatch?.[1]?.trim()) return tamanhoMatch[1].trim();
+  }
+
+  if (Array.isArray(complements) && complements.length === 1) {
+    const only = String((complements[0] as Record<string, unknown>).name ?? '')
+      .trim()
+      .replace(/^Variante\s*:\s*/i, '')
+      .replace(/^Opção\s*:\s*/i, '');
+    if (only && only.length <= 24) return only;
+  }
+
+  return '';
+}
+
+/** Nome exibido no cupom — reflete exatamente o que o cliente pediu no site. */
+function buildSiteItemDisplayName(baseName: string, variant: string): string {
+  const base = baseName.trim();
+  if (!base) return variant.trim();
+  if (!variant?.trim()) return base;
+
+  const v = variant.trim();
+  const baseKey = normalizeProductKey(base);
+  const variantKey = normalizeProductKey(v);
+
+  if (
+    baseKey.endsWith(` ${variantKey}`) ||
+    baseKey.endsWith(`-${variantKey}`) ||
+    baseKey.endsWith(` ${v.toUpperCase()}`) ||
+    baseKey.endsWith(`-${v.toUpperCase()}`)
+  ) {
+    return base;
+  }
+
+  if (/^[pmg]$/i.test(v)) {
+    return `${base} - ${v.toUpperCase()}`;
+  }
+
+  return `${base} ${v}`;
+}
+
+function pickProductByPrice<T extends { id: string; name: string; price?: number | null }>(
+  candidates: T[],
+  unitPrice: number
+): string | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].id;
+
+  if (unitPrice > 0) {
+    const priced = candidates.filter(
+      (p) => p.price != null && Math.abs(Number(p.price) - unitPrice) < 0.02
+    );
+    if (priced.length >= 1) return priced[0].id;
+  }
+
+  return candidates.sort((a, b) => a.name.length - b.name.length)[0].id;
+}
+
 function extractIncomingOrderItems(order: Record<string, unknown>): unknown[] {
   const items = order.items;
   if (Array.isArray(items) && items.length > 0) return items;
@@ -160,17 +248,34 @@ function parseBracketItemsFromText(text: string): Array<Record<string, unknown>>
     if (totalPrice <= 0) continue;
 
     remaining = remaining.replace(/R\$\s*[\d.,]+\s*/i, '').trim();
+
+    let obs = '';
+    const obsMatch = remaining.match(/\s*(Obs:|Observação:)\s*(.+)$/i);
+    if (obsMatch?.[2]) {
+      obs = obsMatch[2].trim();
+      remaining = remaining.replace(/\s*(Obs:|Observação:).*$/i, '').trim();
+    }
+
     const name = remaining
-      .replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '')
+      .replace(/\s*(Molhos?:|Molho especial:).*$/i, '')
       .trim();
 
     if (!name) continue;
+
+    const tailStart = match.index + match[0].length;
+    const tail = text.slice(tailStart, tailStart + 160);
+    const opcaoTail = tail.match(/^\s*(?:\n|\r\n?)\s*Opção\s*:\s*([^\n\r\[]+)/i);
+    if (opcaoTail?.[1]?.trim()) {
+      const opcaoLine = `Opção: ${opcaoTail[1].trim()}`;
+      obs = obs ? `${obs} | ${opcaoLine}` : opcaoLine;
+    }
 
     parsed.push({
       name,
       quantity,
       unit_price: totalPrice / quantity,
       price: totalPrice / quantity,
+      ...(obs ? { obs } : {}),
     });
   }
 
@@ -212,7 +317,7 @@ async function getSiteOrderPlaceholderProductId(
 
 function resolveProductIdFromCatalog(
   item: Record<string, unknown>,
-  allProducts: Array<{ id: string; name: string; sku: string | null }>
+  allProducts: Array<{ id: string; name: string; sku: string | null; price?: number | null }>
 ): string | null {
   const productId = item.product_id ?? item.productId;
   if (productId && typeof productId === 'string') {
@@ -229,17 +334,49 @@ function resolveProductIdFromCatalog(
   const rawName = String(item.name ?? item.title ?? item.product_name ?? '').trim();
   if (!rawName) return null;
 
+  const unitPrice = Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0);
+  const variant = extractSiteItemVariant(item);
+
+  if (variant) {
+    const variantCandidates = [
+      `${rawName} ${variant}`,
+      `${rawName} - ${variant}`,
+      `${rawName}-${variant}`,
+      `${rawName} - ${variant.toUpperCase()}`,
+      `${rawName} ${variant.toUpperCase()}`,
+    ];
+
+    for (const candidate of variantCandidates) {
+      const candidateKey = normalizeProductKey(candidate);
+      const exact = allProducts.find((p) => normalizeProductKey(p.name) === candidateKey);
+      if (exact) return exact.id;
+    }
+
+    const baseKey = normalizeProductKey(rawName);
+    const variantKey = normalizeProductKey(variant);
+    const variantMatches = allProducts.filter((p) => {
+      const n = normalizeProductKey(p.name);
+      if (!n.includes(baseKey)) return false;
+      return (
+        n.endsWith(` ${variantKey}`) ||
+        n.endsWith(`-${variantKey}`) ||
+        n.endsWith(` ${variant.toUpperCase()}`) ||
+        n.endsWith(`-${variant.toUpperCase()}`)
+      );
+    });
+    const byVariant = pickProductByPrice(variantMatches, unitPrice);
+    if (byVariant) return byVariant;
+  }
+
   const key = normalizeProductKey(rawName);
   const byExactName = allProducts.find((p) => normalizeProductKey(p.name) === key);
   if (byExactName) return byExactName.id;
 
-  const byContains = allProducts.find((p) => {
+  const containsMatches = allProducts.filter((p) => {
     const n = normalizeProductKey(p.name);
     return n.includes(key) || key.includes(n);
   });
-  if (byContains) return byContains.id;
-
-  return null;
+  return pickProductByPrice(containsMatches, unitPrice);
 }
 
 /** Lê o slug da unidade enviado pelo site (body ou headers). */
@@ -1269,7 +1406,7 @@ serve(async (req) => {
     if (incomingItems.length > 0) {
       const { data: catalogProducts } = await supabase
         .from('products')
-        .select('id, name, sku')
+        .select('id, name, sku, price')
         .eq('establishment_id', establishment.id);
 
       const allProducts = catalogProducts || [];
@@ -1307,6 +1444,8 @@ serve(async (req) => {
             item.name ?? item.title ?? item.product_name ?? ''
           ).trim();
 
+          const siteVariant = extractSiteItemVariant(item);
+
           const complements = item.complements;
           const isSideItem = isAccompanimentItemName(cleanItemName);
           if (Array.isArray(complements) && complements.length > 0 && !isSideItem) {
@@ -1334,15 +1473,16 @@ serve(async (req) => {
             .replace(/\s*(Obs:|Observação:|Molhos?:|Molho especial:).*$/i, '')
             .trim();
 
+          const siteDisplayName = buildSiteItemDisplayName(cleanItemName, siteVariant);
+
           itemNotes = stripRedundantOpcaoFromNotes(cleanItemName, itemNotes);
           if (!itemNotes.trim()) itemNotes = '';
 
-          const customizations: Record<string, unknown> = {};
+          const customizations: Record<string, unknown> = {
+            site_item_name: siteDisplayName || cleanItemName,
+          };
           if (Array.isArray(complements) && complements.length > 0) {
             customizations.complements = complements;
-          }
-          if (usedPlaceholder && cleanItemName) {
-            customizations.site_item_name = cleanItemName;
           }
 
           return {
@@ -1354,7 +1494,7 @@ serve(async (req) => {
             notes: itemNotes || null,
             customizations,
             _usedPlaceholder: usedPlaceholder,
-            _cleanItemName: cleanItemName,
+            _cleanItemName: siteDisplayName || cleanItemName,
           };
         });
 

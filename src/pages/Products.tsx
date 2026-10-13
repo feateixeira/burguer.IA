@@ -208,50 +208,62 @@ const Products = () => {
     const rawImageUrl = (formData.get("image_url") as string) || null;
     const normalizedImageUrl = normalizeImageUrl(rawImageUrl);
 
+    const categoryId = (formData.get("category_id") as string)?.trim() || null;
+    const parsedPrice = parseFloat(String(formData.get("price") ?? "").replace(",", "."));
+
     const productData = {
-      name: formData.get("name") as string,
-      description: formData.get("description") as string || null,
-      price: parseFloat(formData.get("price") as string),
-      category_id: formData.get("category_id") as string || null,
+      name: (formData.get("name") as string)?.trim(),
+      description: ((formData.get("description") as string) || "").trim() || null,
+      price: parsedPrice,
+      category_id: categoryId,
       image_url: normalizedImageUrl,
       establishment_id: establishmentId,
-      active: true
+      active: true,
     };
 
     try {
-      // Get session for authentication
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         toast.error("Sessão expirada. Por favor, faça login novamente.");
         return;
       }
 
-      // Use Edge Function for update/insert with revalidation
-      const response = await supabase.functions.invoke('update-product', {
-        body: {
-          productId: editingProduct?.id || null,
-          productData,
-          isUpdate: !!editingProduct
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
-      });
-
-      if (response.error) {
-        // Try to extract error message from response
-        const errorMessage = response.error.message || 
-                           (response.data?.error) || 
-                           'Erro ao comunicar com o servidor';
-        const errorDetails = response.data?.details || response.data?.hint || '';
-        throw new Error(errorDetails ? `${errorMessage}\n${errorDetails}` : errorMessage);
+      if (!productData.name) {
+        toast.error("Nome do produto é obrigatório");
+        return;
       }
 
-      const result = response.data;
-      if (!result?.success) {
-        const errorMessage = result?.error || 'Erro ao salvar produto';
-        const errorDetails = result?.details || result?.hint || '';
-        throw new Error(errorDetails ? `${errorMessage}\n${errorDetails}` : errorMessage);
+      if (!establishmentId) {
+        toast.error("Estabelecimento não encontrado. Recarregue a página e tente novamente.");
+        return;
+      }
+
+      if (Number.isNaN(productData.price) || productData.price < 0) {
+        toast.error("Informe um preço válido");
+        return;
+      }
+
+      if (editingProduct?.id) {
+        const { error } = await supabase
+          .from("products")
+          .update({
+            name: productData.name,
+            description: productData.description,
+            price: productData.price,
+            category_id: productData.category_id,
+            image_url: productData.image_url,
+            active: productData.active,
+          })
+          .eq("id", editingProduct.id)
+          .eq("establishment_id", establishmentId);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("products")
+          .insert(productData);
+
+        if (error) throw error;
       }
 
       toast.success(editingProduct ? "Produto atualizado com sucesso!" : "Produto criado com sucesso!");
@@ -269,20 +281,16 @@ const Products = () => {
       setEditingProduct(null);
       loadData();
     } catch (error: any) {
-      // Extract error message
       let errorMessage = error?.message || "Erro ao salvar produto";
-      
-      // If it's a network error or edge function error, provide more context
-      if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+
+      if (errorMessage.includes("fetch") || errorMessage.includes("network") || errorMessage.includes("Failed to fetch")) {
         errorMessage = "Erro de conexão. Verifique sua internet e tente novamente.";
-      } else if (errorMessage.includes('401') || errorMessage.includes('authentication')) {
+      } else if (errorMessage.includes("JWT") || errorMessage.includes("401") || errorMessage.toLowerCase().includes("auth")) {
         errorMessage = "Sessão expirada. Por favor, faça login novamente.";
-      } else if (errorMessage.includes('400') || errorMessage.includes('validation')) {
-        // Keep the specific validation error message
-      } else if (!errorMessage.includes('Erro')) {
+      } else if (!errorMessage.toLowerCase().includes("erro")) {
         errorMessage = `Erro ao salvar produto: ${errorMessage}`;
       }
-      
+
       toast.error(errorMessage, {
         duration: 5000,
       });
